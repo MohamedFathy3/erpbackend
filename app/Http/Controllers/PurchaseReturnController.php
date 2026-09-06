@@ -11,6 +11,7 @@ use App\Models\PurchaseReturnItem;
 use App\Models\Transfer;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
+use App\Services\WorkflowPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -148,7 +149,7 @@ class PurchaseReturnController extends Controller
         }
     }
 
-   public function store(StoreReturnRequest $request)
+   public function store(StoreReturnRequest $request, WorkflowPostingService $posting)
 {
     DB::beginTransaction();
 
@@ -289,6 +290,8 @@ class PurchaseReturnController extends Controller
             $invoice->decrement('paid_amount', $total);
         }
 
+        $journal = $posting->postReturn($return, 'purchase_return', $total, $invoice->treasury_id);
+        $return->update(['posting_journal_entry_id' => $journal?->id, 'workflow_status' => $journal ? 'posted' : 'pending_finance']);
         DB::commit();
 
         $return->load([

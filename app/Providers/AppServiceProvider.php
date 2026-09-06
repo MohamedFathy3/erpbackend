@@ -11,7 +11,10 @@ use App\Models\Invoice;
 use App\Models\ManufacturingOrder;
 use App\Models\Project;
 use App\Models\PurchaseInvoice;
+use App\Models\PurchaseReturn;
 use App\Models\SalesInvoice;
+use App\Models\SalesInvoiceReturn;
+use App\Models\ReturnInvoice;
 use App\Models\WorkflowTransaction;
 class AppServiceProvider extends ServiceProvider
 {
@@ -44,7 +47,7 @@ class AppServiceProvider extends ServiceProvider
             );
         };
 
-        foreach ([Invoice::class, SalesInvoice::class, PurchaseInvoice::class, ManufacturingOrder::class, Project::class] as $trackedModel) {
+        foreach ([Invoice::class, SalesInvoice::class, PurchaseInvoice::class, ReturnInvoice::class, SalesInvoiceReturn::class, PurchaseReturn::class, ManufacturingOrder::class, Project::class] as $trackedModel) {
             $trackedModel::created(fn ($model) => $track($model, 'created'));
             $trackedModel::updated(fn ($model) => $track($model, 'updated'));
         }

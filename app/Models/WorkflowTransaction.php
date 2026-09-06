@@ -8,13 +8,13 @@ class WorkflowTransaction extends Model
     protected $guarded = ['id'];
     protected $casts = ['payload' => 'array', 'occurred_at' => 'datetime'];
 
-    public static function capture(string $eventKey, Model $source, string $event, array $payload = [], ?int $journalEntryId = null, ?int $inventoryMovementId = null): self
+    public static function capture(string $eventKey, Model $source, string $event, array $payload = [], ?int $journalEntryId = null, ?int $inventoryMovementId = null, string $status = 'completed'): self
     {
         return static::updateOrCreate(['event_key' => $eventKey], [
             'source_type' => $source::class,
             'source_id' => $source->getKey(),
             'event' => $event,
-            'status' => 'completed',
+            'status' => $status,
             'journal_entry_id' => $journalEntryId,
             'inventory_movement_id' => $inventoryMovementId,
             'payload' => $payload,

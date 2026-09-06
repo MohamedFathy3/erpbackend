@@ -10,6 +10,7 @@ use App\Models\PurchaseInvoiceItem;
 use App\Models\Transfer;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
+use App\Services\WorkflowPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -17,7 +18,7 @@ use Illuminate\Support\Facades\Log;
 class PurchaseInvoiceController extends Controller
 {
 
-    public function store(PurchaseInvoiceRequest $request)
+    public function store(PurchaseInvoiceRequest $request, WorkflowPostingService $posting)
     {
         DB::beginTransaction();
     
@@ -194,7 +195,9 @@ class PurchaseInvoiceController extends Controller
                     'notes' => "دفعة لفاتورة مشتريات رقم {$invoice->invoice_number}",
                 ]);
             }
-    
+
+            $journal = $posting->postPurchase($invoice);
+            $invoice->update(['posting_journal_entry_id' => $journal?->id, 'workflow_status' => $journal ? 'posted' : 'pending_finance']);
             DB::commit();
     
             return response()->json([

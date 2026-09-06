@@ -10,6 +10,7 @@ use App\Models\Product;
 use App\Models\SalesInvoice;
 use App\Models\SalesInvoiceItem;
 use App\Models\Treasury;
+use App\Services\WorkflowPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -19,7 +20,7 @@ class SalesInvoiceController extends Controller
     /**
      * Store a newly created sales invoice in storage.
      */
-    public function store(StoreSalesInvoiceRequest $request)
+    public function store(StoreSalesInvoiceRequest $request, WorkflowPostingService $posting)
     {
         DB::beginTransaction();
 
@@ -106,6 +107,9 @@ class SalesInvoiceController extends Controller
             // ✅ ✅ ✅ إضافة نقاط الولاء
             // ============================================================
             $this->updateLoyaltyPoints($request->customer_id, $netTotal);
+
+            $journal = $posting->postSale($invoice->load('items.product'));
+            $invoice->update(['posting_journal_entry_id' => $journal?->id, 'workflow_status' => $journal ? 'posted' : 'pending_finance']);
 
             DB::commit();
 

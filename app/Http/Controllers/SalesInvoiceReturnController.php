@@ -15,6 +15,7 @@ use App\Models\LoyaltySetting;
 use App\Models\Customer;
 use App\Models\Employee;
 use App\Models\Admin;
+use App\Services\WorkflowPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -376,7 +377,7 @@ class SalesInvoiceReturnController extends Controller
     // ============================================================
     // ✅ STORE RETURN - مرتجع من فاتورة موجودة
     // ============================================================
-    public function storeReturn(StoreSalesInvoiceReturnRequest $request)
+    public function storeReturn(StoreSalesInvoiceReturnRequest $request, WorkflowPostingService $posting)
     {
         DB::beginTransaction();
 
@@ -486,6 +487,8 @@ class SalesInvoiceReturnController extends Controller
                 $this->updateLastPaidAmount($invoice->customer_id, $totalReturn);
             }
 
+            $journal = $posting->postReturn($return, 'sales_return', $totalReturn, $treasuryId);
+            $return->update(['posting_journal_entry_id' => $journal?->id, 'workflow_status' => $journal ? 'posted' : 'pending_finance']);
             DB::commit();
 
             return response()->json([
