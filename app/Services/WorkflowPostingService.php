@@ -2,7 +2,9 @@
 namespace App\Services;
 
 use App\Models\Account;
+use App\Models\InventoryMovement;
 use App\Models\JournalEntry;
+use App\Models\Product;
 use App\Models\WorkflowTransaction;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
@@ -46,7 +48,20 @@ class WorkflowPostingService
             ]);
             Account::whereKey($accounts['debit']->id)->increment('debit', $amount);
             Account::whereKey($accounts['credit']->id)->increment('credit', $amount);
-            WorkflowTransaction::capture('financial-posting:' . strtolower(class_basename($source)) . ':' . $source->getKey() . ':' . $type, $source, $type . '_posted', ['amount' => $amount], $journal->id);
+            $movementIds = [];
+            $warehouseId = $source->warehouse_id ?? $source->invoice?->warehouse_id;
+            if ($warehouseId && method_exists($source, 'items')) {
+                $movementType = in_array($type, ['sale', 'purchase_return'], true) ? 'issue' : 'receipt';
+                foreach ($source->items as $item) {
+                    $product = Product::find($item->product_id);
+                    if (!$product) continue;
+                    $quantity = (float) ($item->quantity ?? 0);
+                    $unitCost = (float) ($product->cost ?? $item->price ?? 0);
+                    $movement = InventoryMovement::create(['warehouse_id' => $warehouseId, 'product_id' => $product->id, 'reference_type' => $source::class, 'reference_id' => $source->getKey(), 'type' => $movementType, 'quantity' => $quantity, 'unit_cost' => $unitCost, 'total_cost' => $quantity * $unitCost, 'note' => $this->label($type)]);
+                    $movementIds[] = $movement->id;
+                }
+            }
+            WorkflowTransaction::capture('financial-posting:' . strtolower(class_basename($source)) . ':' . $source->getKey() . ':' . $type, $source, $type . '_posted', ['amount' => $amount, 'inventory_movement_ids' => $movementIds], $journal->id, $movementIds[0] ?? null);
             return $journal;
         });
         return $journal;
