@@ -246,7 +246,13 @@ Route::middleware(['auth:sanctum'])->get('/dashboard/summary', [DashboardControl
 Route::middleware(['auth:sanctum'])->prefix('manufacturing')->group(function () {
     Route::get('/dashboard', [ManufacturingController::class, 'dashboard']);
     Route::get('/boms', [ManufacturingController::class, 'boms']);
+    Route::post('/boms', [ManufacturingController::class, 'storeBom']);
+    Route::put('/boms/{bom}', [ManufacturingController::class, 'updateBom']);
+    Route::delete('/boms/{bom}', [ManufacturingController::class, 'destroyBom']);
+    Route::post('/work-centers', [ManufacturingController::class, 'storeWorkCenter']);
     Route::get('/orders', [ManufacturingController::class, 'orders']);
+    Route::post('/orders', [ManufacturingController::class, 'storeOrder']);
+    Route::put('/orders/{order}', [ManufacturingController::class, 'updateOrder']);
     Route::post('/orders/{order}/start', [ManufacturingController::class, 'start']);
     Route::post('/orders/{order}/complete', [ManufacturingController::class, 'complete']);
 });
@@ -254,9 +260,12 @@ Route::middleware(['auth:sanctum'])->prefix('manufacturing')->group(function () 
 Route::middleware(['auth:sanctum'])->prefix('projects')->group(function () {
     Route::get('/dashboard', [ProjectController::class, 'dashboard']);
     Route::get('/', [ProjectController::class, 'index']);
+    Route::post('/', [ProjectController::class, 'store']);
     Route::post('/{project}/claims', [ProjectController::class, 'createClaim']);
     Route::post('/{project}/costs', [ProjectController::class, 'addCost']);
     Route::get('/{project}', [ProjectController::class, 'show']);
+    Route::put('/{project}', [ProjectController::class, 'update']);
+    Route::delete('/{project}', [ProjectController::class, 'destroy']);
     Route::post('/claims/{claim}/approve', [ProjectController::class, 'approveClaim']);
     Route::post('/claims/{claim}/collect', [ProjectController::class, 'collectClaim']);
 });

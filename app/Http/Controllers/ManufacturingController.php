@@ -5,6 +5,8 @@ use App\Models\InventoryMovement;
 use App\Models\JournalEntry;
 use App\Models\ManufacturingCostEntry;
 use App\Models\ManufacturingOrder;
+use App\Models\ManufacturingBom;
+use App\Models\ManufacturingWorkCenter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -19,6 +21,48 @@ class ManufacturingController extends Controller
 
     public function boms() { return response()->json(['status' => true, 'data' => \App\Models\ManufacturingBom::with(['product', 'items.product'])->where('status', 'active')->get()]); }
     public function orders(Request $request) { return response()->json(['status' => true, 'data' => ManufacturingOrder::with(['product', 'bom'])->latest()->paginate($request->integer('per_page', 20))]); }
+
+    public function storeBom(Request $request)
+    {
+        $data = $request->validate(['product_id' => ['required', 'exists:products,id'], 'code' => ['required', 'string', 'max:100', 'unique:manufacturing_boms,code'], 'name' => ['required', 'string', 'max:150'], 'status' => ['nullable', Rule::in(['draft', 'active', 'archived'])], 'planned_unit_cost' => ['nullable', 'numeric', 'min:0'], 'items' => ['required', 'array', 'min:1'], 'items.*.product_id' => ['required', 'exists:products,id'], 'items.*.quantity' => ['required', 'numeric', 'gt:0'], 'items.*.scrap_percent' => ['nullable', 'numeric', 'min:0']]);
+        $bom = DB::transaction(function () use ($data) { $bom = ManufacturingBom::create(collect($data)->except('items')->toArray()); $bom->items()->createMany($data['items']); return $bom->load('items.product'); });
+        return response()->json(['status' => true, 'data' => $bom], 201);
+    }
+
+    public function updateBom(Request $request, ManufacturingBom $bom)
+    {
+        $data = $request->validate(['product_id' => ['sometimes', 'exists:products,id'], 'code' => ['sometimes', 'string', 'max:100', Rule::unique('manufacturing_boms', 'code')->ignore($bom->id)], 'name' => ['sometimes', 'string', 'max:150'], 'status' => ['nullable', Rule::in(['draft', 'active', 'archived'])], 'planned_unit_cost' => ['nullable', 'numeric', 'min:0'], 'items' => ['sometimes', 'array', 'min:1']]);
+        $updated = DB::transaction(function () use ($data, $bom) { if (array_key_exists('items', $data)) { $bom->items()->delete(); $bom->items()->createMany($data['items']); } $bom->update(collect($data)->except('items')->toArray()); return $bom->fresh('items.product'); });
+        return response()->json(['status' => true, 'data' => $updated]);
+    }
+
+    public function destroyBom(ManufacturingBom $bom)
+    {
+        abort_if($bom->orders()->exists(), 422, 'لا يمكن حذف BOM مرتبطة بأوامر إنتاج');
+        $bom->update(['status' => 'archived']);
+        return response()->json(['status' => true, 'message' => 'تم أرشفة BOM']);
+    }
+
+    public function storeWorkCenter(Request $request)
+    {
+        $data = $request->validate(['code' => ['required', 'string', 'max:100', 'unique:manufacturing_work_centers,code'], 'name' => ['required', 'string', 'max:150'], 'hourly_rate' => ['nullable', 'numeric', 'min:0'], 'capacity_hours_per_day' => ['nullable', 'numeric', 'min:0']]);
+        return response()->json(['status' => true, 'data' => ManufacturingWorkCenter::create($data)], 201);
+    }
+
+    public function storeOrder(Request $request)
+    {
+        $data = $request->validate(['product_id' => ['required', 'exists:products,id'], 'bom_id' => ['nullable', 'exists:manufacturing_boms,id'], 'warehouse_id' => ['nullable', 'exists:warehouses,id'], 'planned_quantity' => ['required', 'numeric', 'gt:0'], 'planned_start_date' => ['nullable', 'date'], 'planned_end_date' => ['nullable', 'date', 'after_or_equal:planned_start_date'], 'planned_cost' => ['nullable', 'numeric', 'min:0'], 'notes' => ['nullable', 'string']]);
+        $data['order_number'] = 'MO-' . now()->format('YmdHis') . '-' . random_int(100, 999);
+        return response()->json(['status' => true, 'data' => ManufacturingOrder::create($data)], 201);
+    }
+
+    public function updateOrder(Request $request, ManufacturingOrder $order)
+    {
+        abort_if(in_array($order->status, ['completed', 'cancelled']), 422, 'لا يمكن تعديل أمر مغلق');
+        $data = $request->validate(['planned_quantity' => ['sometimes', 'numeric', 'gt:0'], 'bom_id' => ['nullable', 'exists:manufacturing_boms,id'], 'warehouse_id' => ['nullable', 'exists:warehouses,id'], 'planned_start_date' => ['nullable', 'date'], 'planned_end_date' => ['nullable', 'date', 'after_or_equal:planned_start_date'], 'planned_cost' => ['nullable', 'numeric', 'min:0'], 'notes' => ['nullable', 'string'], 'status' => ['nullable', Rule::in(['draft', 'planned'])]]);
+        $order->update($data);
+        return response()->json(['status' => true, 'data' => $order->fresh(['product', 'bom'])]);
+    }
 
     public function start(ManufacturingOrder $order)
     {

@@ -20,6 +20,28 @@ class ProjectController extends Controller
     public function index(Request $request) { return response()->json(['status' => true, 'data' => Project::with('customer')->latest()->paginate($request->integer('per_page', 20))]); }
     public function show(Project $project) { return response()->json(['status' => true, 'data' => $project->load(['customer', 'wbsItems.children', 'claims', 'costEntries'])]); }
 
+    public function store(Request $request)
+    {
+        $data = $request->validate(['name' => ['required', 'string', 'max:200'], 'customer_id' => ['nullable', 'exists:customers,id'], 'contract_number' => ['nullable', 'string', 'max:100'], 'start_date' => ['nullable', 'date'], 'planned_end_date' => ['nullable', 'date', 'after_or_equal:start_date'], 'status' => ['nullable', Rule::in(['draft', 'active', 'on_hold', 'completed', 'cancelled'])], 'contract_value' => ['nullable', 'numeric', 'min:0'], 'budget_cost' => ['nullable', 'numeric', 'min:0'], 'retention_percent' => ['nullable', 'numeric', 'min:0', 'max:100'], 'scope' => ['nullable', 'string']]);
+        $data['project_code'] = 'PRJ-' . now()->format('YmdHis') . '-' . random_int(100, 999);
+        return response()->json(['status' => true, 'data' => Project::create($data)], 201);
+    }
+
+    public function update(Request $request, Project $project)
+    {
+        abort_if(in_array($project->status, ['completed', 'cancelled']), 422, 'لا يمكن تعديل مشروع مغلق');
+        $data = $request->validate(['name' => ['sometimes', 'string', 'max:200'], 'customer_id' => ['nullable', 'exists:customers,id'], 'contract_number' => ['nullable', 'string', 'max:100'], 'start_date' => ['nullable', 'date'], 'planned_end_date' => ['nullable', 'date', 'after_or_equal:start_date'], 'status' => ['nullable', Rule::in(['draft', 'active', 'on_hold', 'completed', 'cancelled'])], 'contract_value' => ['nullable', 'numeric', 'min:0'], 'budget_cost' => ['nullable', 'numeric', 'min:0'], 'retention_percent' => ['nullable', 'numeric', 'min:0', 'max:100'], 'scope' => ['nullable', 'string']]);
+        $project->update($data);
+        return response()->json(['status' => true, 'data' => $project->fresh('customer')]);
+    }
+
+    public function destroy(Project $project)
+    {
+        abort_if($project->claims()->exists() || $project->costEntries()->exists(), 422, 'لا يمكن حذف مشروع له مستخلصات أو تكاليف؛ غيّر حالته إلى ملغى');
+        $project->update(['status' => 'cancelled']);
+        return response()->json(['status' => true, 'message' => 'تم إلغاء المشروع مع الاحتفاظ بالسجل']);
+    }
+
     public function createClaim(Request $request, Project $project)
     {
         $data = $request->validate(['gross_amount' => ['required', 'numeric', 'gt:0'], 'advance_deduction' => ['nullable', 'numeric', 'min:0'], 'retention_amount' => ['nullable', 'numeric', 'min:0'], 'notes' => ['nullable', 'string']]);
