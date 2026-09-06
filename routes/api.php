@@ -264,6 +264,11 @@ Route::middleware(['auth:sanctum'])->prefix('projects')->group(function () {
     Route::get('/dashboard', [ProjectController::class, 'dashboard']);
     Route::get('/', [ProjectController::class, 'index']);
     Route::post('/', [ProjectController::class, 'store']);
+    Route::get('/{project}/wbs', [ProjectController::class, 'wbs']);
+    Route::post('/{project}/wbs', [ProjectController::class, 'storeWbs']);
+    Route::put('/{project}/wbs/{wbsItem}', [ProjectController::class, 'updateWbs']);
+    Route::delete('/{project}/wbs/{wbsItem}', [ProjectController::class, 'destroyWbs']);
+    Route::post('/{project}/wbs/{wbsItem}/progress', [ProjectController::class, 'recordProgress']);
     Route::post('/{project}/claims', [ProjectController::class, 'createClaim']);
     Route::post('/{project}/costs', [ProjectController::class, 'addCost']);
     Route::get('/{project}', [ProjectController::class, 'show']);

@@ -7,4 +7,5 @@ class ProjectClaim extends BaseModel
     public function project() { return $this->belongsTo(Project::class); }
     public function revenueJournalEntry() { return $this->belongsTo(JournalEntry::class, 'revenue_journal_entry_id'); }
     public function collectionJournalEntry() { return $this->belongsTo(JournalEntry::class, 'collection_journal_entry_id'); }
+    public function items() { return $this->hasMany(ProjectClaimItem::class, 'project_claim_id'); }
 }

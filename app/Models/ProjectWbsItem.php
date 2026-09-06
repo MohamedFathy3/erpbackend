@@ -7,4 +7,5 @@ class ProjectWbsItem extends BaseModel
     public function project() { return $this->belongsTo(Project::class); }
     public function parent() { return $this->belongsTo(self::class, 'parent_id'); }
     public function children() { return $this->hasMany(self::class, 'parent_id'); }
+    public function claimItems() { return $this->hasMany(ProjectClaimItem::class, 'project_wbs_item_id'); }
 }

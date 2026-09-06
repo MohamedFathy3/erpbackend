@@ -6,6 +6,7 @@ use App\Models\Project;
 use App\Models\ProjectClaim;
 use App\Models\ProjectCostEntry;
 use App\Models\Account;
+use App\Models\ProjectWbsItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -20,6 +21,46 @@ class ProjectController extends Controller
 
     public function index(Request $request) { return response()->json(['status' => true, 'data' => Project::with('customer')->latest()->paginate($request->integer('per_page', 20))]); }
     public function show(Project $project) { return response()->json(['status' => true, 'data' => $project->load(['customer', 'wbsItems.children', 'claims', 'costEntries'])]); }
+
+    public function wbs(Project $project)
+    {
+        return response()->json(['status' => true, 'data' => $project->wbsItems()->with(['children', 'claimItems.claim'])->orderBy('code')->get()]);
+    }
+
+    public function storeWbs(Request $request, Project $project)
+    {
+        $data = $request->validate(['parent_id' => ['nullable', 'exists:project_wbs_items,id'], 'code' => ['required', 'string', 'max:80'], 'name' => ['required', 'string', 'max:200'], 'unit' => ['nullable', 'string', 'max:40'], 'planned_quantity' => ['required', 'numeric', 'min:0'], 'unit_price' => ['required', 'numeric', 'min:0'], 'planned_cost' => ['nullable', 'numeric', 'min:0']]);
+        if (!empty($data['parent_id']) && ! $project->wbsItems()->whereKey($data['parent_id'])->exists()) abort(422, 'البند الأب لا ينتمي إلى نفس المشروع');
+        $data['planned_cost'] = $data['planned_cost'] ?? ((float) $data['planned_quantity'] * (float) $data['unit_price']);
+        return response()->json(['status' => true, 'data' => $project->wbsItems()->create($data)], 201);
+    }
+
+    public function updateWbs(Request $request, Project $project, ProjectWbsItem $wbsItem)
+    {
+        abort_if($wbsItem->project_id !== $project->id, 404);
+        $data = $request->validate(['parent_id' => ['nullable', 'exists:project_wbs_items,id'], 'code' => ['sometimes', 'string', 'max:80'], 'name' => ['sometimes', 'string', 'max:200'], 'unit' => ['nullable', 'string', 'max:40'], 'planned_quantity' => ['sometimes', 'numeric', 'min:0'], 'unit_price' => ['sometimes', 'numeric', 'min:0'], 'planned_cost' => ['nullable', 'numeric', 'min:0']]);
+        if (!empty($data['parent_id']) && (! $project->wbsItems()->whereKey($data['parent_id'])->exists() || (int) $data['parent_id'] === $wbsItem->id)) abort(422, 'البند الأب غير صالح');
+        $wbsItem->update($data);
+        return response()->json(['status' => true, 'data' => $wbsItem->fresh()]);
+    }
+
+    public function destroyWbs(Project $project, ProjectWbsItem $wbsItem)
+    {
+        abort_if($wbsItem->project_id !== $project->id, 404);
+        abort_if($wbsItem->children()->exists() || $wbsItem->claimItems()->exists(), 422, 'لا يمكن حذف بند له بنود فرعية أو مستخلصات');
+        $wbsItem->delete();
+        return response()->json(['status' => true, 'message' => 'تم حذف بند الأعمال']);
+    }
+
+    public function recordProgress(Request $request, Project $project, ProjectWbsItem $wbsItem)
+    {
+        abort_if($wbsItem->project_id !== $project->id, 404);
+        $data = $request->validate(['completed_quantity' => ['required', 'numeric', 'min:0']]);
+        abort_if((float) $data['completed_quantity'] > (float) $wbsItem->planned_quantity, 422, 'الإنجاز لا يمكن أن يتجاوز الكمية المخططة');
+        $percent = (float) $wbsItem->planned_quantity > 0 ? ((float) $data['completed_quantity'] / (float) $wbsItem->planned_quantity) * 100 : 0;
+        $wbsItem->update(['completed_quantity' => $data['completed_quantity'], 'completion_percent' => min(100, $percent)]);
+        return response()->json(['status' => true, 'data' => $wbsItem->fresh()]);
+    }
 
     public function store(Request $request)
     {
@@ -45,10 +86,25 @@ class ProjectController extends Controller
 
     public function createClaim(Request $request, Project $project)
     {
-        $data = $request->validate(['gross_amount' => ['required', 'numeric', 'gt:0'], 'advance_deduction' => ['nullable', 'numeric', 'min:0'], 'retention_amount' => ['nullable', 'numeric', 'min:0'], 'notes' => ['nullable', 'string']]);
+        $data = $request->validate(['gross_amount' => ['nullable', 'numeric', 'gt:0'], 'advance_deduction' => ['nullable', 'numeric', 'min:0'], 'retention_amount' => ['nullable', 'numeric', 'min:0'], 'notes' => ['nullable', 'string'], 'items' => ['nullable', 'array'], 'items.*.wbs_item_id' => ['required_with:items', 'integer'], 'items.*.quantity' => ['required_with:items', 'numeric', 'gt:0']]);
+        $claimItems = collect($data['items'] ?? []);
+        if ($claimItems->isNotEmpty()) {
+            $gross = 0;
+            foreach ($claimItems as $claimItem) {
+                $wbsItem = $project->wbsItems()->findOrFail($claimItem['wbs_item_id']);
+                abort_if((float) $claimItem['quantity'] > (float) $wbsItem->completed_quantity, 422, "كمية المستخلص تتجاوز الإنجاز المسجل للبند {$wbsItem->code}");
+                $gross += (float) $claimItem['quantity'] * (float) $wbsItem->unit_price;
+            }
+            $data['gross_amount'] = $gross;
+        }
+        abort_if(empty($data['gross_amount']), 422, 'أدخل قيمة المستخلص أو بنود الإنجاز');
         $net = (float) $data['gross_amount'] - (float) ($data['advance_deduction'] ?? 0) - (float) ($data['retention_amount'] ?? 0);
         abort_if($net <= 0, 422, 'صافي المستخلص يجب أن يكون أكبر من صفر');
-        $claim = $project->claims()->create(['claim_number' => 'CLM-' . $project->project_code . '-' . now()->format('YmdHis'), 'claim_date' => now()->toDateString(), 'gross_amount' => $data['gross_amount'], 'advance_deduction' => $data['advance_deduction'] ?? 0, 'retention_amount' => $data['retention_amount'] ?? 0, 'net_amount' => $net, 'status' => 'submitted', 'notes' => $data['notes'] ?? null]);
+        $claim = DB::transaction(function () use ($project, $data, $claimItems, $net) {
+            $claim = $project->claims()->create(['claim_number' => 'CLM-' . $project->project_code . '-' . now()->format('YmdHis'), 'claim_date' => now()->toDateString(), 'gross_amount' => $data['gross_amount'], 'advance_deduction' => $data['advance_deduction'] ?? 0, 'retention_amount' => $data['retention_amount'] ?? 0, 'net_amount' => $net, 'status' => 'submitted', 'notes' => $data['notes'] ?? null]);
+            foreach ($claimItems as $claimItem) { $wbsItem = $project->wbsItems()->findOrFail($claimItem['wbs_item_id']); $claim->items()->create(['project_wbs_item_id' => $wbsItem->id, 'quantity' => $claimItem['quantity'], 'amount' => (float) $claimItem['quantity'] * (float) $wbsItem->unit_price]); }
+            return $claim;
+        });
         \App\Models\WorkflowTransaction::capture('project:claim:created:' . $claim->id, $claim, 'claim_submitted', ['net_amount' => $net]);
         return response()->json(['status' => true, 'message' => 'تم إنشاء المستخلص وإرساله للاعتماد', 'data' => $claim], 201);
     }
