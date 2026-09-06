@@ -40,6 +40,7 @@ use App\Http\Controllers\TreasuryController;
 use App\Http\Controllers\UnitController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WarehouseController;
+use App\Http\Controllers\WorkflowController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -237,6 +238,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::apiResource('customer', CustomerController::class);
 });
 Route::post('/customers/import', [CustomerController::class, 'importCustomers']);
+
+Route::middleware(['auth:sanctum'])->get('/workflow/transactions', [WorkflowController::class, 'index']);
 
 Route::middleware(['auth:sanctum'])->prefix('manufacturing')->group(function () {
     Route::get('/dashboard', [ManufacturingController::class, 'dashboard']);
