@@ -5,6 +5,7 @@ use App\Models\JournalEntry;
 use App\Models\Project;
 use App\Models\ProjectClaim;
 use App\Models\ProjectCostEntry;
+use App\Models\Account;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -58,6 +59,8 @@ class ProjectController extends Controller
         $entry = DB::transaction(function () use ($data, $project) {
             $journal = JournalEntry::create(['entry_date' => now()->toDateString(), 'description_ar' => "تكلفة مشروع {$project->project_code}", 'description_en' => "Project cost {$project->project_code}", 'status' => 'posted']);
             $journal->lines()->createMany([['account_id' => $data['debit_account_id'], 'debit' => $data['amount'], 'credit' => 0, 'description' => $data['description'] ?? 'تكلفة مباشرة على المشروع'], ['account_id' => $data['credit_account_id'], 'debit' => 0, 'credit' => $data['amount'], 'description' => 'مصدر تكلفة المشروع']]);
+            Account::whereKey($data['debit_account_id'])->increment('debit', $data['amount']);
+            Account::whereKey($data['credit_account_id'])->increment('credit', $data['amount']);
             $entry = ProjectCostEntry::create(['project_id' => $project->id, 'cost_type' => $data['cost_type'], 'amount' => $data['amount'], 'journal_entry_id' => $journal->id, 'reference_type' => $data['reference_type'] ?? null, 'reference_id' => $data['reference_id'] ?? null, 'description' => $data['description'] ?? null]);
             $project->increment('actual_cost', $data['amount']);
             \App\Models\WorkflowTransaction::capture('project:cost:' . $entry->id, $project, 'project_cost_posted', ['amount' => $data['amount'], 'cost_type' => $data['cost_type']], $journal->id);
@@ -73,6 +76,8 @@ class ProjectController extends Controller
         $updated = DB::transaction(function () use ($claim, $data) {
             $journal = JournalEntry::create(['entry_date' => now()->toDateString(), 'description_ar' => "اعتماد مستخلص {$claim->claim_number}", 'description_en' => "Approve claim {$claim->claim_number}", 'status' => 'posted']);
             $journal->lines()->createMany([['account_id' => $data['receivable_account_id'], 'debit' => $claim->net_amount, 'credit' => 0, 'description' => 'ذمم مدينة - مستخلص مشروع'], ['account_id' => $data['revenue_account_id'], 'debit' => 0, 'credit' => $claim->net_amount, 'description' => 'إيراد مستخلص مشروع']]);
+            Account::whereKey($data['receivable_account_id'])->increment('debit', $claim->net_amount);
+            Account::whereKey($data['revenue_account_id'])->increment('credit', $claim->net_amount);
             $claim->update(['status' => 'approved', 'approved_at' => now()->toDateString(), 'revenue_journal_entry_id' => $journal->id]);
             \App\Models\WorkflowTransaction::capture('project:claim:approved:' . $claim->id, $claim, 'claim_approved', ['net_amount' => $claim->net_amount], $journal->id);
             return $claim->fresh(['project', 'revenueJournalEntry']);
@@ -88,6 +93,8 @@ class ProjectController extends Controller
         $updated = DB::transaction(function () use ($claim, $data) {
             $journal = JournalEntry::create(['entry_date' => now()->toDateString(), 'description_ar' => "تحصيل مستخلص {$claim->claim_number}", 'description_en' => "Collect claim {$claim->claim_number}", 'status' => 'posted']);
             $journal->lines()->createMany([['account_id' => $data['cash_account_id'], 'debit' => $data['amount'], 'credit' => 0, 'description' => 'تحصيل مستخلص مشروع'], ['account_id' => $data['receivable_account_id'], 'debit' => 0, 'credit' => $data['amount'], 'description' => 'تسوية ذمم المستخلص']]);
+            Account::whereKey($data['cash_account_id'])->increment('debit', $data['amount']);
+            Account::whereKey($data['receivable_account_id'])->increment('credit', $data['amount']);
             $paid = (float) $claim->paid_amount + (float) $data['amount'];
             $claim->update(['paid_amount' => $paid, 'status' => $paid >= (float) $claim->net_amount ? 'paid' : 'partially_paid', 'paid_at' => $paid >= (float) $claim->net_amount ? now()->toDateString() : null, 'collection_journal_entry_id' => $journal->id]);
             \App\Models\WorkflowTransaction::capture('project:claim:collect:' . $claim->id . ':' . $journal->id, $claim, 'claim_collected', ['amount' => $data['amount'], 'paid_amount' => $paid], $journal->id);

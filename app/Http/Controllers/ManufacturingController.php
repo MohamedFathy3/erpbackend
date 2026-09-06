@@ -7,6 +7,7 @@ use App\Models\ManufacturingCostEntry;
 use App\Models\ManufacturingOrder;
 use App\Models\ManufacturingBom;
 use App\Models\ManufacturingWorkCenter;
+use App\Models\Account;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -19,7 +20,8 @@ class ManufacturingController extends Controller
         return response()->json(['status' => true, 'data' => ['orders' => $orders, 'boms_count' => \App\Models\ManufacturingBom::count(), 'work_centers_count' => \App\Models\ManufacturingWorkCenter::where('active', true)->count(), 'in_progress' => ManufacturingOrder::where('status', 'in_progress')->count(), 'quality_hold' => ManufacturingOrder::where('status', 'quality_hold')->count()]]);
     }
 
-    public function boms() { return response()->json(['status' => true, 'data' => \App\Models\ManufacturingBom::with(['product', 'items.product'])->where('status', 'active')->get()]); }
+    public function boms() { return response()->json(['status' => true, 'data' => ManufacturingBom::with(['product', 'items.product'])->latest()->get()]); }
+    public function workCenters() { return response()->json(['status' => true, 'data' => ManufacturingWorkCenter::latest()->get()]); }
     public function orders(Request $request) { return response()->json(['status' => true, 'data' => ManufacturingOrder::with(['product', 'bom'])->latest()->paginate($request->integer('per_page', 20))]); }
 
     public function storeBom(Request $request)
@@ -47,6 +49,19 @@ class ManufacturingController extends Controller
     {
         $data = $request->validate(['code' => ['required', 'string', 'max:100', 'unique:manufacturing_work_centers,code'], 'name' => ['required', 'string', 'max:150'], 'hourly_rate' => ['nullable', 'numeric', 'min:0'], 'capacity_hours_per_day' => ['nullable', 'numeric', 'min:0']]);
         return response()->json(['status' => true, 'data' => ManufacturingWorkCenter::create($data)], 201);
+    }
+
+    public function updateWorkCenter(Request $request, ManufacturingWorkCenter $workCenter)
+    {
+        $data = $request->validate(['code' => ['sometimes', 'string', 'max:100', Rule::unique('manufacturing_work_centers', 'code')->ignore($workCenter->id)], 'name' => ['sometimes', 'string', 'max:150'], 'hourly_rate' => ['nullable', 'numeric', 'min:0'], 'capacity_hours_per_day' => ['nullable', 'numeric', 'min:0'], 'active' => ['boolean']]);
+        $workCenter->update($data);
+        return response()->json(['status' => true, 'data' => $workCenter->fresh()]);
+    }
+
+    public function destroyWorkCenter(ManufacturingWorkCenter $workCenter)
+    {
+        $workCenter->update(['active' => false]);
+        return response()->json(['status' => true, 'message' => 'تم تعطيل مركز العمل']);
     }
 
     public function storeOrder(Request $request)
@@ -95,12 +110,21 @@ class ManufacturingController extends Controller
                 $unitCost = (float) ($product->cost ?? 0);
                 $totalCost = $required * $unitCost;
                 $product->decrement('stock', $required);
+                $warehouseRow = DB::table('product_warehouse')->where('product_id', $product->id)->where('warehouse_id', $data['warehouse_id'])->lockForUpdate()->first();
+                abort_if(!$warehouseRow || (float) $warehouseRow->stock < $required, 422, "مخزون المستودع غير كافٍ للخامة: {$product->name}");
+                DB::table('product_warehouse')->where('product_id', $product->id)->where('warehouse_id', $data['warehouse_id'])->decrement('stock', $required);
                 InventoryMovement::create(['warehouse_id' => $data['warehouse_id'], 'product_id' => $product->id, 'manufacturing_order_id' => $order->id, 'reference_type' => ManufacturingOrder::class, 'reference_id' => $order->id, 'type' => 'issue', 'quantity' => $required, 'unit_cost' => $unitCost, 'total_cost' => $totalCost, 'note' => $data['note'] ?? 'صرف خامات لأمر إنتاج']);
                 $rawCost += $totalCost;
             }
 
             $finished = $order->product()->lockForUpdate()->firstOrFail();
             $finished->increment('stock', $data['produced_quantity']);
+            $finishedWarehouse = DB::table('product_warehouse')->where('product_id', $finished->id)->where('warehouse_id', $data['warehouse_id'])->lockForUpdate()->first();
+            if ($finishedWarehouse) {
+                DB::table('product_warehouse')->where('product_id', $finished->id)->where('warehouse_id', $data['warehouse_id'])->increment('stock', $data['produced_quantity']);
+            } else {
+                DB::table('product_warehouse')->insert(['product_id' => $finished->id, 'warehouse_id' => $data['warehouse_id'], 'stock' => $data['produced_quantity']]);
+            }
             $unitFinishedCost = $rawCost / (float) $data['produced_quantity'];
             InventoryMovement::create(['warehouse_id' => $data['warehouse_id'], 'product_id' => $finished->id, 'manufacturing_order_id' => $order->id, 'reference_type' => ManufacturingOrder::class, 'reference_id' => $order->id, 'type' => 'receipt', 'quantity' => $data['produced_quantity'], 'unit_cost' => $unitFinishedCost, 'total_cost' => $rawCost, 'note' => 'إضافة منتج تام من أمر إنتاج']);
 
@@ -109,6 +133,8 @@ class ManufacturingController extends Controller
                 ['account_id' => $data['inventory_account_id'], 'debit' => $rawCost, 'credit' => 0, 'description' => 'إضافة المنتج التام للمخزون'],
                 ['account_id' => $data['work_in_progress_account_id'], 'debit' => 0, 'credit' => $rawCost, 'description' => 'إقفال تكلفة الإنتاج تحت التشغيل'],
             ]);
+            Account::whereKey($data['inventory_account_id'])->increment('debit', $rawCost);
+            Account::whereKey($data['work_in_progress_account_id'])->increment('credit', $rawCost);
             ManufacturingCostEntry::create(['manufacturing_order_id' => $order->id, 'cost_type' => 'material', 'amount' => $rawCost, 'journal_entry_id' => $journal->id, 'description' => 'تكلفة الخامات الفعلية']);
             \App\Models\ManufacturingQualityInspection::create(['manufacturing_order_id' => $order->id, 'inspection_number' => 'QI-' . now()->format('YmdHis') . '-' . $order->id, 'result' => $data['quality_status'], 'accepted_quantity' => $data['produced_quantity'], 'rejected_quantity' => 0, 'inspected_at' => now()]);
             $order->update(['produced_quantity' => $data['produced_quantity'], 'actual_cost' => $rawCost, 'status' => 'completed', 'completion_journal_entry_id' => $journal->id]);

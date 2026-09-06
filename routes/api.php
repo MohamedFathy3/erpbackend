@@ -250,6 +250,9 @@ Route::middleware(['auth:sanctum'])->prefix('manufacturing')->group(function () 
     Route::put('/boms/{bom}', [ManufacturingController::class, 'updateBom']);
     Route::delete('/boms/{bom}', [ManufacturingController::class, 'destroyBom']);
     Route::post('/work-centers', [ManufacturingController::class, 'storeWorkCenter']);
+    Route::get('/work-centers', [ManufacturingController::class, 'workCenters']);
+    Route::put('/work-centers/{workCenter}', [ManufacturingController::class, 'updateWorkCenter']);
+    Route::delete('/work-centers/{workCenter}', [ManufacturingController::class, 'destroyWorkCenter']);
     Route::get('/orders', [ManufacturingController::class, 'orders']);
     Route::post('/orders', [ManufacturingController::class, 'storeOrder']);
     Route::put('/orders/{order}', [ManufacturingController::class, 'updateOrder']);
