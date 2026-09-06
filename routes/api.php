@@ -394,9 +394,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/sales-invoice/store', [SalesInvoiceController::class, 'store']);
     Route::post('/sales-invoices/index', [SalesInvoiceController::class, 'invoiceIndex']);
     Route::get('/sales-invoices/{id}', [SalesInvoiceController::class, 'show']);
+    Route::post('/sales-invoices/{id}/cancel', [SalesInvoiceController::class, 'cancel']);
     Route::post('/sales-invoice-return/store', [SalesInvoiceReturnController::class, 'storeReturn']);
     Route::post('/sales-return/index', [SalesInvoiceReturnController::class, 'index']);
     Route::get('/sales-return/{id}', [SalesInvoiceReturnController::class, 'show']);
+    Route::post('/sales-return/{id}/cancel', [SalesInvoiceReturnController::class, 'cancel']);
 
 //////////////////////////////////////// SalesInvoice ////////////////////////////////
 //////////////////////////////////////// SalesInvoice ////////////////////////////////
@@ -449,6 +451,7 @@ Route::post('/suppliers/import', [SuppliersController::class, 'importSuppliers']
 Route::post('/purchase-returns/store', [PurchaseReturnController::class, 'store']);
 Route::post('/purchase-returns/index', [PurchaseReturnController::class, 'index']);
 Route::get('/purchase-returns/{id}', [PurchaseReturnController::class, 'show']);
+Route::post('/purchase-returns/{id}/cancel', [PurchaseReturnController::class, 'destroy']);
 
 /////////////////////////////////////// purchases-returns ////////////////////////////////
 //////////////////////////////////////// purchases-returns ////////////////////////////////

@@ -38,6 +38,8 @@ class SalesInvoiceReturnResource extends JsonResource
             'return_method' => $this->return_method,
             'return_method_label' => $this->getReturnMethodLabel($this->return_method),
             'total_amount' => number_format($this->total_amount, 2, '.', ''),
+            'workflow_status' => $this->workflow_status,
+            'posting_journal_entry_id' => $this->posting_journal_entry_id,
             'note' => $this->note,
             'is_direct' => $this->is_direct,
 

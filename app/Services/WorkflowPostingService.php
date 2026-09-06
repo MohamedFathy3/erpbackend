@@ -26,6 +26,49 @@ class WorkflowPostingService
         return $this->postInvoice($return, $direction === 'sales_return' ? 'sales_return' : 'purchase_return', $amount, (int) ($treasuryId ?? 0));
     }
 
+    public function reverseInvoice(Model $source, string $type): ?JournalEntry
+    {
+        $eventKey = 'financial-reversal:' . strtolower(class_basename($source)) . ':' . $source->getKey();
+        $existing = WorkflowTransaction::where('event_key', $eventKey)->first();
+        if ($existing?->journal_entry_id) return $existing->journalEntry;
+
+        $original = $source->posting_journal_entry_id ? JournalEntry::with('lines')->find($source->posting_journal_entry_id) : null;
+        return DB::transaction(function () use ($source, $type, $eventKey, $original) {
+            $journal = null;
+            if ($original) {
+                $journal = JournalEntry::create(['entry_date' => now()->toDateString(), 'description_ar' => 'عكس ' . $this->label($type) . ' #' . $source->getKey(), 'description_en' => 'Reversal of ' . $this->label($type) . ' #' . $source->getKey(), 'status' => 'posted']);
+                foreach ($original->lines as $line) {
+                    $debit = (float) $line->credit;
+                    $credit = (float) $line->debit;
+                    $journal->lines()->create(['account_id' => $line->account_id, 'debit' => $debit, 'credit' => $credit, 'description' => 'عكس القيد الأصلي']);
+                    Account::whereKey($line->account_id)->increment('debit', $debit);
+                    Account::whereKey($line->account_id)->increment('credit', $credit);
+                }
+                $original->update(['status' => 'cancelled']);
+            }
+
+            $warehouseId = $source->warehouse_id ?? $source->invoice?->warehouse_id ?? $source->purchaseInvoice?->warehouse_id;
+            $movementIds = [];
+            if ($warehouseId && method_exists($source, 'items')) {
+                $movementType = in_array($type, ['sale', 'purchase_return'], true) ? 'receipt' : 'issue';
+                foreach ($source->items as $item) {
+                    $product = Product::lockForUpdate()->find($item->product_id);
+                    if (!$product) continue;
+                    $quantity = (float) $item->quantity;
+                    if ($movementType === 'issue' && $product->stock < $quantity) {
+                        throw new \RuntimeException("لا يمكن إلغاء الفاتورة؛ مخزون المنتج {$product->name} غير كافٍ لعكس عملية الشراء");
+                    }
+                    $movementType === 'receipt' ? $product->increment('stock', $quantity) : $product->decrement('stock', $quantity);
+                    $unitCost = (float) ($product->cost ?? $item->price ?? 0);
+                    $movement = InventoryMovement::create(['warehouse_id' => $warehouseId, 'product_id' => $product->id, 'reference_type' => $source::class, 'reference_id' => $source->getKey(), 'type' => $movementType, 'quantity' => $quantity, 'unit_cost' => $unitCost, 'total_cost' => $quantity * $unitCost, 'note' => 'عكس الفاتورة وإلغاء المعاملة']);
+                    $movementIds[] = $movement->id;
+                }
+            }
+            WorkflowTransaction::capture($eventKey, $source, 'invoice_reversed', ['type' => $type, 'inventory_movement_ids' => $movementIds], $journal?->id, $movementIds[0] ?? null, 'completed');
+            return $journal;
+        });
+    }
+
     private function postInvoice(Model $source, string $type, float $amount, int $treasuryId): ?JournalEntry
     {
         if ($amount <= 0) return null;

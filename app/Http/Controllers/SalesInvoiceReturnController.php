@@ -669,4 +669,31 @@ class SalesInvoiceReturnController extends Controller
 
         return $level;
     }
+
+    public function cancel($id, WorkflowPostingService $posting)
+    {
+        DB::beginTransaction();
+        try {
+            $return = SalesInvoiceReturn::with(['items', 'invoice'])->lockForUpdate()->findOrFail($id);
+            if ($return->workflow_status === 'cancelled') throw new \RuntimeException('مرتجع المبيعات ملغى بالفعل');
+            $amount = (float) ($return->total_amount ?? $return->items->sum('total'));
+            $posting->reverseInvoice($return, 'sales_return');
+            $refund = TreasuryTransaction::where('reference_type', SalesInvoiceReturn::class)->where('reference_id', $return->id)->where('type', 'out')->latest()->first();
+            if ($refund) {
+                Treasury::whereKey($refund->treasury_id)->increment('balance', $refund->amount);
+                TreasuryTransaction::create(['treasury_id' => $refund->treasury_id, 'reference_type' => SalesInvoiceReturn::class, 'reference_id' => $return->id, 'type' => 'in', 'amount' => $refund->amount, 'description' => "عكس إلغاء مرتجع مبيعات رقم {$return->return_number}", 'created_by' => auth()->id()]);
+            }
+            if ($return->invoice?->customer_id) {
+                $this->deductLoyaltyPoints($return->invoice->customer_id, -$amount);
+                $this->deductTotalPurchases($return->invoice->customer_id, -$amount);
+                $this->updateLastPaidAmount($return->invoice->customer_id, -$amount);
+            }
+            $return->update(['workflow_status' => 'cancelled']);
+            DB::commit();
+            return response()->json(['status' => true, 'message' => 'تم إلغاء المرتجع وعكس الأثر المالي والمخزني']);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json(['status' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
 }

@@ -386,36 +386,46 @@ class PurchaseInvoiceController extends Controller
     public function pay(Request $request, PurchaseInvoice $invoice)
     {
         $data = $request->validate([
-            'amount' => 'required|numeric|min:0.01'
+            'amount' => 'required|numeric|min:0.01',
+            'treasury_id' => 'nullable|exists:treasuries,id',
         ]);
-    
-        $newPaid = $invoice->paid_amount + $data['amount'];
-    
-        if ($newPaid > $invoice->total_amount) {
-            return response()->json([
-                'message' => 'Amount exceeds total invoice value'
-            ], 422);
+
+        DB::beginTransaction();
+        try {
+            $amount = (float) $data['amount'];
+            $newPaid = (float) $invoice->paid_amount + $amount;
+            if ($newPaid > (float) $invoice->total_amount) {
+                throw new \RuntimeException('Amount exceeds total invoice value');
+            }
+            $treasuryId = $data['treasury_id'] ?? $invoice->treasury_id;
+            if (!$treasuryId) throw new \RuntimeException('Treasury is required for a purchase payment');
+            $treasury = Treasury::lockForUpdate()->findOrFail($treasuryId);
+            if ($treasury->balance < $amount) throw new \RuntimeException('رصيد الخزنة غير كافي');
+            $treasury->decrement('balance', $amount);
+            TreasuryTransaction::create(['treasury_id' => $treasury->id, 'reference_type' => PurchaseInvoice::class, 'reference_id' => $invoice->id, 'type' => 'out', 'amount' => $amount, 'description' => "دفعة إضافية لفاتورة مشتريات رقم {$invoice->invoice_number}", 'created_by' => auth()->id()]);
+            $invoice->update(['treasury_id' => $treasury->id, 'paid_amount' => $newPaid, 'remaining_amount' => (float) $invoice->total_amount - $newPaid]);
+            DB::commit();
+            return response()->json(['message' => 'Payment updated successfully', 'invoice' => $invoice->fresh(), 'remaining' => $invoice->remaining_amount]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json(['message' => $e->getMessage()], 422);
         }
-    
-        $invoice->update([
-            'paid_amount' => $newPaid
-        ]);
-    
-        return response()->json([
-            'message' => 'Payment updated successfully',
-            'invoice' => $invoice,
-            'remaining' => $invoice->remaining_amount
-        ]);
     }
 
     // ========== update ==========
-    public function update(PurchaseInvoiceRequest $request, $id)
+    public function update(PurchaseInvoiceRequest $request, $id, WorkflowPostingService $posting)
     {
         DB::beginTransaction();
 
         try {
             // جلب الفاتورة القديمة
             $invoice = PurchaseInvoice::with('items')->findOrFail($id);
+            if ($invoice->workflow_status === 'posted') {
+                throw new \RuntimeException('لا يمكن تعديل فاتورة مشتريات مرحّلة. استخدم مرتجعاً أو ألغِ المعاملة أولاً للحفاظ على سلامة القيود والمخزون.');
+            }
+            if ($invoice->workflow_status === 'cancelled') {
+                throw new \RuntimeException('لا يمكن تعديل فاتورة مشتريات ملغاة.');
+            }
 
             // حفظ البيانات القديمة للمقارنة
             $oldPaidAmount = $invoice->paid_amount;
@@ -550,6 +560,8 @@ class PurchaseInvoiceController extends Controller
                 }
             }
 
+            $journal = $posting->postPurchase($invoice->fresh()->load('items.product'));
+            $invoice->update(['posting_journal_entry_id' => $journal?->id, 'workflow_status' => $journal ? 'posted' : 'pending_finance']);
             DB::commit();
 
             return response()->json([

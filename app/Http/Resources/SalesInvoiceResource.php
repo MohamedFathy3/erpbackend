@@ -32,6 +32,9 @@ class SalesInvoiceResource extends JsonResource
             'tax' => $this->tax?->name,
 
             'payment_method' => $this->payment_method,
+            'payment_status' => $this->payment_status,
+            'workflow_status' => $this->workflow_status,
+            'posting_journal_entry_id' => $this->posting_journal_entry_id,
             'invoice_date' => $this->invoice_date,
             'due_date' => $this->due_date,
             'note' => $this->note,

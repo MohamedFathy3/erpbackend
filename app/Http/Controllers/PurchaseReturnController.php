@@ -373,47 +373,24 @@ class PurchaseReturnController extends Controller
         }
     }
 
-    public function destroy($id)
+    public function destroy($id, WorkflowPostingService $posting)
     {
         DB::beginTransaction();
 
         try {
             $return = PurchaseReturn::with('items')->findOrFail($id);
             $invoice = PurchaseInvoice::find($return->purchase_invoices_id);
-
-            foreach ($return->items as $item) {
-                $product = Product::find($item->product_id);
-                if ($product) {
-                    $product->increment('stock', $item->quantity);
-                }
-
-                if ($item->product_unit_id && $item->color_id) {
-                    $productUnit = DB::table('product_units')
-                        ->where('product_id', $item->product_id)
-                        ->where('unit_id', $item->product_unit_id)
-                        ->first();
-
-                    if ($productUnit) {
-                        DB::table('product_unit_colors')
-                            ->where('product_unit_id', $productUnit->id)
-                            ->where('color_id', $item->color_id)
-                            ->increment('stock', $item->quantity);
-                    }
-                }
-
-                if ($invoice) {
-                    DB::table('product_warehouse')
-                        ->where('product_id', $item->product_id)
-                        ->where('warehouse_id', $invoice->warehouse_id)
-                        ->increment('stock', $item->quantity);
-                }
+            if ($return->workflow_status === 'cancelled') {
+                throw new \RuntimeException('مرتجع المشتريات ملغى بالفعل');
             }
-
-            TreasuryTransaction::where('reference_type', PurchaseReturn::class)
-                ->where('reference_id', $return->id)
-                ->delete();
-
-            $return->delete();
+            $posting->reverseInvoice($return->load('purchaseInvoice'), 'purchase_return');
+            if ($return->treasury_id && $return->total > 0) {
+                Treasury::whereKey($return->treasury_id)->decrement('balance', $return->total);
+            }
+            if ($invoice) {
+                $invoice->increment('paid_amount', $return->total);
+            }
+            $return->update(['workflow_status' => 'cancelled']);
 
             DB::commit();
 

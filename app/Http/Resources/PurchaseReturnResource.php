@@ -21,6 +21,8 @@ class PurchaseReturnResource extends JsonResource
             'reason' => $this->reason,
             'return_date' => $this->return_date,
             'payment_method' => $this->payment_method,
+            'workflow_status' => $this->workflow_status,
+            'posting_journal_entry_id' => $this->posting_journal_entry_id,
 
             'treasury_id' => $this->treasury_id,
             'treasury_name' => $this->treasury?->name,

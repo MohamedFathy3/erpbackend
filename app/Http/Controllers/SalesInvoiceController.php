@@ -186,7 +186,7 @@ class SalesInvoiceController extends Controller
             // 3️⃣ حساب النقاط (ضرب المبلغ في قيمة النقطة)
             $earnedPoints = floor($paidAmount * $loyaltySetting->point_value);
             $oldPoints = $customer->point ?? 0;
-            $newPoints = $oldPoints + $earnedPoints;
+            $newPoints = max(0, $oldPoints + $earnedPoints);
 
             Log::info('🧮 Points Calculation:', [
                 'paid_amount' => $paidAmount,
@@ -407,6 +407,35 @@ class SalesInvoiceController extends Controller
                 'message' => $e->getMessage(),
                 'status' => 500,
             ], 500);
+        }
+    }
+
+    public function cancel(Request $request, $id, WorkflowPostingService $posting)
+    {
+        DB::beginTransaction();
+        try {
+            $invoice = SalesInvoice::with('items')->lockForUpdate()->findOrFail($id);
+            if ($invoice->workflow_status === 'cancelled') {
+                DB::rollBack();
+                return response()->json(['status' => false, 'message' => 'الفاتورة ملغاة بالفعل'], 422);
+            }
+            if ($invoice->workflow_status === 'posted' && !$invoice->posting_journal_entry_id) {
+                DB::rollBack();
+                return response()->json(['status' => false, 'message' => 'لا يمكن إلغاء فاتورة مرحّلة بدون قيد مرتبط'], 422);
+            }
+
+            $posting->reverseInvoice($invoice, 'sale');
+            if ($invoice->treasury_id) {
+                Treasury::whereKey($invoice->treasury_id)->decrement('balance', $invoice->net_total);
+            }
+            $this->updateLoyaltyPoints($invoice->customer_id, -((float) $invoice->net_total));
+            $invoice->update(['workflow_status' => 'cancelled']);
+            DB::commit();
+            return response()->json(['status' => true, 'message' => 'تم إلغاء الفاتورة وعكس أثرها المالي والمخزني', 'data' => new SalesInvoiceResource($invoice->fresh()->load('items.product'))]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('Sales invoice cancellation failed', ['invoice_id' => $id, 'error' => $e->getMessage()]);
+            return response()->json(['status' => false, 'message' => $e->getMessage()], 422);
         }
     }
 }
