@@ -12,7 +12,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('warehouse_id')->constrained()->cascadeOnDelete();
             $table->foreignId('product_id')->constrained()->cascadeOnDelete();
-            $table->nullableForeignId('manufacturing_order_id')->constrained()->nullOnDelete();
+            $table->foreignId('manufacturing_order_id')->nullable()->constrained()->nullOnDelete();
             $table->string('reference_type')->nullable();
             $table->unsignedBigInteger('reference_id')->nullable();
             $table->enum('type', ['issue', 'receipt', 'transfer_in', 'transfer_out', 'adjustment']);
