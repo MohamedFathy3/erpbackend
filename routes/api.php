@@ -20,8 +20,10 @@ use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\JournalEntryController;
 use App\Http\Controllers\LoyaltySettingController;
 use App\Http\Controllers\MediaController;
+use App\Http\Controllers\ManufacturingController;
 use App\Http\Controllers\OfferController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\PurchaseInvoiceController;
 use App\Http\Controllers\PurchaseOrderController;
 use App\Http\Controllers\PurchaseReturnController;
@@ -235,6 +237,18 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::apiResource('customer', CustomerController::class);
 });
 Route::post('/customers/import', [CustomerController::class, 'importCustomers']);
+
+Route::middleware(['auth:sanctum'])->prefix('manufacturing')->group(function () {
+    Route::get('/dashboard', [ManufacturingController::class, 'dashboard']);
+    Route::get('/boms', [ManufacturingController::class, 'boms']);
+    Route::get('/orders', [ManufacturingController::class, 'orders']);
+});
+
+Route::middleware(['auth:sanctum'])->prefix('projects')->group(function () {
+    Route::get('/dashboard', [ProjectController::class, 'dashboard']);
+    Route::get('/', [ProjectController::class, 'index']);
+    Route::get('/{project}', [ProjectController::class, 'show']);
+});
 
 //////////////////////////////////////// customer ////////////////////////////////
 //////////////////////////////////////// customer ////////////////////////////////

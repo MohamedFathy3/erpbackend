@@ -1,0 +1,8 @@
+<?php
+namespace App\Models;
+class ProjectClaim extends BaseModel
+{
+    protected $guarded = ['id'];
+    protected $casts = ['claim_date' => 'date', 'approved_at' => 'date', 'paid_at' => 'date', 'gross_amount' => 'decimal:2', 'advance_deduction' => 'decimal:2', 'retention_amount' => 'decimal:2', 'net_amount' => 'decimal:2'];
+    public function project() { return $this->belongsTo(Project::class); }
+}
