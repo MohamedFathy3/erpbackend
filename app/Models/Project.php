@@ -7,4 +7,5 @@ class Project extends BaseModel
     public function customer() { return $this->belongsTo(Customer::class); }
     public function wbsItems() { return $this->hasMany(ProjectWbsItem::class); }
     public function claims() { return $this->hasMany(ProjectClaim::class); }
+    public function costEntries() { return $this->hasMany(ProjectCostEntry::class); }
 }

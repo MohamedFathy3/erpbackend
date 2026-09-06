@@ -242,12 +242,17 @@ Route::middleware(['auth:sanctum'])->prefix('manufacturing')->group(function () 
     Route::get('/dashboard', [ManufacturingController::class, 'dashboard']);
     Route::get('/boms', [ManufacturingController::class, 'boms']);
     Route::get('/orders', [ManufacturingController::class, 'orders']);
+    Route::post('/orders/{order}/start', [ManufacturingController::class, 'start']);
+    Route::post('/orders/{order}/complete', [ManufacturingController::class, 'complete']);
 });
 
 Route::middleware(['auth:sanctum'])->prefix('projects')->group(function () {
     Route::get('/dashboard', [ProjectController::class, 'dashboard']);
     Route::get('/', [ProjectController::class, 'index']);
+    Route::post('/{project}/costs', [ProjectController::class, 'addCost']);
     Route::get('/{project}', [ProjectController::class, 'show']);
+    Route::post('/claims/{claim}/approve', [ProjectController::class, 'approveClaim']);
+    Route::post('/claims/{claim}/collect', [ProjectController::class, 'collectClaim']);
 });
 
 //////////////////////////////////////// customer ////////////////////////////////

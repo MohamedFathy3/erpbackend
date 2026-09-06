@@ -8,4 +8,6 @@ class ManufacturingOrder extends BaseModel
     public function bom() { return $this->belongsTo(ManufacturingBom::class, 'bom_id'); }
     public function warehouse() { return $this->belongsTo(Warehouse::class); }
     public function inspections() { return $this->hasMany(ManufacturingQualityInspection::class); }
+    public function inventoryMovements() { return $this->hasMany(InventoryMovement::class); }
+    public function costEntries() { return $this->hasMany(ManufacturingCostEntry::class); }
 }

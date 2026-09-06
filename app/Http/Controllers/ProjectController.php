@@ -1,14 +1,63 @@
 <?php
 namespace App\Http\Controllers;
+
+use App\Models\JournalEntry;
 use App\Models\Project;
+use App\Models\ProjectClaim;
+use App\Models\ProjectCostEntry;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+
 class ProjectController extends Controller
 {
     public function dashboard(Request $request)
     {
         $projects = Project::with(['customer', 'wbsItems', 'claims'])->latest()->paginate($request->integer('per_page', 20));
-        return response()->json(['status' => true, 'data' => ['projects' => $projects, 'active_count' => Project::where('status', 'active')->count(), 'contract_value' => (float) Project::whereIn('status', ['active', 'completed'])->sum('contract_value'), 'budget_cost' => (float) Project::sum('budget_cost'), 'actual_cost' => (float) Project::sum('actual_cost'), 'pending_claims' => Project::whereHas('claims', fn ($q) => $q->whereIn('status', ['submitted', 'approved']))->count()]]);
+        return response()->json(['status' => true, 'data' => ['projects' => $projects, 'active_count' => Project::where('status', 'active')->count(), 'contract_value' => (float) Project::whereIn('status', ['active', 'completed'])->sum('contract_value'), 'budget_cost' => (float) Project::sum('budget_cost'), 'actual_cost' => (float) Project::sum('actual_cost'), 'pending_claims' => ProjectClaim::whereIn('status', ['submitted', 'approved'])->count()]]);
     }
+
     public function index(Request $request) { return response()->json(['status' => true, 'data' => Project::with('customer')->latest()->paginate($request->integer('per_page', 20))]); }
-    public function show(Project $project) { return response()->json(['status' => true, 'data' => $project->load(['customer', 'wbsItems.children', 'claims'])]); }
+    public function show(Project $project) { return response()->json(['status' => true, 'data' => $project->load(['customer', 'wbsItems.children', 'claims', 'costEntries'])]); }
+
+    public function addCost(Request $request, Project $project)
+    {
+        $data = $request->validate(['cost_type' => ['required', 'string', 'max:100'], 'amount' => ['required', 'numeric', 'gt:0'], 'debit_account_id' => ['required', 'exists:accounts,id'], 'credit_account_id' => ['required', 'exists:accounts,id'], 'reference_type' => ['nullable', 'string'], 'reference_id' => ['nullable', 'integer'], 'description' => ['nullable', 'string']]);
+        $entry = DB::transaction(function () use ($data, $project) {
+            $journal = JournalEntry::create(['entry_date' => now()->toDateString(), 'description_ar' => "تكلفة مشروع {$project->project_code}", 'description_en' => "Project cost {$project->project_code}", 'status' => 'posted']);
+            $journal->lines()->createMany([['account_id' => $data['debit_account_id'], 'debit' => $data['amount'], 'credit' => 0, 'description' => $data['description'] ?? 'تكلفة مباشرة على المشروع'], ['account_id' => $data['credit_account_id'], 'debit' => 0, 'credit' => $data['amount'], 'description' => 'مصدر تكلفة المشروع']]);
+            $entry = ProjectCostEntry::create(['project_id' => $project->id, 'cost_type' => $data['cost_type'], 'amount' => $data['amount'], 'journal_entry_id' => $journal->id, 'reference_type' => $data['reference_type'] ?? null, 'reference_id' => $data['reference_id'] ?? null, 'description' => $data['description'] ?? null]);
+            $project->increment('actual_cost', $data['amount']);
+            return $entry->load('journalEntry');
+        });
+        return response()->json(['status' => true, 'message' => 'تم تسجيل تكلفة المشروع وترحيل القيد المالي', 'data' => $entry], 201);
+    }
+
+    public function approveClaim(Request $request, ProjectClaim $claim)
+    {
+        $data = $request->validate(['receivable_account_id' => ['required', 'exists:accounts,id'], 'revenue_account_id' => ['required', 'exists:accounts,id']]);
+        abort_if($claim->status !== 'submitted', 422, 'المستخلص يجب أن يكون مقدماً قبل الاعتماد');
+        $updated = DB::transaction(function () use ($claim, $data) {
+            $journal = JournalEntry::create(['entry_date' => now()->toDateString(), 'description_ar' => "اعتماد مستخلص {$claim->claim_number}", 'description_en' => "Approve claim {$claim->claim_number}", 'status' => 'posted']);
+            $journal->lines()->createMany([['account_id' => $data['receivable_account_id'], 'debit' => $claim->net_amount, 'credit' => 0, 'description' => 'ذمم مدينة - مستخلص مشروع'], ['account_id' => $data['revenue_account_id'], 'debit' => 0, 'credit' => $claim->net_amount, 'description' => 'إيراد مستخلص مشروع']]);
+            $claim->update(['status' => 'approved', 'approved_at' => now()->toDateString(), 'revenue_journal_entry_id' => $journal->id]);
+            return $claim->fresh(['project', 'revenueJournalEntry']);
+        });
+        return response()->json(['status' => true, 'message' => 'تم اعتماد المستخلص وترحيل إيراد المشروع', 'data' => $updated]);
+    }
+
+    public function collectClaim(Request $request, ProjectClaim $claim)
+    {
+        $data = $request->validate(['amount' => ['required', 'numeric', 'gt:0'], 'cash_account_id' => ['required', 'exists:accounts,id'], 'receivable_account_id' => ['required', 'exists:accounts,id']]);
+        abort_if(!in_array($claim->status, ['approved', 'partially_paid']), 422, 'المستخلص غير جاهز للتحصيل');
+        abort_if((float) $data['amount'] > ((float) $claim->net_amount - (float) $claim->paid_amount), 422, 'قيمة التحصيل أكبر من المتبقي');
+        $updated = DB::transaction(function () use ($claim, $data) {
+            $journal = JournalEntry::create(['entry_date' => now()->toDateString(), 'description_ar' => "تحصيل مستخلص {$claim->claim_number}", 'description_en' => "Collect claim {$claim->claim_number}", 'status' => 'posted']);
+            $journal->lines()->createMany([['account_id' => $data['cash_account_id'], 'debit' => $data['amount'], 'credit' => 0, 'description' => 'تحصيل مستخلص مشروع'], ['account_id' => $data['receivable_account_id'], 'debit' => 0, 'credit' => $data['amount'], 'description' => 'تسوية ذمم المستخلص']]);
+            $paid = (float) $claim->paid_amount + (float) $data['amount'];
+            $claim->update(['paid_amount' => $paid, 'status' => $paid >= (float) $claim->net_amount ? 'paid' : 'partially_paid', 'paid_at' => $paid >= (float) $claim->net_amount ? now()->toDateString() : null, 'collection_journal_entry_id' => $journal->id]);
+            return $claim->fresh(['project', 'collectionJournalEntry']);
+        });
+        return response()->json(['status' => true, 'message' => 'تم تحصيل المستخلص وتحديث رصيد المشروع', 'data' => $updated]);
+    }
 }
