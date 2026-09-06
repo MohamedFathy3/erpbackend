@@ -249,6 +249,7 @@ Route::middleware(['auth:sanctum'])->prefix('manufacturing')->group(function () 
 Route::middleware(['auth:sanctum'])->prefix('projects')->group(function () {
     Route::get('/dashboard', [ProjectController::class, 'dashboard']);
     Route::get('/', [ProjectController::class, 'index']);
+    Route::post('/{project}/claims', [ProjectController::class, 'createClaim']);
     Route::post('/{project}/costs', [ProjectController::class, 'addCost']);
     Route::get('/{project}', [ProjectController::class, 'show']);
     Route::post('/claims/{claim}/approve', [ProjectController::class, 'approveClaim']);

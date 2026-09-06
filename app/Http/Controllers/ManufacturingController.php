@@ -66,6 +66,7 @@ class ManufacturingController extends Controller
                 ['account_id' => $data['work_in_progress_account_id'], 'debit' => 0, 'credit' => $rawCost, 'description' => 'إقفال تكلفة الإنتاج تحت التشغيل'],
             ]);
             ManufacturingCostEntry::create(['manufacturing_order_id' => $order->id, 'cost_type' => 'material', 'amount' => $rawCost, 'journal_entry_id' => $journal->id, 'description' => 'تكلفة الخامات الفعلية']);
+            \App\Models\ManufacturingQualityInspection::create(['manufacturing_order_id' => $order->id, 'inspection_number' => 'QI-' . now()->format('YmdHis') . '-' . $order->id, 'result' => $data['quality_status'], 'accepted_quantity' => $data['produced_quantity'], 'rejected_quantity' => 0, 'inspected_at' => now()]);
             $order->update(['produced_quantity' => $data['produced_quantity'], 'actual_cost' => $rawCost, 'status' => 'completed', 'completion_journal_entry_id' => $journal->id]);
             return $order->fresh(['product', 'bom', 'inspections', 'inventoryMovements', 'costEntries']);
         });

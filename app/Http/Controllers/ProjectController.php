@@ -20,6 +20,15 @@ class ProjectController extends Controller
     public function index(Request $request) { return response()->json(['status' => true, 'data' => Project::with('customer')->latest()->paginate($request->integer('per_page', 20))]); }
     public function show(Project $project) { return response()->json(['status' => true, 'data' => $project->load(['customer', 'wbsItems.children', 'claims', 'costEntries'])]); }
 
+    public function createClaim(Request $request, Project $project)
+    {
+        $data = $request->validate(['gross_amount' => ['required', 'numeric', 'gt:0'], 'advance_deduction' => ['nullable', 'numeric', 'min:0'], 'retention_amount' => ['nullable', 'numeric', 'min:0'], 'notes' => ['nullable', 'string']]);
+        $net = (float) $data['gross_amount'] - (float) ($data['advance_deduction'] ?? 0) - (float) ($data['retention_amount'] ?? 0);
+        abort_if($net <= 0, 422, 'صافي المستخلص يجب أن يكون أكبر من صفر');
+        $claim = $project->claims()->create(['claim_number' => 'CLM-' . $project->project_code . '-' . now()->format('YmdHis'), 'claim_date' => now()->toDateString(), 'gross_amount' => $data['gross_amount'], 'advance_deduction' => $data['advance_deduction'] ?? 0, 'retention_amount' => $data['retention_amount'] ?? 0, 'net_amount' => $net, 'status' => 'submitted', 'notes' => $data['notes'] ?? null]);
+        return response()->json(['status' => true, 'message' => 'تم إنشاء المستخلص وإرساله للاعتماد', 'data' => $claim], 201);
+    }
+
     public function addCost(Request $request, Project $project)
     {
         $data = $request->validate(['cost_type' => ['required', 'string', 'max:100'], 'amount' => ['required', 'numeric', 'gt:0'], 'debit_account_id' => ['required', 'exists:accounts,id'], 'credit_account_id' => ['required', 'exists:accounts,id'], 'reference_type' => ['nullable', 'string'], 'reference_id' => ['nullable', 'integer'], 'description' => ['nullable', 'string']]);
