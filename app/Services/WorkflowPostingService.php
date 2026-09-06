@@ -59,6 +59,19 @@ class WorkflowPostingService
                         throw new \RuntimeException("لا يمكن إلغاء الفاتورة؛ مخزون المنتج {$product->name} غير كافٍ لعكس عملية الشراء");
                     }
                     $movementType === 'receipt' ? $product->increment('stock', $quantity) : $product->decrement('stock', $quantity);
+                    $warehouseStock = DB::table('product_warehouse')->where('product_id', $product->id)->where('warehouse_id', $warehouseId);
+                    if ($movementType === 'receipt') {
+                        $warehouseStock->increment('stock', $quantity);
+                    } else {
+                        $warehouseStock->decrement('stock', $quantity);
+                    }
+                    if (!empty($item->product_unit_id) && !empty($item->color_id)) {
+                        $unit = DB::table('product_units')->where('product_id', $product->id)->where('unit_id', $item->product_unit_id)->first();
+                        if ($unit) {
+                            $colorStock = DB::table('product_unit_colors')->where('product_unit_id', $unit->id)->where('color_id', $item->color_id);
+                            $movementType === 'receipt' ? $colorStock->increment('stock', $quantity) : $colorStock->decrement('stock', $quantity);
+                        }
+                    }
                     $unitCost = (float) ($product->cost ?? $item->price ?? 0);
                     $movement = InventoryMovement::create(['warehouse_id' => $warehouseId, 'product_id' => $product->id, 'reference_type' => $source::class, 'reference_id' => $source->getKey(), 'type' => $movementType, 'quantity' => $quantity, 'unit_cost' => $unitCost, 'total_cost' => $quantity * $unitCost, 'note' => 'عكس الفاتورة وإلغاء المعاملة']);
                     $movementIds[] = $movement->id;
