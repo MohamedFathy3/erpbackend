@@ -10,6 +10,8 @@ use App\Models\Product;
 use App\Models\SalesInvoice;
 use App\Models\SalesInvoiceItem;
 use App\Models\Treasury;
+use App\Models\TreasuryTransaction;
+use App\Services\InventoryMovementService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -30,16 +32,7 @@ class SalesInvoiceController extends Controller
             $itemsData = [];
 
             foreach ($request->items as $item) {
-                $product = Product::findOrFail($item['product_id']);
-
-                // تحقق من كفاية الكمية
-                if ($product->stock < $item['quantity']) {
-                    DB::rollBack();
-                    return response()->json([
-                        'status' => false,
-                        'message' => "الكمية المتوفرة في المخزون للمنتج '{$product->name}' أقل من المطلوبة"
-                    ], 400);
-                }
+                Product::findOrFail($item['product_id']);
 
                 // حساب سعر المنتج بعد خصمه الفردي
                 $itemDiscountPercentage = $item['discount_percentage'] ?? 0;
@@ -48,7 +41,9 @@ class SalesInvoiceController extends Controller
 
                 $itemsData[] = [
                     'product_id' => $item['product_id'],
-                    'product_unit_id' => $item['unit_id'] ?? null,
+                    'product_unit_id' => $item['unit_id'] ?? $item['product_unit_id'] ?? null,
+                    'size_id' => $item['size_id'] ?? null,
+                    'product_variant_id' => $item['product_variant_id'] ?? null,
                     'color_id' => $item['color_id'] ?? null,
                     'quantity' => $item['quantity'],
                     'price' => $item['price'],
@@ -58,9 +53,6 @@ class SalesInvoiceController extends Controller
                 ];
 
                 $subtotal += $itemTotalAfterDiscount;
-
-                // خصم الكمية من المخزون
-                $product->decrement('stock', $item['quantity']);
             }
 
             // خصم الفاتورة
@@ -88,18 +80,43 @@ class SalesInvoiceController extends Controller
                 'net_total' => $netTotal,
             ]);
 
-            // إنشاء عناصر الفاتورة
+            // إنشاء عناصر الفاتورة وتسجيل حركة المخزون في نفس المعاملة
             foreach ($itemsData as $itemData) {
                 SalesInvoiceItem::create(array_merge(
                     ['sales_invoice_id' => $invoice->id],
                     $itemData
                 ));
+
+                app(InventoryMovementService::class)->apply([
+                    'product_id' => $itemData['product_id'],
+                    'product_unit_id' => $itemData['product_unit_id'],
+                    'size_id' => $itemData['size_id'],
+                    'color_id' => $itemData['color_id'],
+                    'branch_id' => $request->branch_id,
+                    'warehouse_id' => $request->warehouse_id,
+                    'movement_type' => 'sale',
+                    'quantity_delta' => -$itemData['quantity'],
+                    'reference_type' => SalesInvoice::class,
+                    'reference_id' => $invoice->id,
+                    'notes' => "Sales invoice {$invoice->invoice_number}",
+                ]);
+
             }
 
             // إضافة الرصيد للخزنة
             if ($request->treasury_id) {
-                $treasury = Treasury::findOrFail($request->treasury_id);
+                $treasury = Treasury::query()->lockForUpdate()->findOrFail($request->treasury_id);
                 $treasury->increment('balance', $netTotal);
+
+                TreasuryTransaction::create([
+                    'treasury_id' => $treasury->id,
+                    'reference_type' => SalesInvoice::class,
+                    'reference_id' => $invoice->id,
+                    'type' => 'in',
+                    'amount' => $netTotal,
+                    'description' => "تحصيل فاتورة مبيعات رقم {$invoice->invoice_number}",
+                    'created_by' => optional(auth()->user())->id,
+                ]);
             }
 
             // ============================================================
@@ -114,6 +131,7 @@ class SalesInvoiceController extends Controller
                     'items.product',
                     'items.unit',
                     'items.color',
+                'items.size',
                     'customer',
                     'salesRepresentative',
                     'branch',
@@ -374,6 +392,7 @@ class SalesInvoiceController extends Controller
                 'items.product',
                 'items.unit',
                 'items.color',
+                'items.size',
                 'customer',
                 'salesRepresentative',
                 'branch',

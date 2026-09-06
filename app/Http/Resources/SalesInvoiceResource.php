@@ -55,7 +55,9 @@ class SalesInvoiceResource extends JsonResource
                     
                     'color_id' => $item->color_id,
                     'color_name' => $item->color?->name,
-                    
+                    'size_id' => $item->size_id,
+                    'size_name' => $item->size?->name,
+                    'product_variant_id' => $item->product_variant_id,
                     'quantity' => $item->quantity,
                     'price' => number_format($item->price, 2, '.', ''),
                     'discount_percentage' => number_format(

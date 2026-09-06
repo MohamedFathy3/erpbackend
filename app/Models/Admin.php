@@ -82,4 +82,9 @@ class Admin extends BaseModel
     {
         return $this->belongsTo(Role::class,'role_id');
     }
+
+    public function hasPermission(string $permission): bool
+    {
+        return (bool) $this->super_admin || ($this->role?->hasPermission($permission) ?? false);
+    }
 }

@@ -54,9 +54,10 @@ class PurchaseInvoiceResource extends JsonResource
                 
                 'color_id' => $item->color_id,
                 'color_name' => $item->color?->name,
-                
-                // 'product_variant_id' => $item->product_variant_id,
-                // 'variant_name' => $item->variant?->name,
+                'size_id' => $item->size_id,
+                'size_name' => $item->size?->name,
+                'product_variant_id' => $item->product_variant_id,
+                'variant_name' => $item->variant?->name,
 
                 'quantity' => $item->quantity,
                 'price' => (float) $item->price,
