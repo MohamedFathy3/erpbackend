@@ -18,6 +18,17 @@ class Customer extends BaseModel
         return $this->hasMany(Invoice::class);
     }
 
+    public function salesInvoices()
+    {
+        return $this->hasMany(SalesInvoice::class);
+    }
+
+    public function getOutstandingBalanceAttribute(): float
+    {
+        return (float) $this->invoices()->sum('remaining_amount')
+            + (float) $this->salesInvoices()->sum('net_total');
+    }
+
     // مجموع كل الفواتير
     public function getTotalInvoicesAmountAttribute()
     {

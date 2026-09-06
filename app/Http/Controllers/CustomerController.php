@@ -56,6 +56,67 @@ class CustomerController extends BaseController
     }
 
 
+    /**
+     * Unified customer statement: POS invoices, sales invoices, payments and balance.
+     */
+    public function statement(Customer $customer): \Illuminate\Http\JsonResponse
+    {
+        try {
+            $posInvoices = $customer->invoices()->with('payments')->latest()->get()->map(fn ($invoice) => [
+                'id' => $invoice->id,
+                'source' => 'pos',
+                'type' => 'sale',
+                'number' => $invoice->invoice_number,
+                'date' => $invoice->created_at?->toDateString(),
+                'total' => (float) ($invoice->total_amount ?? 0),
+                'paid' => (float) ($invoice->paid_amount ?? 0),
+                'due' => (float) ($invoice->remaining_amount ?? 0),
+                'status' => $invoice->status,
+                'payments' => $invoice->payments->map(fn ($payment) => [
+                    'method' => $payment->method,
+                    'amount' => (float) $payment->amount,
+                    'date' => $payment->created_at?->toDateString(),
+                ])->values(),
+            ]);
+
+            $salesInvoices = $customer->salesInvoices()->latest('invoice_date')->get()->map(fn ($invoice) => [
+                'id' => $invoice->id,
+                'source' => 'sales',
+                'type' => 'sale',
+                'number' => $invoice->invoice_number,
+                'date' => ($invoice->invoice_date ?? $invoice->created_at)?->toDateString(),
+                'total' => (float) ($invoice->net_total ?? $invoice->total_amount ?? 0),
+                'paid' => 0,
+                'due' => (float) ($invoice->net_total ?? $invoice->total_amount ?? 0),
+                'status' => 'unpaid',
+                'payments' => [],
+            ]);
+
+            $transactions = $posInvoices->concat($salesInvoices)->sortByDesc('date')->values();
+            $total = $transactions->sum('total');
+            $paid = $transactions->sum('paid');
+
+            return response()->json([
+                'status' => true,
+                'data' => [
+                    'customer' => new CustomerResource($customer),
+                    'summary' => [
+                        'transactions_count' => $transactions->count(),
+                        'total_purchases' => (float) $total,
+                        'total_paid' => (float) $paid,
+                        'outstanding_balance' => (float) ($total - $paid),
+                        'credit_limit' => (float) ($customer->credit_limit ?? 0),
+                        'available_credit' => max(0, (float) ($customer->credit_limit ?? 0) - ($total - $paid)),
+                        'last_activity_at' => $transactions->first()['date'] ?? null,
+                    ],
+                    'transactions' => $transactions,
+                ],
+            ]);
+        } catch (Exception $e) {
+            return JsonResponse::respondError($e->getMessage());
+        }
+    }
+
     public function update(CustomerRequest $request, Customer $customer)
     {
         try {

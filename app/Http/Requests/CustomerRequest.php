@@ -22,12 +22,17 @@ class CustomerRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => 'nullable',
-            'phone' => 'nullable',
+            'customer_code' => 'nullable|string|max:50',
+            'name' => 'required|string|max:255',
+            'phone' => 'nullable|string|max:50',
             'email' => 'nullable|email',
             'address' => 'nullable',
+            'tax_number' => 'nullable|string|max:100',
+            'industry' => 'nullable|string|max:100',
+            'credit_limit' => 'nullable|numeric|min:0',
+            'payment_terms' => 'nullable|string|max:100',
+            'notes' => 'nullable|string',
             'active' => 'nullable|boolean',
         ];
     }
 }
-

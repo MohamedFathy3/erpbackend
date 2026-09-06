@@ -227,6 +227,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/customer/index', [CustomerController::class, 'index']);
+    Route::get('/customer/{customer}/statement', [CustomerController::class, 'statement']);
     Route::post('customer/restore', [CustomerController::class, 'restore']);
     Route::delete('customer/delete', [CustomerController::class, 'destroy']);
     Route::put('/customer/{id}/{column}', [CustomerController::class, 'toggle']);
