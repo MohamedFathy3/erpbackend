@@ -30,8 +30,11 @@ class ReturnInvoiceController extends Controller
 
             foreach ($request->items as $item) {
 
-                $invoiceItem = $invoice->items
-                    ->firstWhere('product_id', $item['product_id']);
+                $invoiceItem = $invoice->items->first(function ($invoiceItem) use ($item) {
+                    return (int) $invoiceItem->product_id === (int) $item['product_id']
+                        && ($invoiceItem->color ?? null) === ($item['color'] ?? null)
+                        && ($invoiceItem->size ?? null) === ($item['size'] ?? null);
+                });
 
                 if (!$invoiceItem) {
 
@@ -41,11 +44,13 @@ class ReturnInvoiceController extends Controller
                     ], 404);
                 }
 
-                $alreadyReturned = ReturnItem::where('product_id', $item['product_id'])
+                $alreadyReturnedQuery = ReturnItem::where('product_id', $item['product_id'])
+                    ->where('color', $item['color'] ?? null)
+                    ->where('size', $item['size'] ?? null)
                     ->whereHas('returnInvoice', function ($q) use ($invoice) {
                         $q->where('invoice_id', $invoice->id);
-                    })
-                    ->sum('quantity');
+                    });
+                $alreadyReturned = $alreadyReturnedQuery->sum('quantity');
 
                 $remaining = $invoiceItem->quantity - $alreadyReturned;
 
@@ -90,15 +95,22 @@ class ReturnInvoiceController extends Controller
 
             foreach ($request->items as $item) {
 
-                $invoiceItem = $invoice->items
-                    ->where('product_id', $item['product_id'])
-                    ->firstOrFail();
+                $invoiceItem = $invoice->items->first(function ($invoiceItem) use ($item) {
+                    return (int) $invoiceItem->product_id === (int) $item['product_id']
+                        && ($invoiceItem->color ?? null) === ($item['color'] ?? null)
+                        && ($invoiceItem->size ?? null) === ($item['size'] ?? null);
+                });
+                if (!$invoiceItem) {
+                    abort(404, "المنتج باللون والمقاس المحددين غير موجود في الفاتورة");
+                }
 
                 $product = Product::findOrFail($item['product_id']);
 
                 $return->items()->create([
                     'product_id'   => $product->id,
                     'product_name' => $product->name,
+                    'color'        => $invoiceItem->color ?? ($item['color'] ?? null),
+                    'size'         => $invoiceItem->size ?? ($item['size'] ?? null),
                     'quantity'     => $item['quantity'],
                     'price'        => $invoiceItem->price,
                     'total'        => $invoiceItem->price * $item['quantity'],
