@@ -10,4 +10,5 @@ class ManufacturingOrder extends BaseModel
     public function inspections() { return $this->hasMany(ManufacturingQualityInspection::class); }
     public function inventoryMovements() { return $this->hasMany(InventoryMovement::class); }
     public function costEntries() { return $this->hasMany(ManufacturingCostEntry::class); }
+    public function operations() { return $this->hasMany(ManufacturingOrderOperation::class, 'manufacturing_order_id'); }
 }

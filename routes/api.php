@@ -257,6 +257,9 @@ Route::middleware(['auth:sanctum'])->prefix('manufacturing')->group(function () 
     Route::post('/orders', [ManufacturingController::class, 'storeOrder']);
     Route::put('/orders/{order}', [ManufacturingController::class, 'updateOrder']);
     Route::post('/orders/{order}/start', [ManufacturingController::class, 'start']);
+    Route::get('/orders/{order}/operations', [ManufacturingController::class, 'operations']);
+    Route::post('/orders/{order}/operations', [ManufacturingController::class, 'storeOperation']);
+    Route::put('/operations/{operation}', [ManufacturingController::class, 'updateOperation']);
     Route::post('/orders/{order}/complete', [ManufacturingController::class, 'complete']);
 });
 
