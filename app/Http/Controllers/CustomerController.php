@@ -86,9 +86,9 @@ class CustomerController extends BaseController
                 'number' => $invoice->invoice_number,
                 'date' => ($invoice->invoice_date ?? $invoice->created_at)?->toDateString(),
                 'total' => (float) ($invoice->net_total ?? $invoice->total_amount ?? 0),
-                'paid' => 0,
-                'due' => (float) ($invoice->net_total ?? $invoice->total_amount ?? 0),
-                'status' => 'unpaid',
+                'paid' => (float) ($invoice->paid_amount ?? 0),
+                'due' => max(0, (float) ($invoice->net_total ?? $invoice->total_amount ?? 0) - (float) ($invoice->paid_amount ?? 0)),
+                'status' => $invoice->status ?? ((float) ($invoice->paid_amount ?? 0) > 0 ? 'partial' : 'unpaid'),
                 'payments' => [],
             ]);
 

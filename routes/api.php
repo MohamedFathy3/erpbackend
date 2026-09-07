@@ -12,6 +12,7 @@ use App\Http\Controllers\ClearDataController;
 use App\Http\Controllers\ColorController;
 use App\Http\Controllers\CurrencyController;
 use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\ProductLedgerController;
 use App\Http\Controllers\DeleveryManController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\FinanceController;
@@ -232,6 +233,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/customer/index', [CustomerController::class, 'index']);
     Route::get('/customer/{customer}/statement', [CustomerController::class, 'statement']);
+    Route::post('/customer/{customer}/statement', [CustomerController::class, 'statement']);
+    Route::match(['get', 'post'], '/product/{product}/ledger', [ProductLedgerController::class, 'show']);
     Route::post('customer/restore', [CustomerController::class, 'restore']);
     Route::delete('customer/delete', [CustomerController::class, 'destroy']);
     Route::put('/customer/{id}/{column}', [CustomerController::class, 'toggle']);
