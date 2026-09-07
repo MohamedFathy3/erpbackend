@@ -3,15 +3,14 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\MorphTo;
 
-class InventoryMovement extends BaseModel
+class InventoryVariantStock extends BaseModel
 {
+    protected $table = 'inventory_variant_stocks';
     protected $guarded = ['id'];
 
     protected $casts = [
-        'quantity_delta' => 'decimal:3',
-        'balance_after' => 'decimal:3',
+        'stock' => 'decimal:3',
     ];
 
     public function product(): BelongsTo
@@ -42,20 +41,5 @@ class InventoryMovement extends BaseModel
     public function warehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class);
-    }
-
-    public function variantStock(): BelongsTo
-    {
-        return $this->belongsTo(InventoryVariantStock::class, 'inventory_variant_stock_id');
-    }
-
-    public function createdBy(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'created_by');
-    }
-
-    public function reference(): MorphTo
-    {
-        return $this->morphTo();
     }
 }

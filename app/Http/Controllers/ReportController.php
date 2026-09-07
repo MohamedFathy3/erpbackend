@@ -19,10 +19,11 @@ class ReportController extends Controller
             'branch:id,name',
             'warehouse:id,name',
             'createdBy:id,name',
+            'variantStock:id,identity_key,stock',
         ]);
 
         $this->applyBranchScope($query, $filters);
-        foreach (['product_id', 'product_unit_id', 'size_id', 'color_id', 'warehouse_id', 'movement_type'] as $field) {
+        foreach (['product_id', 'product_unit_id', 'size_id', 'color_id', 'branch_id', 'warehouse_id', 'movement_type'] as $field) {
             if (!empty($filters[$field])) {
                 $query->where($field, $filters[$field]);
             }
