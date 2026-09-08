@@ -43,11 +43,22 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\WarehouseController;
 use App\Http\Controllers\WorkflowController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\SuperAdminTenantController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth:sanctum'])->get('/user', function (Request $request) {
     return $request->user();
+});
+
+Route::middleware(['auth:sanctum', 'resolve.tenant'])->group(function () {
+    Route::get('/me/enabled-modules', [SuperAdminTenantController::class, 'enabledModules']);
+    Route::prefix('super-admin')->group(function () {
+        Route::get('/tenants', [SuperAdminTenantController::class, 'index']);
+        Route::post('/tenants', [SuperAdminTenantController::class, 'store']);
+        Route::get('/tenants/{tenant}/modules', [SuperAdminTenantController::class, 'modules']);
+        Route::patch('/tenants/{tenant}/modules/{moduleKey}', [SuperAdminTenantController::class, 'updateModule']);
+    });
 });
 
 Route::post('login', [UserController::class, 'login']);

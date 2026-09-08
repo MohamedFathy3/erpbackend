@@ -23,6 +23,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'verified' => \App\Http\Middleware\EnsureEmailIsVerified::class,
             'api' => ForceJsonResponse::class,
+            'resolve.tenant' => \App\Http\Middleware\ResolveTenant::class,
+            'module' => \App\Http\Middleware\CheckModuleEnabled::class,
         ]);
 
         //
