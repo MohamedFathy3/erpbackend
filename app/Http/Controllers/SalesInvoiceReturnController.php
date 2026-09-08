@@ -187,6 +187,9 @@ class SalesInvoiceReturnController extends Controller
                 'note' => 'nullable|string|max:500',
                 'items' => 'required|array|min:1',
                 'items.*.product_id' => 'required|exists:products,id',
+                'items.*.product_unit_id' => 'nullable|exists:product_units,id',
+                'items.*.color_id' => 'nullable|exists:colors,id',
+                'items.*.size' => 'nullable|string|max:100',
                 'items.*.quantity' => 'required|integer|min:1',
                 'items.*.price' => 'required|numeric|min:0',
                 'items.*.reason' => 'required|in:defective,wrong_item,damaged,customer_change,other',
@@ -262,6 +265,9 @@ class SalesInvoiceReturnController extends Controller
                 SalesInvoiceReturnItem::create([
                     'sales_invoice_return_id' => $return->id,
                     'product_id' => $item['product_id'],
+                    'product_unit_id' => $item['product_unit_id'] ?? null,
+                    'color_id' => $item['color_id'] ?? null,
+                    'size' => $item['size'] ?? null,
                     'quantity' => $item['quantity'],
                     'price' => $item['price'],
                     'total' => $item['quantity'] * $item['price'],
@@ -270,10 +276,7 @@ class SalesInvoiceReturnController extends Controller
                     'tax' => $item['tax'] ?? 0,
                 ]);
 
-                $product = Product::find($item['product_id']);
-                if ($product) {
-                    $product->increment('stock', $item['quantity']);
-                }
+                $this->increaseVariantStock($item);
             }
 
             // ✅ الفلوس تخرج من الخزينة
@@ -432,16 +435,16 @@ class SalesInvoiceReturnController extends Controller
                 SalesInvoiceReturnItem::create([
                     'sales_invoice_return_id' => $return->id,
                     'product_id' => $item['product_id'],
+                    'product_unit_id' => $item['product_unit_id'] ?? null,
+                    'color_id' => $item['color_id'] ?? null,
+                    'size' => $item['size'] ?? null,
                     'quantity' => $item['quantity'],
                     'price' => $item['price'],
                     'total' => $item['quantity'] * $item['price'],
                     'reason' => $item['reason'],
                 ]);
 
-                $product = Product::find($item['product_id']);
-                if ($product) {
-                    $product->increment('stock', $item['quantity']);
-                }
+                $this->increaseVariantStock($item);
             }
 
             // ✅ 2️⃣ نقصان الخزينة
@@ -510,6 +513,24 @@ class SalesInvoiceReturnController extends Controller
                 'message' => $e->getMessage(),
                 'status' => 500,
             ], 500);
+        }
+    }
+
+    private function increaseVariantStock(array $item): void
+    {
+        $quantity = (float) $item['quantity'];
+        $product = Product::find($item['product_id']);
+        if ($product) {
+            $product->increment('stock', $quantity);
+        }
+
+        if (!empty($item['product_unit_id']) && !empty($item['color_id'])) {
+            $variant = DB::table('product_unit_colors')
+                ->where('product_unit_id', $item['product_unit_id'])
+                ->where('color_id', $item['color_id']);
+            if ($variant->exists()) {
+                $variant->increment('stock', $quantity);
+            }
         }
     }
 

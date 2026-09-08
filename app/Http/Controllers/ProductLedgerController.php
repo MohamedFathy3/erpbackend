@@ -58,6 +58,25 @@ class ProductLedgerController extends Controller
                 ];
             });
 
+        $purchases = $product->purchaseInvoiceItems()
+            ->with(['purchaseInvoice.supplier', 'purchaseInvoice.warehouse'])
+            ->when($from, fn ($q) => $q->whereHas('purchaseInvoice', fn ($i) => $i->whereDate('invoice_date', '>=', $from)))
+            ->when($to, fn ($q) => $q->whereHas('purchaseInvoice', fn ($i) => $i->whereDate('invoice_date', '<=', $to)))
+            ->get()->map(function ($item) {
+                $invoice = $item->purchaseInvoice;
+                $total = (float) ($item->total_price ?? $item->total ?? ((float) $item->quantity * (float) ($item->unit_price ?? $item->price)));
+                return [
+                    'id' => $item->id, 'source' => 'purchase', 'type' => 'purchase',
+                    'date' => ($invoice->invoice_date ?? $invoice->created_at)?->toDateString(),
+                    'reference' => $invoice->invoice_number ?? $invoice->id, 'invoice_id' => $invoice->id,
+                    'supplier' => $invoice->supplier?->only(['id', 'name', 'name_ar', 'phone']),
+                    'warehouse' => $invoice->warehouse?->only(['id', 'name']),
+                    'quantity' => (float) ($item->quantity ?? 0),
+                    'unit_price' => (float) ($item->unit_price ?? $item->price ?? 0),
+                    'total' => $total, 'status' => $invoice->status ?? null,
+                ];
+            });
+
         $movements = $product->inventoryMovements()->with('warehouse')
             ->when($from, fn ($q) => $q->whereDate('created_at', '>=', $from))
             ->when($to, fn ($q) => $q->whereDate('created_at', '<=', $to))
@@ -71,16 +90,20 @@ class ProductLedgerController extends Controller
             ]);
 
         $salesRows = $sales->concat($pos)->sortByDesc('date')->values();
+        $purchaseRows = $purchases->sortByDesc('date')->values();
         return response()->json(['status' => true, 'data' => [
             'product' => $product->only(['id', 'name', 'code', 'stock']),
             'summary' => [
                 'sold_quantity' => (float) $salesRows->sum('quantity'),
+                'purchased_quantity' => (float) $purchaseRows->sum('quantity'),
                 'sales_total' => (float) $salesRows->sum('total'),
+                'purchases_total' => (float) $purchaseRows->sum('total'),
                 'paid_total' => (float) $salesRows->sum('paid'),
                 'due_total' => (float) $salesRows->sum('due'),
                 'movement_count' => $movements->count(),
             ],
             'sales' => $salesRows,
+            'purchases' => $purchaseRows,
             'movements' => $movements->values(),
         ]]);
     }
