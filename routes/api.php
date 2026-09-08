@@ -12,6 +12,7 @@ use App\Http\Controllers\ClearDataController;
 use App\Http\Controllers\ColorController;
 use App\Http\Controllers\CurrencyController;
 use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\CrmController;
 use App\Http\Controllers\ProductLedgerController;
 use App\Http\Controllers\DeleveryManController;
 use App\Http\Controllers\EmployeeController;
@@ -256,6 +257,30 @@ Route::post('/customers/import', [CustomerController::class, 'importCustomers'])
 
 Route::middleware(['auth:sanctum'])->get('/workflow/transactions', [WorkflowController::class, 'index']);
 Route::middleware(['auth:sanctum'])->get('/dashboard/summary', [DashboardController::class, 'summary']);
+
+Route::middleware(['auth:sanctum', 'resolve.tenant', 'module:crm'])->prefix('crm')->group(function () {
+    Route::get('/dashboard', [CrmController::class, 'dashboard']);
+    Route::get('/pipeline-stages', [CrmController::class, 'stages']);
+    Route::post('/pipeline-stages', [CrmController::class, 'storeStage']);
+    Route::put('/pipeline-stages/{pipelineStage}', [CrmController::class, 'updateStage']);
+    Route::delete('/pipeline-stages/{pipelineStage}', [CrmController::class, 'destroyStage']);
+    Route::get('/leads', [CrmController::class, 'leads']);
+    Route::post('/leads', [CrmController::class, 'storeLead']);
+    Route::get('/leads/{lead}', [CrmController::class, 'showLead']);
+    Route::put('/leads/{lead}', [CrmController::class, 'updateLead']);
+    Route::delete('/leads/{lead}', [CrmController::class, 'destroyLead']);
+    Route::get('/deals', [CrmController::class, 'deals']);
+    Route::post('/deals', [CrmController::class, 'storeDeal']);
+    Route::get('/deals/{deal}', [CrmController::class, 'showDeal']);
+    Route::put('/deals/{deal}', [CrmController::class, 'updateDeal']);
+    Route::delete('/deals/{deal}', [CrmController::class, 'destroyDeal']);
+    Route::post('/deals/{deal}/move-stage', [CrmController::class, 'moveStage']);
+    Route::get('/activities', [CrmController::class, 'activities']);
+    Route::post('/activities', [CrmController::class, 'storeActivity']);
+    Route::get('/activities/{activity}', [CrmController::class, 'showActivity']);
+    Route::put('/activities/{activity}', [CrmController::class, 'updateActivity']);
+    Route::delete('/activities/{activity}', [CrmController::class, 'destroyActivity']);
+});
 
 Route::middleware(['auth:sanctum'])->prefix('manufacturing')->group(function () {
     Route::get('/dashboard', [ManufacturingController::class, 'dashboard']);

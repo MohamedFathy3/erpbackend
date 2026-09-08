@@ -1,0 +1,17 @@
+<?php
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration {
+    public function up(): void {
+        Schema::create('pipeline_stages', function (Blueprint $table) { $table->id(); $table->foreignId('tenant_id')->constrained()->cascadeOnDelete(); $table->string('name'); $table->string('name_ar')->nullable(); $table->unsignedInteger('sort_order')->default(0); $table->boolean('is_won')->default(false); $table->boolean('is_lost')->default(false); $table->timestamps(); $table->unique(['tenant_id','name']); });
+        Schema::create('leads', function (Blueprint $table) { $table->id(); $table->foreignId('tenant_id')->constrained()->cascadeOnDelete(); $table->string('name'); $table->string('company')->nullable(); $table->string('email')->nullable(); $table->string('phone')->nullable(); $table->string('source')->nullable(); $table->string('status')->default('new'); $table->foreignId('assigned_to')->nullable()->constrained('admins')->nullOnDelete(); $table->foreignId('customer_id')->nullable()->constrained('customers')->nullOnDelete(); $table->timestamp('converted_at')->nullable(); $table->text('notes')->nullable(); $table->timestamps(); $table->index(['tenant_id','status']); });
+        Schema::create('deals', function (Blueprint $table) { $table->id(); $table->foreignId('tenant_id')->constrained()->cascadeOnDelete(); $table->string('title'); $table->decimal('value', 15, 2)->default(0); $table->foreignId('stage_id')->constrained('pipeline_stages')->cascadeOnDelete(); $table->foreignId('lead_id')->nullable()->constrained('leads')->nullOnDelete(); $table->foreignId('customer_id')->nullable()->constrained('customers')->nullOnDelete(); $table->foreignId('assigned_to')->nullable()->constrained('admins')->nullOnDelete(); $table->date('expected_close_date')->nullable(); $table->text('notes')->nullable(); $table->timestamps(); $table->index(['tenant_id','stage_id']); });
+        Schema::create('crm_activities', function (Blueprint $table) { $table->id(); $table->foreignId('tenant_id')->constrained()->cascadeOnDelete(); $table->string('type')->default('note'); $table->string('subject')->nullable(); $table->text('body')->nullable(); $table->timestamp('occurred_at')->useCurrent(); $table->foreignId('created_by')->nullable()->constrained('admins')->nullOnDelete(); $table->foreignId('lead_id')->nullable()->constrained('leads')->cascadeOnDelete(); $table->foreignId('deal_id')->nullable()->constrained('deals')->cascadeOnDelete(); $table->foreignId('customer_id')->nullable()->constrained('customers')->cascadeOnDelete(); $table->timestamps(); $table->index(['tenant_id','occurred_at']); });
+        $tenantIds = DB::table('tenants')->pluck('id');
+        foreach ($tenantIds as $tenantId) foreach ([['New','جديد',1,false,false],['Contacted','تم التواصل',2,false,false],['Proposal','عرض سعر',3,false,false],['Negotiation','تفاوض',4,false,false],['Won','مغلق - فوز',5,true,false],['Lost','مغلق - خسارة',6,false,true]] as $stage) DB::table('pipeline_stages')->insert(['tenant_id'=>$tenantId,'name'=>$stage[0],'name_ar'=>$stage[1],'sort_order'=>$stage[2],'is_won'=>$stage[3],'is_lost'=>$stage[4],'created_at'=>now(),'updated_at'=>now()]);
+    }
+    public function down(): void { Schema::dropIfExists('crm_activities'); Schema::dropIfExists('deals'); Schema::dropIfExists('leads'); Schema::dropIfExists('pipeline_stages'); }
+};
