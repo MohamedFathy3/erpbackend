@@ -26,10 +26,14 @@ return Application::configure(basePath: dirname(__DIR__))
             'resolve.tenant' => \App\Http\Middleware\ResolveTenant::class,
             'module' => \App\Http\Middleware\CheckModuleEnabled::class,
             'permission' => \App\Http\Middleware\CheckPermission::class,
+            'subscription' => \App\Http\Middleware\EnsureTenantSubscriptionActive::class,
         ]);
 
         //
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //
+    })
+    ->withSchedule(function (\Illuminate\Console\Scheduling\Schedule $schedule) {
+        $schedule->command('trials:process')->dailyAt('01:00')->withoutOverlapping();
     })->create();

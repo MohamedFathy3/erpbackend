@@ -49,6 +49,9 @@ use App\Http\Controllers\WarehouseController;
 use App\Http\Controllers\WorkflowController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\SuperAdminTenantController;
+use App\Http\Controllers\TrialSignupController;
+use App\Http\Controllers\TrialManagementController;
+use App\Http\Controllers\PublicContactController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -56,13 +59,20 @@ Route::middleware(['auth:sanctum'])->get('/user', function (Request $request) {
     return $request->user();
 });
 
-Route::middleware(['auth:sanctum', 'resolve.tenant'])->group(function () {
+Route::post('/public/trial-signup', [TrialSignupController::class, 'store'])->middleware('throttle:signup');
+Route::post('/public/contact', [PublicContactController::class, 'store'])->middleware('throttle:signup');
+
+Route::middleware(['auth:sanctum', 'resolve.tenant', 'subscription'])->group(function () {
     Route::get('/me/enabled-modules', [SuperAdminTenantController::class, 'enabledModules']);
     Route::prefix('super-admin')->group(function () {
         Route::get('/tenants', [SuperAdminTenantController::class, 'index']);
         Route::post('/tenants', [SuperAdminTenantController::class, 'store']);
         Route::get('/tenants/{tenant}/modules', [SuperAdminTenantController::class, 'modules']);
         Route::patch('/tenants/{tenant}/modules/{moduleKey}', [SuperAdminTenantController::class, 'updateModule']);
+        Route::get('/trials', [TrialManagementController::class, 'index']);
+        Route::post('/trials/{tenant}/extend', [TrialManagementController::class, 'extend']);
+        Route::post('/trials/{tenant}/activate', [TrialManagementController::class, 'activate']);
+        Route::post('/trials/{tenant}/suspend', [TrialManagementController::class, 'suspend']);
     });
     Route::get('/me/permissions', [AdvancedAccessController::class, 'mePermissions']);
     Route::middleware('permission:roles.manage')->prefix('access-control')->group(function () {
