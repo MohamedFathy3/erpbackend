@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Traits\HasMedia;
+use App\Traits\HasAdvancedPermissions;
 use Eloquent;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -59,7 +60,7 @@ use Spatie\Activitylog\Models\Activity;
  */
 class Admin extends BaseModel
 {
-    use HasApiTokens, HasFactory, Notifiable , HasMedia;
+    use HasApiTokens, HasFactory, Notifiable , HasMedia, HasAdvancedPermissions;
 
     protected $with = [
         'media',

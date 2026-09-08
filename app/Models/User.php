@@ -4,6 +4,7 @@ namespace App\Models;
 
 
 use App\Traits\HasMedia;
+use App\Traits\HasAdvancedPermissions;
 use Eloquent;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -101,7 +102,7 @@ use Spatie\Activitylog\Traits\LogsActivity;
  */
 class User extends Authenticatable
 {
-    use HasFactory, Notifiable, HasApiTokens, LogsActivity , HasMedia ,SoftDeletes;
+    use HasFactory, Notifiable, HasApiTokens, LogsActivity , HasMedia ,SoftDeletes, HasAdvancedPermissions;
 
     protected static function booted(): void
     {

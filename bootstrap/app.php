@@ -25,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'api' => ForceJsonResponse::class,
             'resolve.tenant' => \App\Http\Middleware\ResolveTenant::class,
             'module' => \App\Http\Middleware\CheckModuleEnabled::class,
+            'permission' => \App\Http\Middleware\CheckPermission::class,
         ]);
 
         //

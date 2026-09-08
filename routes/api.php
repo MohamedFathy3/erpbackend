@@ -15,6 +15,8 @@ use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CrmController;
 use App\Http\Controllers\EmailController;
 use App\Http\Controllers\CrmAnalyticsController;
+use App\Http\Controllers\AdvancedAccessController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ProductLedgerController;
 use App\Http\Controllers\DeleveryManController;
 use App\Http\Controllers\EmployeeController;
@@ -62,6 +64,16 @@ Route::middleware(['auth:sanctum', 'resolve.tenant'])->group(function () {
         Route::get('/tenants/{tenant}/modules', [SuperAdminTenantController::class, 'modules']);
         Route::patch('/tenants/{tenant}/modules/{moduleKey}', [SuperAdminTenantController::class, 'updateModule']);
     });
+    Route::get('/me/permissions', [AdvancedAccessController::class, 'mePermissions']);
+    Route::middleware('permission:roles.manage')->prefix('access-control')->group(function () {
+        Route::get('/permissions', [AdvancedAccessController::class, 'permissions']);
+        Route::get('/roles', [AdvancedAccessController::class, 'roles']);
+        Route::put('/roles/{role}', [AdvancedAccessController::class, 'updateRole']);
+    });
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::post('/notifications/{id}/read', [NotificationController::class, 'read']);
+    Route::post('/notifications/read-all', [NotificationController::class, 'readAll']);
 });
 
 Route::post('login', [UserController::class, 'login']);
@@ -262,7 +274,7 @@ Route::middleware(['auth:sanctum'])->get('/dashboard/summary', [DashboardControl
 
 Route::middleware(['auth:sanctum', 'resolve.tenant', 'module:crm'])->prefix('crm')->group(function () {
     Route::get('/dashboard', [CrmController::class, 'dashboard']);
-    Route::get('/reports/analytics', [CrmAnalyticsController::class, 'overview']);
+    Route::get('/reports/analytics', [CrmAnalyticsController::class, 'overview'])->middleware('permission:crm.view_reports');
     Route::get('/pipeline-stages', [CrmController::class, 'stages']);
     Route::post('/pipeline-stages', [CrmController::class, 'storeStage']);
     Route::put('/pipeline-stages/{pipelineStage}', [CrmController::class, 'updateStage']);
@@ -288,7 +300,7 @@ Route::middleware(['auth:sanctum', 'resolve.tenant', 'module:crm'])->prefix('crm
     Route::put('/email/templates/{emailTemplate}', [EmailController::class, 'updateTemplate']);
     Route::delete('/email/templates/{emailTemplate}', [EmailController::class, 'destroyTemplate']);
     Route::get('/email/logs', [EmailController::class, 'logs']);
-    Route::post('/customers/{customer}/send-email', [EmailController::class, 'sendToCustomer']);
+    Route::post('/customers/{customer}/send-email', [EmailController::class, 'sendToCustomer'])->middleware('permission:crm.send_email');
 });
 
 Route::middleware(['auth:sanctum'])->prefix('manufacturing')->group(function () {
