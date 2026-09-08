@@ -10,7 +10,7 @@ class EnsureTenantSubscriptionActive
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $user=$request->user();
+        $user=$request->user() ?: auth('sanctum')->user();
         if (!$user || ($user->super_admin ?? false)) return $next($request);
         $tenant=method_exists($user,'tenant') ? $user->tenant : Tenant::withoutGlobalScopes()->find($user->tenant_id ?? null);
         if (!$tenant) return response()->json(['message'=>'Tenant subscription is unavailable.'], 403);

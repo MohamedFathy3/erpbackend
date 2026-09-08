@@ -12,7 +12,7 @@ class ResolveTenant
     {
         $host=strtolower($request->getHost());
         $slug=$this->slugFromHost($host, $request);
-        $user=$request->user();
+        $user=$request->user() ?: auth('sanctum')->user();
         if ($slug) {
             $tenant=Tenant::withoutGlobalScopes()->where('slug',$slug)->first();
             if (!$tenant) return response()->json(['message'=>'Tenant workspace was not found.','code'=>'tenant_not_found'],404);
