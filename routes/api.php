@@ -13,6 +13,7 @@ use App\Http\Controllers\ColorController;
 use App\Http\Controllers\CurrencyController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CrmController;
+use App\Http\Controllers\EmailController;
 use App\Http\Controllers\ProductLedgerController;
 use App\Http\Controllers\DeleveryManController;
 use App\Http\Controllers\EmployeeController;
@@ -280,6 +281,12 @@ Route::middleware(['auth:sanctum', 'resolve.tenant', 'module:crm'])->prefix('crm
     Route::get('/activities/{activity}', [CrmController::class, 'showActivity']);
     Route::put('/activities/{activity}', [CrmController::class, 'updateActivity']);
     Route::delete('/activities/{activity}', [CrmController::class, 'destroyActivity']);
+    Route::get('/email/templates', [EmailController::class, 'templates']);
+    Route::post('/email/templates', [EmailController::class, 'storeTemplate']);
+    Route::put('/email/templates/{emailTemplate}', [EmailController::class, 'updateTemplate']);
+    Route::delete('/email/templates/{emailTemplate}', [EmailController::class, 'destroyTemplate']);
+    Route::get('/email/logs', [EmailController::class, 'logs']);
+    Route::post('/customers/{customer}/send-email', [EmailController::class, 'sendToCustomer']);
 });
 
 Route::middleware(['auth:sanctum'])->prefix('manufacturing')->group(function () {
