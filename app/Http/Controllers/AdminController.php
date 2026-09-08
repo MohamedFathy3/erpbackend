@@ -127,6 +127,7 @@ class AdminController extends BaseController
             }
 
             if (Hash::check($credentials['password'], $admin->password)) {
+                if (!($admin->super_admin ?? false) && !app()->bound('currentTenantId')) return response()->json(['message'=>'Use your tenant subdomain to sign in.','code'=>'tenant_subdomain_required'], 422);
                 activity()->performedOn($admin)->withProperties(['attributes' => $admin])->log('login');
 
                 $token = $admin->createToken('admin-token')->plainTextToken;
@@ -143,6 +144,7 @@ class AdminController extends BaseController
         $employee = Employee::where('email', $credentials['email'])->first();
 
         if ($employee && Hash::check($credentials['password'], $employee->password)) {
+            if (!app()->bound('currentTenantId')) return response()->json(['message'=>'Use your tenant subdomain to sign in.','code'=>'tenant_subdomain_required'], 422);
             $token = $employee->createToken('employee-token')->plainTextToken;
 
             return response()->json([

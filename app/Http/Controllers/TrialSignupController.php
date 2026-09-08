@@ -25,8 +25,10 @@ class TrialSignupController extends Controller
             return [$tenant,$admin];
         });
         [$tenant,$admin]=$tenant;
-        SendTrialEmail::dispatch($admin->email, 'Welcome to your 15-day ERP trial', "<h2>Welcome {$admin->name}</h2><p>Your workspace <strong>{$tenant->name}</strong> is ready.</p><p>Your free trial ends on {$tenant->trial_ends_at->toDateString()}.</p><p><a href=\"".config('app.frontend_url', config('app.url'))."/auth\">Login to your workspace</a></p>");
-        return response()->json(['message'=>'Trial workspace created successfully.','data'=>['tenant'=>$tenant->only(['id','name','slug','trial_starts_at','trial_ends_at','subscription_status']),'login_url'=>rtrim(config('app.frontend_url', config('app.url')),'/').'/auth']],201);
+        $loginUrl=$this->tenantUrl($tenant->slug).'/auth';
+        SendTrialEmail::dispatch($admin->email, 'Welcome to your 15-day ERP trial', "<h2>Welcome {$admin->name}</h2><p>Your workspace <strong>{$tenant->name}</strong> is ready.</p><p>Your free trial ends on {$tenant->trial_ends_at->toDateString()}.</p><p><a href=\"{$loginUrl}\">Login to your workspace</a></p>");
+        return response()->json(['message'=>'Trial workspace created successfully.','data'=>['tenant'=>$tenant->only(['id','name','slug','trial_starts_at','trial_ends_at','subscription_status']),'login_url'=>$loginUrl]],201);
     }
     private function uniqueSlug(string $name): string { $base=Str::slug($name) ?: 'workspace'; $slug=$base; $i=1; while (Tenant::withoutGlobalScopes()->where('slug',$slug)->exists()) $slug=$base.'-'.(++$i); return $slug; }
+    private function tenantUrl(string $slug): string { $scheme=parse_url(config('app.url'), PHP_URL_SCHEME) ?: 'https'; return $scheme.'://'.$slug.'.'.config('tenancy.root_domain'); }
 }

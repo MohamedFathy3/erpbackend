@@ -16,8 +16,10 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->api(prepend: [
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
-           SnakeCaseMiddleware::class,
+            SnakeCaseMiddleware::class,
            ForceJsonResponse::class,
+           \App\Http\Middleware\ResolveTenant::class,
+           \App\Http\Middleware\EnsureTenantSubscriptionActive::class,
         ]);
 
         $middleware->alias([

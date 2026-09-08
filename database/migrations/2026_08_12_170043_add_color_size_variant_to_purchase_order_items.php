@@ -19,17 +19,17 @@ return new class extends Migration
             // }
             
             if (!Schema::hasColumn('purchase_order_items', 'product_variant_id')) {
-                $table->unsignedBigInteger('product_variant_id')->nullable()->after('size_id');
+                $table->unsignedBigInteger('product_variant_id')->nullable()->after('color_id');
             }
             
             // ✅ إضافة indices (من غير foreign keys)
-            if (!Schema::hasColumn('purchase_order_items', 'color_id')) {
+            if (Schema::hasColumn('purchase_order_items', 'color_id')) {
                 $table->index('color_id');
             }
-            if (!Schema::hasColumn('purchase_order_items', 'size_id')) {
+            if (Schema::hasColumn('purchase_order_items', 'size_id')) {
                 $table->index('size_id');
             }
-            if (!Schema::hasColumn('purchase_order_items', 'product_variant_id')) {
+            if (Schema::hasColumn('purchase_order_items', 'product_variant_id')) {
                 $table->index('product_variant_id');
             }
         });
