@@ -13,6 +13,7 @@ use App\Http\Controllers\ColorController;
 use App\Http\Controllers\CurrencyController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CrmController;
+use App\Http\Controllers\CrmEmailController;
 use App\Http\Controllers\ProductLedgerController;
 use App\Http\Controllers\DeleveryManController;
 use App\Http\Controllers\EmployeeController;
@@ -666,4 +667,13 @@ Route::middleware(['auth:sanctum', 'module.enabled:crm'])->prefix('crm')->group(
     Route::post('/deals/{deal}/move-stage', [CrmController::class, 'moveDeal']);
     Route::get('/activities', [CrmController::class, 'activities']);
     Route::post('/activities', [CrmController::class, 'storeActivity']);
+});
+
+
+// Phase 3: CRM email integration.
+Route::middleware(['auth:sanctum', 'module.enabled:email'])->prefix('crm/email')->group(function () {
+    Route::get('/templates', [CrmEmailController::class, 'templates']);
+    Route::post('/templates', [CrmEmailController::class, 'storeTemplate']);
+    Route::get('/logs', [CrmEmailController::class, 'logs']);
+    Route::post('/customers/{customer}/send', [CrmEmailController::class, 'sendToCustomer']);
 });
