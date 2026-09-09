@@ -44,6 +44,7 @@ use App\Http\Controllers\UnitController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WarehouseController;
 use App\Http\Controllers\WorkflowController;
+use App\Http\Controllers\SuperAdminTenantController;
 use App\Http\Controllers\DashboardController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -251,10 +252,10 @@ Route::middleware(['auth:sanctum', 'branch.scope'])->group(function () {
 });
 Route::post('/customers/import', [CustomerController::class, 'importCustomers']);
 
-Route::middleware(['auth:sanctum'])->get('/workflow/transactions', [WorkflowController::class, 'index']);
+Route::middleware(['auth:sanctum', 'module.enabled:workflow'])->get('/workflow/transactions', [WorkflowController::class, 'index']);
 Route::middleware(['auth:sanctum'])->get('/dashboard/summary', [DashboardController::class, 'summary']);
 
-Route::middleware(['auth:sanctum'])->prefix('manufacturing')->group(function () {
+Route::middleware(['auth:sanctum', 'module.enabled:manufacturing'])->prefix('manufacturing')->group(function () {
     Route::get('/dashboard', [ManufacturingController::class, 'dashboard']);
     Route::get('/boms', [ManufacturingController::class, 'boms']);
     Route::post('/boms', [ManufacturingController::class, 'storeBom']);
@@ -274,7 +275,7 @@ Route::middleware(['auth:sanctum'])->prefix('manufacturing')->group(function () 
     Route::post('/orders/{order}/complete', [ManufacturingController::class, 'complete']);
 });
 
-Route::middleware(['auth:sanctum'])->prefix('projects')->group(function () {
+Route::middleware(['auth:sanctum', 'module.enabled:projects'])->prefix('projects')->group(function () {
     Route::get('/dashboard', [ProjectController::class, 'dashboard']);
     Route::get('/', [ProjectController::class, 'index']);
     Route::post('/', [ProjectController::class, 'store']);
@@ -625,7 +626,7 @@ Route::get('/journal-entries/reports', [JournalEntryController::class, 'reports'
 
 
 //////////////////////////////////////// reports ////////////////////////////////
-Route::middleware(['auth:sanctum', 'branch.scope'])->group(function () {
+Route::middleware(['auth:sanctum', 'branch.scope', 'module.enabled:reports'])->group(function () {
     Route::post('reports/inventory-movements', [ReportController::class, 'inventoryMovements']);
     Route::post('reports/shifts', [ReportController::class, 'shifts']);
 });
@@ -637,3 +638,14 @@ Route::get('activity-logs', [ActivityLogController::class, 'index']);
 //////////////////////////////////////// clearAll ////////////////////////////////
 Route::delete('clear-all', [ActivityLogController::class, 'clearAll']);
 //////////////////////////////////////// clearAll ////////////////////////////////
+
+
+// Phase 1: tenant module controls and current tenant module list.
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::get('/me/enabled-modules', [SuperAdminTenantController::class, 'enabledModules']);
+    Route::middleware('module.enabled:super_admin')->prefix('super-admin')->group(function () {
+        Route::get('/tenants', [SuperAdminTenantController::class, 'tenants']);
+        Route::get('/tenants/{tenant}/modules', [SuperAdminTenantController::class, 'modules']);
+        Route::patch('/tenants/{tenant}/modules/{moduleKey}', [SuperAdminTenantController::class, 'updateModule']);
+    });
+});

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\BranchScope;
+use App\Http\Middleware\CheckModuleEnabled;
 use App\Http\Middleware\ForceJsonResponse;
 use App\Http\Middleware\SnakeCaseMiddleware;
 use Illuminate\Foundation\Application;
@@ -25,6 +26,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'verified' => \App\Http\Middleware\EnsureEmailIsVerified::class,
             'api' => ForceJsonResponse::class,
             'branch.scope' => BranchScope::class,
+            'module.enabled' => CheckModuleEnabled::class,
         ]);
 
         //
