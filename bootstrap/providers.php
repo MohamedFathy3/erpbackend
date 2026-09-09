@@ -3,5 +3,7 @@
 return [
     App\Providers\AppServiceProvider::class,
     App\Providers\RepositoryServiceProvider::class,
-    App\Providers\TelescopeServiceProvider::class,
+    ...(class_exists(\Laravel\Telescope\TelescopeApplicationServiceProvider::class)
+        ? [App\Providers\TelescopeServiceProvider::class]
+        : []),
 ];
