@@ -34,14 +34,21 @@ class GoogleCalendarService
         return $client;
     }
 
-    public function authorizationUrl(string $state): string
-    {
-        return $this->client()->createAuthUrl() . '&state=' . urlencode($state);
-    }
-
-    public function exchangeCode(string $code): array
+    public function authorizationUrl(string $state, ?string $redirectUri = null): string
     {
         $client = $this->client();
+        if ($redirectUri) {
+            $client->setRedirectUri($redirectUri);
+        }
+        return $client->createAuthUrl() . '&state=' . urlencode($state);
+    }
+
+    public function exchangeCode(string $code, ?string $redirectUri = null): array
+    {
+        $client = $this->client();
+        if ($redirectUri) {
+            $client->setRedirectUri($redirectUri);
+        }
         $token = $client->fetchAccessTokenWithAuthCode($code);
         if (isset($token['error'])) {
             throw new RuntimeException($token['error_description'] ?? $token['error']);

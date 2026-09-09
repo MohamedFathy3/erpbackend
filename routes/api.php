@@ -16,6 +16,7 @@ use App\Http\Controllers\CrmController;
 use App\Http\Controllers\CrmEmailController;
 use App\Http\Controllers\WhatsappController;
 use App\Http\Controllers\GoogleIntegrationController;
+use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\TaskController;
 use App\Http\Controllers\ProductLedgerController;
 use App\Http\Controllers\DeleveryManController;
@@ -94,6 +95,8 @@ Route::middleware(['auth:sanctum', 'branch.scope'])->group(function () {
     });
     Route::apiResource('admin', AdminController::class);
 Route::post('/admin/login', [AdminController::class, 'login']);
+Route::get('/auth/google/url', [GoogleAuthController::class, 'url']);
+Route::get('/auth/google/callback', [GoogleAuthController::class, 'callback']);
 Route::post('/sales-representative/login', [SalesRepresentativeAuthController::class, 'login']);
 Route::middleware(['auth:sanctum'])->prefix('sales-representative')->group(function () {
     Route::get('/me', [SalesRepresentativeAuthController::class, 'me']);

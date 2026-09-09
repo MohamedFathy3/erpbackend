@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\CalendarEvent;
 use App\Models\GoogleConnection;
-use App\Models\User;
+use App\Models\Admin;
 use App\Services\GoogleCalendarService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -39,7 +39,8 @@ class GoogleIntegrationController extends Controller
             abort_if(!$request->filled('code') || !$request->filled('state'), 422, 'Missing Google OAuth callback parameters.');
             $state = json_decode(Crypt::decryptString((string) $request->string('state')), true, 512, JSON_THROW_ON_ERROR);
             abort_if(($state['issued_at'] ?? 0) < now()->subMinutes(10)->timestamp, 403, 'Google OAuth state expired.');
-            $user = User::query()->findOrFail((int) $state['user_id']);
+            // The ERP authenticates admins, not the legacy users table.
+            $user = Admin::query()->findOrFail((int) $state['user_id']);
             $result = $this->google->exchangeCode((string) $request->string('code'));
             $token = $result['token'];
             $profile = $result['profile'];
