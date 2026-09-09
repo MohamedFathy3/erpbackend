@@ -14,6 +14,7 @@ use App\Http\Controllers\CurrencyController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CrmController;
 use App\Http\Controllers\CrmEmailController;
+use App\Http\Controllers\WhatsappController;
 use App\Http\Controllers\ProductLedgerController;
 use App\Http\Controllers\DeleveryManController;
 use App\Http\Controllers\EmployeeController;
@@ -676,4 +677,11 @@ Route::middleware(['auth:sanctum', 'module.enabled:email'])->prefix('crm/email')
     Route::post('/templates', [CrmEmailController::class, 'storeTemplate']);
     Route::get('/logs', [CrmEmailController::class, 'logs']);
     Route::post('/customers/{customer}/send', [CrmEmailController::class, 'sendToCustomer']);
+});
+// Phase 4: official Meta WhatsApp Business Cloud API integration.
+Route::get('/integrations/whatsapp/webhook', [WhatsappController::class, 'verifyWebhook']);
+Route::post('/integrations/whatsapp/webhook', [WhatsappController::class, 'webhook']);
+Route::middleware(['auth:sanctum', 'module.enabled:whatsapp'])->prefix('crm')->group(function () {
+    Route::post('/customers/{customer}/send-whatsapp', [WhatsappController::class, 'sendToCustomer']);
+    Route::post('/customers/{customer}/verify-whatsapp-number', [WhatsappController::class, 'verifyNumber']);
 });
