@@ -9,6 +9,7 @@ class WhatsappMessage extends BaseModel
     protected $guarded = ['id'];
 
     protected $casts = [
+        'payload' => 'array',
         'meta_response' => 'array',
         'sent_at' => 'datetime',
         'delivered_at' => 'datetime',

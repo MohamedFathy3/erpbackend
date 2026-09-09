@@ -21,6 +21,11 @@ class WhatsAppCloudApiService
 
     public function sendTemplate(string $to, string $name, string $languageCode, array $components = []): Response
     {
+        // The UI may send {body: {parameters: [...]}}; Meta expects a list of components.
+        if (isset($components['body']) && is_array($components['body'])) {
+            $components = [['type' => 'body'] + $components['body']];
+        }
+
         return $this->send([
             'messaging_product' => 'whatsapp',
             'recipient_type' => 'individual',
