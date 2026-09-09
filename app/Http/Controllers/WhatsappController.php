@@ -36,9 +36,10 @@ class WhatsappController extends Controller
             'template_name' => 'required_if:type,template|string|max:512',
             'language_code' => 'required_if:type,template|string|max:35',
             'components' => 'nullable|array',
+            'phone' => 'nullable|string|max:30',
         ]);
 
-        $to = $this->normalizedPhone($customer->phone);
+        $to = $this->normalizedPhone($data['phone'] ?? $customer->phone);
         if (!$to) {
             throw ValidationException::withMessages(['phone' => 'Customer phone must be a valid E.164 number.']);
         }
