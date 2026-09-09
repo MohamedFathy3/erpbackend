@@ -8,6 +8,31 @@ use RuntimeException;
 
 class WhatsAppCloudApiService
 {
+    public function templates(): array
+    {
+        $businessAccountId = config('whatsapp.business_account_id');
+        $token = config('whatsapp.access_token');
+        $version = config('whatsapp.graph_version', 'v23.0');
+
+        if (!$businessAccountId || !$token) {
+            throw new RuntimeException('WhatsApp Cloud API is not configured.');
+        }
+
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->timeout((int) config('whatsapp.timeout', 15))
+            ->get("https://graph.facebook.com/{$version}/{$businessAccountId}/message_templates", [
+                'fields' => 'name,status,language,category,components',
+                'limit' => 250,
+            ]);
+
+        if (!$response->successful()) {
+            throw new RuntimeException('Meta templates error: ' . $response->body());
+        }
+
+        return $response->json('data', []);
+    }
+
     public function sendText(string $to, string $body): Response
     {
         return $this->send([

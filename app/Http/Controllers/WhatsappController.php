@@ -28,6 +28,11 @@ class WhatsappController extends Controller
         return response()->json(['data' => $query->paginate($request->integer('per_page', 25))]);
     }
 
+    public function templates()
+    {
+        return response()->json(['data' => $this->whatsapp->templates()]);
+    }
+
     public function sendToCustomer(Request $request, Customer $customer)
     {
         $data = $request->validate([
