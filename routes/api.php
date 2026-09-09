@@ -15,6 +15,7 @@ use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CrmController;
 use App\Http\Controllers\CrmEmailController;
 use App\Http\Controllers\WhatsappController;
+use App\Http\Controllers\GoogleIntegrationController;
 use App\Http\Controllers\ProductLedgerController;
 use App\Http\Controllers\DeleveryManController;
 use App\Http\Controllers\EmployeeController;
@@ -685,4 +686,13 @@ Route::middleware(['auth:sanctum', 'module.enabled:whatsapp'])->prefix('crm')->g
     Route::get('/whatsapp/messages', [WhatsappController::class, 'messages']);
     Route::post('/customers/{customer}/send-whatsapp', [WhatsappController::class, 'sendToCustomer']);
     Route::post('/customers/{customer}/verify-whatsapp-number', [WhatsappController::class, 'verifyNumber']);
+});
+// Phase 5: Google OAuth 2.0 and Calendar integration.
+Route::get('/integrations/google/callback', [GoogleIntegrationController::class, 'callback']);
+Route::middleware(['auth:sanctum', 'module.enabled:google_calendar'])->prefix('integrations/google')->group(function () {
+    Route::get('/auth-url', [GoogleIntegrationController::class, 'authUrl']);
+    Route::get('/status', [GoogleIntegrationController::class, 'status']);
+    Route::post('/disconnect', [GoogleIntegrationController::class, 'disconnect']);
+    Route::get('/events', [GoogleIntegrationController::class, 'events']);
+    Route::post('/events', [GoogleIntegrationController::class, 'storeEvent']);
 });
