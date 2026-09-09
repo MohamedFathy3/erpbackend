@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\SalesInvoice;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 
 class ProductLedgerController extends Controller
 {
@@ -28,7 +29,7 @@ class ProductLedgerController extends Controller
                 $itemDue = $invoiceTotal > 0 ? round($invoiceDue * ($total / $invoiceTotal), 2) : $total;
                 return [
                     'id' => $item->id, 'source' => 'sales', 'type' => 'sale',
-                    'date' => ($invoice?->invoice_date ?? $invoice?->created_at ?? $item->created_at)?->toDateString(),
+                    'date' => $this->dateOnly($invoice?->invoice_date ?? $invoice?->created_at ?? $item->created_at),
                     'reference' => $invoice?->invoice_number, 'invoice_id' => $invoice?->id,
                     'customer' => $invoice?->customer?->only(['id', 'name', 'name_ar', 'phone']),
                     'warehouse' => $invoice?->warehouse?->only(['id', 'name']),
@@ -56,7 +57,7 @@ class ProductLedgerController extends Controller
                 $due = $invoiceTotal > 0 ? round(max(0, $invoice?->remaining_amount ?? ($invoiceTotal - $paid)) * ($total / $invoiceTotal), 2) : 0;
                 return [
                     'id' => $item->id, 'source' => 'pos', 'type' => 'sale',
-                    'date' => ($invoice?->created_at ?? $item->created_at)?->toDateString(), 'reference' => $invoice?->invoice_number,
+                    'date' => $this->dateOnly($invoice?->created_at ?? $item->created_at), 'reference' => $invoice?->invoice_number,
                     'invoice_id' => $invoice?->id, 'customer' => $invoice?->customer?->only(['id', 'name', 'name_ar', 'phone']),
                     'warehouse' => null,
                     'variant' => [
@@ -80,7 +81,7 @@ class ProductLedgerController extends Controller
                 $total = (float) ($item->total_price ?? $item->total ?? ((float) $item->quantity * (float) ($item->unit_price ?? $item->price)));
                 return [
                     'id' => $item->id, 'source' => 'purchase', 'type' => 'purchase',
-                    'date' => ($invoice?->invoice_date ?? $invoice?->created_at ?? $item->created_at)?->toDateString(),
+                    'date' => $this->dateOnly($invoice?->invoice_date ?? $invoice?->created_at ?? $item->created_at),
                     'reference' => $invoice?->invoice_number ?? $invoice?->id, 'invoice_id' => $invoice?->id,
                     'supplier' => $invoice?->supplier?->only(['id', 'name', 'name_ar', 'phone']),
                     'warehouse' => $invoice?->warehouse?->only(['id', 'name']),
@@ -101,7 +102,7 @@ class ProductLedgerController extends Controller
             ->when($to, fn ($q) => $q->whereDate('created_at', '<=', $to))
             ->latest()->get()->map(fn ($movement) => [
                 'id' => $movement->id, 'source' => 'inventory', 'type' => $movement->type,
-                'date' => $movement->created_at?->toDateString(), 'reference' => $movement->reference_id,
+                'date' => $this->dateOnly($movement->created_at), 'reference' => $movement->reference_id,
                 'reference_type' => $movement->reference_type, 'invoice_id' => null, 'customer' => null,
                 'warehouse' => $movement->warehouse?->only(['id', 'name']), 'quantity' => (float) $movement->quantity,
                 'unit_cost' => (float) $movement->unit_cost, 'total_cost' => (float) $movement->total_cost,
@@ -125,5 +126,16 @@ class ProductLedgerController extends Controller
             'purchases' => $purchaseRows,
             'movements' => $movements->values(),
         ]]);
+    }
+
+    private function dateOnly(mixed $value): ?string
+    {
+        if (!$value) {
+            return null;
+        }
+
+        return $value instanceof Carbon
+            ? $value->toDateString()
+            : Carbon::parse((string) $value)->toDateString();
     }
 }
