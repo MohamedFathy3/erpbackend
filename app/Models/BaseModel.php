@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Schema;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Models\Activity;
 use Spatie\Activitylog\Traits\LogsActivity;
@@ -29,6 +30,24 @@ use Spatie\Activitylog\Traits\LogsActivity;
 class BaseModel extends Model
 {
     use SoftDeletes , LogsActivity;
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope('tenant', function (Builder $builder) {
+            $model = $builder->getModel();
+            if ($model instanceof Tenant || !Schema::hasColumn($model->getTable(), 'tenant_id')) return;
+            $user = auth()->user();
+            if ($user && ($user->super_admin ?? false)) return;
+            $tenantId = $user?->tenant_id;
+            if (!$tenantId && app()->bound('currentTenantId')) $tenantId = app('currentTenantId');
+            if ($tenantId) $builder->where($model->getTable().'.tenant_id', $tenantId);
+        });
+        static::creating(function (Model $model) {
+            if (!Schema::hasColumn($model->getTable(), 'tenant_id') || $model->tenant_id) return;
+            $actor = auth()->user();
+            if ($actor && !($actor->super_admin ?? false)) $model->tenant_id = $actor->tenant_id;
+        });
+    }
 
     public function getActivitylogOptions(): LogOptions
     {

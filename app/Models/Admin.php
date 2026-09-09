@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Traits\HasMedia;
+use App\Traits\HasAdvancedPermissions;
 use Eloquent;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -12,6 +13,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Notifications\DatabaseNotificationCollection;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Auth\MustVerifyEmail as MustVerifyEmailTrait;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\HasApiTokens;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -57,9 +60,9 @@ use Spatie\Activitylog\Models\Activity;
  * @method static Builder|Admin withoutTrashed()
  * @mixin Eloquent
  */
-class Admin extends BaseModel
+    class Admin extends BaseModel implements MustVerifyEmail
 {
-    use HasApiTokens, HasFactory, Notifiable , HasMedia;
+    use HasApiTokens, HasFactory, Notifiable, MustVerifyEmailTrait, HasMedia, HasAdvancedPermissions;
 
     protected $with = [
         'media',
@@ -81,5 +84,10 @@ class Admin extends BaseModel
     public function role(): BelongsTo
     {
         return $this->belongsTo(Role::class,'role_id');
+    }
+
+    public function tenant(): BelongsTo
+    {
+        return $this->belongsTo(Tenant::class);
     }
 }

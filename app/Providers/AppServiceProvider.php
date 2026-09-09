@@ -6,6 +6,8 @@ use Barryvdh\LaravelIdeHelper\IdeHelperServiceProvider;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Support\Facades\RateLimiter;
 use App\Http\Middleware\AdminMiddleware;
 use App\Models\Invoice;
 use App\Models\ManufacturingOrder;
@@ -36,6 +38,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        RateLimiter::for('signup', fn ($request) => Limit::perMinute(5)->by($request->ip()));
         Route::aliasMiddleware('admin', AdminMiddleware::class);
 
         $track = static function ($model, string $event): void {

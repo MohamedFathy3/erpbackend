@@ -4,6 +4,7 @@ namespace App\Models;
 
 
 use App\Traits\HasMedia;
+use App\Traits\HasAdvancedPermissions;
 use Eloquent;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -16,6 +17,7 @@ use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Notifications\DatabaseNotificationCollection;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Schema;
 use Laravel\Sanctum\HasApiTokens;
 use Laravel\Sanctum\PersonalAccessToken;
 use Spatie\Activitylog\LogOptions;
@@ -100,7 +102,23 @@ use Spatie\Activitylog\Traits\LogsActivity;
  */
 class User extends Authenticatable
 {
-    use HasFactory, Notifiable, HasApiTokens, LogsActivity , HasMedia ,SoftDeletes;
+    use HasFactory, Notifiable, HasApiTokens, LogsActivity , HasMedia ,SoftDeletes, HasAdvancedPermissions;
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope('tenant', function ($builder) {
+            if (!Schema::hasColumn($builder->getModel()->getTable(), 'tenant_id')) return;
+            $user = auth()->user();
+            if ($user && ($user->super_admin ?? false)) return;
+            $tenantId = $user?->tenant_id;
+            if (!$tenantId && app()->bound('currentTenantId')) $tenantId = app('currentTenantId');
+            if ($tenantId) $builder->where($builder->getModel()->getTable().'.tenant_id', $tenantId);
+        });
+        static::creating(function ($model) {
+            $actor = auth()->user();
+            if (!$model->tenant_id && $actor && !($actor->super_admin ?? false)) $model->tenant_id = $actor->tenant_id;
+        });
+    }
     
     protected $with = [
         'media',
@@ -151,6 +169,11 @@ class User extends Authenticatable
     public function country(): BelongsTo
     {
         return $this->belongsTo(Country::class);
+    }
+
+    public function tenant(): BelongsTo
+    {
+        return $this->belongsTo(Tenant::class);
     }
 
     public function contactPersons(): HasMany

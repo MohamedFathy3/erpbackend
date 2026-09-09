@@ -16,17 +16,26 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->api(prepend: [
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
-           SnakeCaseMiddleware::class,
+            SnakeCaseMiddleware::class,
            ForceJsonResponse::class,
+           \App\Http\Middleware\ResolveTenant::class,
+           \App\Http\Middleware\EnsureTenantSubscriptionActive::class,
         ]);
 
         $middleware->alias([
             'verified' => \App\Http\Middleware\EnsureEmailIsVerified::class,
             'api' => ForceJsonResponse::class,
+            'resolve.tenant' => \App\Http\Middleware\ResolveTenant::class,
+            'module' => \App\Http\Middleware\CheckModuleEnabled::class,
+            'permission' => \App\Http\Middleware\CheckPermission::class,
+            'subscription' => \App\Http\Middleware\EnsureTenantSubscriptionActive::class,
         ]);
 
         //
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //
+    })
+    ->withSchedule(function (\Illuminate\Console\Scheduling\Schedule $schedule) {
+        $schedule->command('trials:process')->dailyAt('01:00')->withoutOverlapping();
     })->create();

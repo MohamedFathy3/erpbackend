@@ -21,7 +21,7 @@ return [
 
     'allowed_origins' => [env('FRONTEND_URL', 'http://localhost:3000')],
 
-    'allowed_origins_patterns' => [],
+    'allowed_origins_patterns' => ['#^https?://([a-z0-9-]+\.)?'.preg_quote(env('TENANT_ROOT_DOMAIN', 'example.com'), '#').'(:\d+)?$#i'],
 
     'allowed_headers' => ['*'],
 

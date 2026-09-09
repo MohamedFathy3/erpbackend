@@ -12,6 +12,11 @@ use App\Http\Controllers\ClearDataController;
 use App\Http\Controllers\ColorController;
 use App\Http\Controllers\CurrencyController;
 use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\CrmController;
+use App\Http\Controllers\EmailController;
+use App\Http\Controllers\CrmAnalyticsController;
+use App\Http\Controllers\AdvancedAccessController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ProductLedgerController;
 use App\Http\Controllers\DeleveryManController;
 use App\Http\Controllers\EmployeeController;
@@ -43,11 +48,42 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\WarehouseController;
 use App\Http\Controllers\WorkflowController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\SuperAdminTenantController;
+use App\Http\Controllers\TrialSignupController;
+use App\Http\Controllers\TrialManagementController;
+use App\Http\Controllers\PublicContactController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth:sanctum'])->get('/user', function (Request $request) {
     return $request->user();
+});
+
+Route::post('/public/trial-signup', [TrialSignupController::class, 'store'])->middleware('throttle:signup');
+Route::post('/public/contact', [PublicContactController::class, 'store'])->middleware('throttle:signup');
+
+Route::middleware(['auth:sanctum', 'resolve.tenant', 'subscription'])->group(function () {
+    Route::get('/me/enabled-modules', [SuperAdminTenantController::class, 'enabledModules']);
+    Route::prefix('super-admin')->group(function () {
+        Route::get('/tenants', [SuperAdminTenantController::class, 'index']);
+        Route::post('/tenants', [SuperAdminTenantController::class, 'store']);
+        Route::get('/tenants/{tenant}/modules', [SuperAdminTenantController::class, 'modules']);
+        Route::patch('/tenants/{tenant}/modules/{moduleKey}', [SuperAdminTenantController::class, 'updateModule']);
+        Route::get('/trials', [TrialManagementController::class, 'index']);
+        Route::post('/trials/{tenant}/extend', [TrialManagementController::class, 'extend']);
+        Route::post('/trials/{tenant}/activate', [TrialManagementController::class, 'activate']);
+        Route::post('/trials/{tenant}/suspend', [TrialManagementController::class, 'suspend']);
+    });
+    Route::get('/me/permissions', [AdvancedAccessController::class, 'mePermissions']);
+    Route::middleware('permission:roles.manage')->prefix('access-control')->group(function () {
+        Route::get('/permissions', [AdvancedAccessController::class, 'permissions']);
+        Route::get('/roles', [AdvancedAccessController::class, 'roles']);
+        Route::put('/roles/{role}', [AdvancedAccessController::class, 'updateRole']);
+    });
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::post('/notifications/{id}/read', [NotificationController::class, 'read']);
+    Route::post('/notifications/read-all', [NotificationController::class, 'readAll']);
 });
 
 Route::post('login', [UserController::class, 'login']);
@@ -245,6 +281,37 @@ Route::post('/customers/import', [CustomerController::class, 'importCustomers'])
 
 Route::middleware(['auth:sanctum'])->get('/workflow/transactions', [WorkflowController::class, 'index']);
 Route::middleware(['auth:sanctum'])->get('/dashboard/summary', [DashboardController::class, 'summary']);
+
+Route::middleware(['auth:sanctum', 'resolve.tenant', 'module:crm'])->prefix('crm')->group(function () {
+    Route::get('/dashboard', [CrmController::class, 'dashboard']);
+    Route::get('/reports/analytics', [CrmAnalyticsController::class, 'overview'])->middleware('permission:crm.view_reports');
+    Route::get('/pipeline-stages', [CrmController::class, 'stages']);
+    Route::post('/pipeline-stages', [CrmController::class, 'storeStage']);
+    Route::put('/pipeline-stages/{pipelineStage}', [CrmController::class, 'updateStage']);
+    Route::delete('/pipeline-stages/{pipelineStage}', [CrmController::class, 'destroyStage']);
+    Route::get('/leads', [CrmController::class, 'leads']);
+    Route::post('/leads', [CrmController::class, 'storeLead']);
+    Route::get('/leads/{lead}', [CrmController::class, 'showLead']);
+    Route::put('/leads/{lead}', [CrmController::class, 'updateLead']);
+    Route::delete('/leads/{lead}', [CrmController::class, 'destroyLead']);
+    Route::get('/deals', [CrmController::class, 'deals']);
+    Route::post('/deals', [CrmController::class, 'storeDeal']);
+    Route::get('/deals/{deal}', [CrmController::class, 'showDeal']);
+    Route::put('/deals/{deal}', [CrmController::class, 'updateDeal']);
+    Route::delete('/deals/{deal}', [CrmController::class, 'destroyDeal']);
+    Route::post('/deals/{deal}/move-stage', [CrmController::class, 'moveStage']);
+    Route::get('/activities', [CrmController::class, 'activities']);
+    Route::post('/activities', [CrmController::class, 'storeActivity']);
+    Route::get('/activities/{activity}', [CrmController::class, 'showActivity']);
+    Route::put('/activities/{activity}', [CrmController::class, 'updateActivity']);
+    Route::delete('/activities/{activity}', [CrmController::class, 'destroyActivity']);
+    Route::get('/email/templates', [EmailController::class, 'templates']);
+    Route::post('/email/templates', [EmailController::class, 'storeTemplate']);
+    Route::put('/email/templates/{emailTemplate}', [EmailController::class, 'updateTemplate']);
+    Route::delete('/email/templates/{emailTemplate}', [EmailController::class, 'destroyTemplate']);
+    Route::get('/email/logs', [EmailController::class, 'logs']);
+    Route::post('/customers/{customer}/send-email', [EmailController::class, 'sendToCustomer'])->middleware('permission:crm.send_email');
+});
 
 Route::middleware(['auth:sanctum'])->prefix('manufacturing')->group(function () {
     Route::get('/dashboard', [ManufacturingController::class, 'dashboard']);
