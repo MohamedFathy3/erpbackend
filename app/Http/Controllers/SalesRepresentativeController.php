@@ -9,6 +9,7 @@ use App\Interfaces\SalesRepresentativeRepositoryInterface;
 use App\Models\SalesRepresentative;
 use Exception;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 
 class SalesRepresentativeController extends BaseController
 {
@@ -37,7 +38,9 @@ class SalesRepresentativeController extends BaseController
     public function store(SalesRepresentativeRequest $request)
     {
         try {
-            $salesRepresentative = $this->crudRepository->create($request->validated());
+            $data = $request->validated();
+            $data['password'] = Hash::make($data['password']);
+            $salesRepresentative = $this->crudRepository->create($data);
             return new SalesRepresentativeResource($salesRepresentative);
         } catch (Exception $e) {
             return JsonResponse::respondError($e->getMessage());
@@ -57,7 +60,13 @@ class SalesRepresentativeController extends BaseController
     public function update(SalesRepresentativeRequest $request, SalesRepresentative $salesRepresentative)
     {
         try {
-            $this->crudRepository->update($request->validated(), $salesRepresentative->id);
+            $data = $request->validated();
+            if (!empty($data['password'])) {
+                $data['password'] = Hash::make($data['password']);
+            } else {
+                unset($data['password']);
+            }
+            $this->crudRepository->update($data, $salesRepresentative->id);
             activity()->performedOn($salesRepresentative)->withProperties(['attributes' => $salesRepresentative])->log('update');
             return JsonResponse::respondSuccess(trans(JsonResponse::MSG_UPDATED_SUCCESSFULLY));
         } catch (Exception $e) {

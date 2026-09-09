@@ -34,6 +34,7 @@ use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SalesInvoiceController;
 use App\Http\Controllers\SalesInvoiceReturnController;
 use App\Http\Controllers\SalesRepresentativeController;
+use App\Http\Controllers\SalesRepresentativeAuthController;
 use App\Http\Controllers\SuppliersController;
 use App\Http\Controllers\TaxController;
 use App\Http\Controllers\TransferController;
@@ -86,6 +87,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
     Route::apiResource('admin', AdminController::class);
 Route::post('/admin/login', [AdminController::class, 'login']);
+Route::post('/sales-representative/login', [SalesRepresentativeAuthController::class, 'login']);
+Route::middleware(['auth:sanctum'])->prefix('sales-representative')->group(function () {
+    Route::get('/me', [SalesRepresentativeAuthController::class, 'me']);
+    Route::post('/logout', [SalesRepresentativeAuthController::class, 'logout']);
+    Route::get('/dashboard', [SalesRepresentativeAuthController::class, 'dashboard']);
+});
 ////////////////////////////////////////// Admin ////////////////////////////////
 ////////////////////////////////////////// Admin ////////////////////////////////
 

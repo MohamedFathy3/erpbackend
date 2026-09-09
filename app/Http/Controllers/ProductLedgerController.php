@@ -16,7 +16,7 @@ class ProductLedgerController extends Controller
         $to = $request->date('to');
 
         $sales = $product->loadMissing('media')->salesInvoiceItems()
-            ->with(['salesInvoice.customer', 'salesInvoice.warehouse'])
+            ->with(['salesInvoice.customer', 'salesInvoice.warehouse', 'unit', 'color'])
             ->when($from, fn ($q) => $q->whereHas('salesInvoice', fn ($i) => $i->whereDate('invoice_date', '>=', $from)))
             ->when($to, fn ($q) => $q->whereHas('salesInvoice', fn ($i) => $i->whereDate('invoice_date', '<=', $to)))
             ->get()->map(function ($item) {
@@ -32,6 +32,12 @@ class ProductLedgerController extends Controller
                     'reference' => $invoice->invoice_number, 'invoice_id' => $invoice->id,
                     'customer' => $invoice->customer?->only(['id', 'name', 'name_ar', 'phone']),
                     'warehouse' => $invoice->warehouse?->only(['id', 'name']),
+                    'variant' => [
+                        'product_unit_id' => $item->product_unit_id,
+                        'size' => $item->unit?->name ?? $item->unit?->name_ar,
+                        'color_id' => $item->color_id,
+                        'color' => $item->color?->name ?? $item->color?->name_ar,
+                    ],
                     'quantity' => (float) ($item->quantity ?? 0), 'unit_price' => (float) ($item->price ?? 0),
                     'total' => $total, 'paid' => max(0, $total - $itemDue), 'due' => $itemDue,
                     'status' => $invoice->status,
@@ -39,7 +45,7 @@ class ProductLedgerController extends Controller
             });
 
         $pos = $product->invoiceItems()
-            ->with(['invoice.customer'])
+            ->with(['invoice.customer', 'unit', 'color'])
             ->when($from, fn ($q) => $q->whereHas('invoice', fn ($i) => $i->whereDate('created_at', '>=', $from)))
             ->when($to, fn ($q) => $q->whereHas('invoice', fn ($i) => $i->whereDate('created_at', '<=', $to)))
             ->get()->map(function ($item) {
@@ -52,14 +58,21 @@ class ProductLedgerController extends Controller
                     'id' => $item->id, 'source' => 'pos', 'type' => 'sale',
                     'date' => $invoice->created_at?->toDateString(), 'reference' => $invoice->invoice_number,
                     'invoice_id' => $invoice->id, 'customer' => $invoice->customer?->only(['id', 'name', 'name_ar', 'phone']),
-                    'warehouse' => null, 'quantity' => (float) ($item->quantity ?? 0),
+                    'warehouse' => null,
+                    'variant' => [
+                        'product_unit_id' => $item->product_unit_id,
+                        'size' => $item->unit?->name ?? $item->unit?->name_ar,
+                        'color_id' => $item->color_id,
+                        'color' => $item->color?->name ?? $item->color?->name_ar,
+                    ],
+                    'quantity' => (float) ($item->quantity ?? 0),
                     'unit_price' => (float) ($item->price ?? 0), 'total' => $total,
                     'paid' => max(0, $total - $due), 'due' => $due, 'status' => $invoice->status,
                 ];
             });
 
         $purchases = $product->purchaseInvoiceItems()
-            ->with(['purchaseInvoice.supplier', 'purchaseInvoice.warehouse'])
+            ->with(['purchaseInvoice.supplier', 'purchaseInvoice.warehouse', 'unit', 'color'])
             ->when($from, fn ($q) => $q->whereHas('purchaseInvoice', fn ($i) => $i->whereDate('invoice_date', '>=', $from)))
             ->when($to, fn ($q) => $q->whereHas('purchaseInvoice', fn ($i) => $i->whereDate('invoice_date', '<=', $to)))
             ->get()->map(function ($item) {
@@ -71,6 +84,12 @@ class ProductLedgerController extends Controller
                     'reference' => $invoice->invoice_number ?? $invoice->id, 'invoice_id' => $invoice->id,
                     'supplier' => $invoice->supplier?->only(['id', 'name', 'name_ar', 'phone']),
                     'warehouse' => $invoice->warehouse?->only(['id', 'name']),
+                    'variant' => [
+                        'product_unit_id' => $item->product_unit_id,
+                        'size' => $item->unit?->name ?? $item->unit?->name_ar,
+                        'color_id' => $item->color_id,
+                        'color' => $item->color?->name ?? $item->color?->name_ar,
+                    ],
                     'quantity' => (float) ($item->quantity ?? 0),
                     'unit_price' => (float) ($item->unit_price ?? $item->price ?? 0),
                     'total' => $total, 'status' => $invoice->status ?? null,
