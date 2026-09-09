@@ -11,6 +11,7 @@ use App\Models\Transfer;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Services\WorkflowPostingService;
+use App\Services\InventoryMovementService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -91,10 +92,10 @@ class PurchaseInvoiceController extends Controller
                 PurchaseInvoiceItem::create([
                     'purchase_invoice_id' => $invoice->id,
                     'product_id' => $item['product_id'],
-                    // ❌ شيل product_variant_id عشان الجدول مش موجود
-                    // 'product_variant_id' => $item['product_variant_id'] ?? null,
+                    'product_variant_id' => $item['product_variant_id'] ?? null,
+                    'size_id' => $item['size_id'] ?? null,
                     'quantity' => $item['quantity'],
-                    'product_unit_id' => $item['unit_id'] ?? null,
+                    'product_unit_id' => $item['unit_id'] ?? $item['product_unit_id'] ?? null,
                     'color_id' => $item['color_id'] ?? null,
                     'price' => $item['price'],
                     'discount' => $item['discount'] ?? 0,  // ✅ النسبة المئوية
@@ -102,66 +103,26 @@ class PurchaseInvoiceController extends Controller
                     'total' => $lineTotal,  // ✅ القيمة بعد الخصم والضريبة
                 ]);
     
-                /*
-                =============================
-                تحديث product_unit_colors
-                =============================
-                */
-    
                 $productUnit = DB::table('product_units')
                     ->where('product_id', $item['product_id'])
-                    ->where('unit_id', $item['unit_id'])
+                    ->where('unit_id', $item['unit_id'] ?? $item['product_unit_id'] ?? null)
                     ->first();
-    
-                if (!$productUnit) {
-                    throw new \Exception('Product unit not found');
-                }
-    
-                $updated = DB::table('product_unit_colors')
-                    ->where('product_unit_id', $productUnit->id)
-                    ->where('color_id', $item['color_id'])
-                    ->increment('stock', $item['quantity']);
-    
-                if (!$updated) {
-                    DB::table('product_unit_colors')->insert([
-                        'product_unit_id' => $productUnit->id,
-                        'color_id' => $item['color_id'],
-                        'stock' => $item['quantity'],
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-                }
-    
-                /*
-                =============================
-                تحديث stock العام
-                =============================
-                */
-    
-                $product = Product::find($item['product_id']);
-    
-                if ($product) {
-                    $product->increment('stock', $item['quantity']);
-                }
-    
-                /*
-                =============================
-                product_warehouse
-                =============================
-                */
-    
-                $updated = DB::table('product_warehouse')
-                    ->where('product_id', $item['product_id'])
-                    ->where('warehouse_id', $request->warehouse_id)
-                    ->increment('stock', $item['quantity']);
-    
-                if (!$updated) {
-                    DB::table('product_warehouse')->insert([
-                        'product_id' => $item['product_id'],
-                        'warehouse_id' => $request->warehouse_id,
-                        'stock' => $item['quantity'],
-                    ]);
-                }
+
+                $movement = app(InventoryMovementService::class)->apply([
+                    'product_id' => $item['product_id'],
+                    'product_unit_id' => $productUnit?->id,
+                    'size_id' => $item['size_id'] ?? null,
+                    'color_id' => $item['color_id'] ?? null,
+                    'branch_id' => $request->branch_id,
+                    'warehouse_id' => $request->warehouse_id,
+                    'movement_type' => 'purchase',
+                    'quantity_delta' => $item['quantity'],
+                    'reference_type' => PurchaseInvoice::class,
+                    'reference_id' => $invoice->id,
+                    'notes' => "Purchase invoice {$invoice->invoice_number}",
+                ]);
+
+
             }        
             
             /*
@@ -187,12 +148,22 @@ class PurchaseInvoiceController extends Controller
     
                 $treasury->decrement('balance', $request->paid_amount);
     
+                TreasuryTransaction::create([
+                    'treasury_id' => $request->treasury_id,
+                    'reference_type' => PurchaseInvoice::class,
+                    'reference_id' => $invoice->id,
+                    'type' => 'out',
+                    'amount' => $request->paid_amount,
+                    'description' => "دفعة لفاتورة مشتريات رقم {$invoice->invoice_number}",
+                    'created_by' => optional(auth()->user())->id,
+                ]);
+
                 Transfer::create([
                     'type' => 'treasury_withdraw',
-                    'treasury_id' => $request->treasury_id,
-                    'purchase_invoice_id' => $invoice->id,
+                    'from_treasury_id' => $request->treasury_id,
                     'amount' => $request->paid_amount,
                     'notes' => "دفعة لفاتورة مشتريات رقم {$invoice->invoice_number}",
+                    'created_by' => optional(auth()->user())->id,
                 ]);
             }
 
@@ -211,7 +182,8 @@ class PurchaseInvoiceController extends Controller
                         'treasury',
                         'items.product',
                         'items.unit',
-                        'items.color'
+                        'items.color',
+                        'items.size',
                     )
                 ),
                 'result' => 'Success',
@@ -249,7 +221,8 @@ class PurchaseInvoiceController extends Controller
                 'treasury',
                 'items.product',
                 'items.unit',
-                'items.color'
+                'items.color',
+                        'items.size',
             ])->findOrFail($id);
 
             return response()->json([
@@ -294,7 +267,8 @@ class PurchaseInvoiceController extends Controller
                 'treasury',
                 'items.product',
                 'items.unit',
-                'items.color'
+                'items.color',
+                        'items.size',
             ]);
 
             // تطبيق الفلاتر
@@ -575,7 +549,8 @@ class PurchaseInvoiceController extends Controller
                         'treasury',
                         'items.product',
                         'items.unit',
-                        'items.color'
+                        'items.color',
+                        'items.size',
                     )
                 ),
                 'result' => 'Success',

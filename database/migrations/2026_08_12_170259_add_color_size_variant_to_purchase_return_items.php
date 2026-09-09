@@ -14,9 +14,9 @@ return new class extends Migration
                 $table->unsignedBigInteger('color_id')->nullable()->after('product_unit_id');
             }
             
-            // if (!Schema::hasColumn('purchase_return_items', 'size_id')) {
-            //     $table->unsignedBigInteger('size_id')->nullable()->after('color_id');
-            // }
+            if (!Schema::hasColumn('purchase_return_items', 'size_id')) {
+                $table->unsignedBigInteger('size_id')->nullable()->after('color_id');
+            }
             
             if (!Schema::hasColumn('purchase_return_items', 'product_variant_id')) {
                 $table->unsignedBigInteger('product_variant_id')->nullable()->after('size_id');
@@ -38,7 +38,7 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('purchase_return_items', function (Blueprint $table) {
-            $columns = ['color_id', 'product_variant_id'];
+            $columns = ['color_id', 'size_id', 'product_variant_id'];
             foreach ($columns as $column) {
                 if (Schema::hasColumn('purchase_return_items', $column)) {
                     $table->dropColumn($column);

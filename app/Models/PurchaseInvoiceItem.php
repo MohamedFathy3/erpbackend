@@ -15,8 +15,9 @@ class PurchaseInvoiceItem extends Model
         'purchase_invoice_id',
         'product_id',
         'product_unit_id',
-        'color_id',           // ✅ جديد
-        // 'product_variant_id', // ✅ جديد
+        'color_id',
+        'size_id',
+        'product_variant_id',
         'quantity',
         'price',
         'discount',
@@ -50,5 +51,8 @@ class PurchaseInvoiceItem extends Model
         return $this->belongsTo(Color::class, 'color_id');
     }
 
-   
+    public function size()
+    {
+        return $this->belongsTo(Size::class, 'size_id');
+    }
 }
