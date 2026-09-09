@@ -12,6 +12,7 @@ use App\Http\Controllers\ClearDataController;
 use App\Http\Controllers\ColorController;
 use App\Http\Controllers\CurrencyController;
 use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\CrmController;
 use App\Http\Controllers\ProductLedgerController;
 use App\Http\Controllers\DeleveryManController;
 use App\Http\Controllers\EmployeeController;
@@ -648,4 +649,21 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/tenants/{tenant}/modules', [SuperAdminTenantController::class, 'modules']);
         Route::patch('/tenants/{tenant}/modules/{moduleKey}', [SuperAdminTenantController::class, 'updateModule']);
     });
+});
+
+
+// Phase 2: CRM module.
+Route::middleware(['auth:sanctum', 'module.enabled:crm'])->prefix('crm')->group(function () {
+    Route::get('/dashboard', [CrmController::class, 'dashboard']);
+    Route::get('/pipeline-stages', [CrmController::class, 'stages']);
+    Route::post('/pipeline-stages', [CrmController::class, 'storeStage']);
+    Route::patch('/pipeline-stages/{stage}', [CrmController::class, 'updateStage']);
+    Route::get('/leads', [CrmController::class, 'leads']);
+    Route::post('/leads', [CrmController::class, 'storeLead']);
+    Route::patch('/leads/{lead}', [CrmController::class, 'updateLead']);
+    Route::get('/deals', [CrmController::class, 'deals']);
+    Route::post('/deals', [CrmController::class, 'storeDeal']);
+    Route::post('/deals/{deal}/move-stage', [CrmController::class, 'moveDeal']);
+    Route::get('/activities', [CrmController::class, 'activities']);
+    Route::post('/activities', [CrmController::class, 'storeActivity']);
 });
