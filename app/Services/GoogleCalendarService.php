@@ -40,7 +40,8 @@ class GoogleCalendarService
         if ($redirectUri) {
             $client->setRedirectUri($redirectUri);
         }
-        return $client->createAuthUrl() . '&state=' . urlencode($state);
+        $client->setState($state);
+        return $client->createAuthUrl();
     }
 
     public function exchangeCode(string $code, ?string $redirectUri = null): array
