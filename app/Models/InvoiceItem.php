@@ -18,4 +18,14 @@ class InvoiceItem extends Model
         return $this->belongsTo(Product::class, 'product_id');
     }
 
+    public function unit()
+    {
+        return $this->belongsTo(Unit::class, 'product_unit_id');
+    }
+
+    public function color()
+    {
+        return $this->belongsTo(Color::class, 'color_id');
+    }
+
 }
