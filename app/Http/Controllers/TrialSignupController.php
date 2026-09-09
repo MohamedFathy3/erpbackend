@@ -25,6 +25,7 @@ class TrialSignupController extends Controller
             return [$tenant,$admin];
         });
         [$tenant,$admin]=$tenant;
+        $admin->sendEmailVerificationNotification();
         $loginUrl=$this->tenantUrl($tenant->slug).'/auth';
         SendTrialEmail::dispatch($admin->email, 'Welcome to your 15-day ERP trial', "<h2>Welcome {$admin->name}</h2><p>Your workspace <strong>{$tenant->name}</strong> is ready.</p><p>Your free trial ends on {$tenant->trial_ends_at->toDateString()}.</p><p><a href=\"{$loginUrl}\">Login to your workspace</a></p>");
         return response()->json(['message'=>'Trial workspace created successfully.','data'=>['tenant'=>$tenant->only(['id','name','slug','trial_starts_at','trial_ends_at','subscription_status']),'login_url'=>$loginUrl]],201);

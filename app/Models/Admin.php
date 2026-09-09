@@ -13,6 +13,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Notifications\DatabaseNotificationCollection;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Auth\MustVerifyEmail as MustVerifyEmailTrait;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\HasApiTokens;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -58,9 +60,9 @@ use Spatie\Activitylog\Models\Activity;
  * @method static Builder|Admin withoutTrashed()
  * @mixin Eloquent
  */
-class Admin extends BaseModel
+    class Admin extends BaseModel implements MustVerifyEmail
 {
-    use HasApiTokens, HasFactory, Notifiable , HasMedia, HasAdvancedPermissions;
+    use HasApiTokens, HasFactory, Notifiable, MustVerifyEmailTrait, HasMedia, HasAdvancedPermissions;
 
     protected $with = [
         'media',
