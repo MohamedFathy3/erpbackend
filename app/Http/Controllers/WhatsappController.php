@@ -14,6 +14,20 @@ class WhatsappController extends Controller
 {
     public function __construct(private readonly WhatsAppCloudApiService $whatsapp) {}
 
+    public function messages(Request $request)
+    {
+        $query = WhatsappMessage::query()->with('customer')->latest();
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->string('status'));
+        }
+        if ($request->filled('customer_id')) {
+            $query->where('customer_id', $request->integer('customer_id'));
+        }
+
+        return response()->json(['data' => $query->paginate($request->integer('per_page', 25))]);
+    }
+
     public function sendToCustomer(Request $request, Customer $customer)
     {
         $data = $request->validate([

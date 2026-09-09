@@ -682,6 +682,7 @@ Route::middleware(['auth:sanctum', 'module.enabled:email'])->prefix('crm/email')
 Route::get('/integrations/whatsapp/webhook', [WhatsappController::class, 'verifyWebhook']);
 Route::post('/integrations/whatsapp/webhook', [WhatsappController::class, 'webhook']);
 Route::middleware(['auth:sanctum', 'module.enabled:whatsapp'])->prefix('crm')->group(function () {
+    Route::get('/whatsapp/messages', [WhatsappController::class, 'messages']);
     Route::post('/customers/{customer}/send-whatsapp', [WhatsappController::class, 'sendToCustomer']);
     Route::post('/customers/{customer}/verify-whatsapp-number', [WhatsappController::class, 'verifyNumber']);
 });
