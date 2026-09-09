@@ -78,6 +78,11 @@ class Admin extends BaseModel
     ];
 
 
+    public function tenant(): BelongsTo
+    {
+        return $this->belongsTo(Tenant::class);
+    }
+
     public function role(): BelongsTo
     {
         return $this->belongsTo(Role::class,'role_id');
