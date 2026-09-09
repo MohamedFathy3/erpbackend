@@ -22,16 +22,16 @@ class ProductLedgerController extends Controller
             ->get()->map(function ($item) {
                 $invoice = $item->salesInvoice;
                 $total = (float) ($item->total ?? ((float) $item->quantity * (float) $item->price));
-                $invoiceTotal = (float) ($invoice->net_total ?? $invoice->total_amount ?? 0);
-                $paid = (float) ($invoice->paid_amount ?? 0);
+                $invoiceTotal = (float) ($invoice?->net_total ?? $invoice?->total_amount ?? 0);
+                $paid = (float) ($invoice?->paid_amount ?? 0);
                 $invoiceDue = max(0, $invoiceTotal - $paid);
                 $itemDue = $invoiceTotal > 0 ? round($invoiceDue * ($total / $invoiceTotal), 2) : $total;
                 return [
                     'id' => $item->id, 'source' => 'sales', 'type' => 'sale',
-                    'date' => ($invoice->invoice_date ?? $invoice->created_at)?->toDateString(),
-                    'reference' => $invoice->invoice_number, 'invoice_id' => $invoice->id,
-                    'customer' => $invoice->customer?->only(['id', 'name', 'name_ar', 'phone']),
-                    'warehouse' => $invoice->warehouse?->only(['id', 'name']),
+                    'date' => ($invoice?->invoice_date ?? $invoice?->created_at ?? $item->created_at)?->toDateString(),
+                    'reference' => $invoice?->invoice_number, 'invoice_id' => $invoice?->id,
+                    'customer' => $invoice?->customer?->only(['id', 'name', 'name_ar', 'phone']),
+                    'warehouse' => $invoice?->warehouse?->only(['id', 'name']),
                     'variant' => [
                         'product_unit_id' => $item->product_unit_id,
                         'size' => $item->unit?->name ?? $item->unit?->name_ar,
@@ -40,7 +40,7 @@ class ProductLedgerController extends Controller
                     ],
                     'quantity' => (float) ($item->quantity ?? 0), 'unit_price' => (float) ($item->price ?? 0),
                     'total' => $total, 'paid' => max(0, $total - $itemDue), 'due' => $itemDue,
-                    'status' => $invoice->status,
+                    'status' => $invoice?->status,
                 ];
             });
 
@@ -51,13 +51,13 @@ class ProductLedgerController extends Controller
             ->get()->map(function ($item) {
                 $invoice = $item->invoice;
                 $total = (float) ($item->total ?? ((float) $item->quantity * (float) $item->price));
-                $invoiceTotal = (float) ($invoice->total_amount ?? 0);
-                $paid = (float) ($invoice->paid_amount ?? 0);
-                $due = $invoiceTotal > 0 ? round(max(0, $invoice->remaining_amount ?? ($invoiceTotal - $paid)) * ($total / $invoiceTotal), 2) : 0;
+                $invoiceTotal = (float) ($invoice?->total_amount ?? 0);
+                $paid = (float) ($invoice?->paid_amount ?? 0);
+                $due = $invoiceTotal > 0 ? round(max(0, $invoice?->remaining_amount ?? ($invoiceTotal - $paid)) * ($total / $invoiceTotal), 2) : 0;
                 return [
                     'id' => $item->id, 'source' => 'pos', 'type' => 'sale',
-                    'date' => $invoice->created_at?->toDateString(), 'reference' => $invoice->invoice_number,
-                    'invoice_id' => $invoice->id, 'customer' => $invoice->customer?->only(['id', 'name', 'name_ar', 'phone']),
+                    'date' => ($invoice?->created_at ?? $item->created_at)?->toDateString(), 'reference' => $invoice?->invoice_number,
+                    'invoice_id' => $invoice?->id, 'customer' => $invoice?->customer?->only(['id', 'name', 'name_ar', 'phone']),
                     'warehouse' => null,
                     'variant' => [
                         'product_unit_id' => $item->product_unit_id,
@@ -67,7 +67,7 @@ class ProductLedgerController extends Controller
                     ],
                     'quantity' => (float) ($item->quantity ?? 0),
                     'unit_price' => (float) ($item->price ?? 0), 'total' => $total,
-                    'paid' => max(0, $total - $due), 'due' => $due, 'status' => $invoice->status,
+                    'paid' => max(0, $total - $due), 'due' => $due, 'status' => $invoice?->status,
                 ];
             });
 
@@ -80,10 +80,10 @@ class ProductLedgerController extends Controller
                 $total = (float) ($item->total_price ?? $item->total ?? ((float) $item->quantity * (float) ($item->unit_price ?? $item->price)));
                 return [
                     'id' => $item->id, 'source' => 'purchase', 'type' => 'purchase',
-                    'date' => ($invoice->invoice_date ?? $invoice->created_at)?->toDateString(),
-                    'reference' => $invoice->invoice_number ?? $invoice->id, 'invoice_id' => $invoice->id,
-                    'supplier' => $invoice->supplier?->only(['id', 'name', 'name_ar', 'phone']),
-                    'warehouse' => $invoice->warehouse?->only(['id', 'name']),
+                    'date' => ($invoice?->invoice_date ?? $invoice?->created_at ?? $item->created_at)?->toDateString(),
+                    'reference' => $invoice?->invoice_number ?? $invoice?->id, 'invoice_id' => $invoice?->id,
+                    'supplier' => $invoice?->supplier?->only(['id', 'name', 'name_ar', 'phone']),
+                    'warehouse' => $invoice?->warehouse?->only(['id', 'name']),
                     'variant' => [
                         'product_unit_id' => $item->product_unit_id,
                         'size' => $item->unit?->name ?? $item->unit?->name_ar,
@@ -92,7 +92,7 @@ class ProductLedgerController extends Controller
                     ],
                     'quantity' => (float) ($item->quantity ?? 0),
                     'unit_price' => (float) ($item->unit_price ?? $item->price ?? 0),
-                    'total' => $total, 'status' => $invoice->status ?? null,
+                    'total' => $total, 'status' => $invoice?->status,
                 ];
             });
 
