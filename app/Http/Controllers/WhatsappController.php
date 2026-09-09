@@ -62,21 +62,23 @@ class WhatsappController extends Controller
                 ? $this->whatsapp->sendText($to, $data['body'])
                 : $this->whatsapp->sendTemplate($to, $data['template_name'], $data['language_code'], $data['components'] ?? []);
 
+            $providerResponse = $response->json() ?: ['http_status' => $response->status(), 'body' => $response->body()];
             $message->update([
                 'status' => $response->successful() ? 'sent' : 'failed',
                 'provider_message_id' => data_get($response->json(), 'messages.0.id'),
-                'meta_response' => $response->json(),
+                'meta_response' => $providerResponse,
                 'sent_at' => $response->successful() ? now() : null,
                 'failed_at' => $response->successful() ? null : now(),
                 'error_code' => data_get($response->json(), 'error.code'),
-                'error_message' => data_get($response->json(), 'error.message'),
+                'error_message' => data_get($response->json(), 'error.message') ?: (!$response->successful() ? "Meta HTTP {$response->status()}: {$response->body()}" : null),
             ]);
         } catch (\Throwable $e) {
             $message->update(['status' => 'failed', 'failed_at' => now(), 'error_message' => $e->getMessage()]);
             throw $e;
         }
 
-        return response()->json(['data' => $message->fresh()], $message->status === 'sent' ? 201 : 422);
+        $freshMessage = $message->fresh();
+        return response()->json(['data' => $freshMessage, 'message' => $freshMessage->error_message], $message->status === 'sent' ? 201 : 422);
     }
 
     public function verifyNumber(Request $request, Customer $customer)
