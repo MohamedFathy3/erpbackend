@@ -16,6 +16,7 @@ use App\Http\Controllers\CrmController;
 use App\Http\Controllers\CrmEmailController;
 use App\Http\Controllers\WhatsappController;
 use App\Http\Controllers\GoogleIntegrationController;
+use App\Http\Controllers\TaskController;
 use App\Http\Controllers\ProductLedgerController;
 use App\Http\Controllers\DeleveryManController;
 use App\Http\Controllers\EmployeeController;
@@ -695,4 +696,15 @@ Route::middleware(['auth:sanctum', 'module.enabled:google_calendar'])->prefix('i
     Route::post('/disconnect', [GoogleIntegrationController::class, 'disconnect']);
     Route::get('/events', [GoogleIntegrationController::class, 'events']);
     Route::post('/events', [GoogleIntegrationController::class, 'storeEvent']);
+});
+// Phase 6: Tasks, reminders, and in-app notifications.
+Route::middleware(['auth:sanctum', 'module.enabled:tasks'])->prefix('tasks')->group(function () {
+    Route::get('/', [TaskController::class, 'index']);
+    Route::post('/', [TaskController::class, 'store']);
+    Route::get('/notifications', [TaskController::class, 'notifications']);
+    Route::patch('/notifications/{notification}/read', [TaskController::class, 'markNotificationRead']);
+    Route::get('/{task}', [TaskController::class, 'show']);
+    Route::patch('/{task}', [TaskController::class, 'update']);
+    Route::delete('/{task}', [TaskController::class, 'destroy']);
+    Route::post('/{task}/reminders', [TaskController::class, 'addReminder']);
 });
