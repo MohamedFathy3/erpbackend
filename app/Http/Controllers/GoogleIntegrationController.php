@@ -62,7 +62,7 @@ class GoogleIntegrationController extends Controller
             return redirect()->to($redirect . (str_contains($redirect, '?') ? '&' : '?') . 'google=connected');
         } catch (\Throwable $e) {
             report($e);
-            return redirect()->to($redirect . (str_contains($redirect, '?') ? '&' : '?') . 'google=error');
+            return redirect()->to($redirect . (str_contains($redirect, '?') ? '&' : '?') . 'google=error&reason=' . urlencode($e->getMessage()));
         }
     }
 
