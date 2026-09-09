@@ -6,6 +6,7 @@ use App\Models\Reminder;
 use App\Models\TaskNotification;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 
 class DispatchTaskReminders extends Command
 {
@@ -29,8 +30,16 @@ class DispatchTaskReminders extends Command
                     return;
                 }
 
-                DB::transaction(function () use ($reminder, $task, $user, &$count): void {
-                    if ($reminder->channel === 'in-app') {
+                try {
+                    DB::transaction(function () use ($reminder, $task, $user, &$count): void {
+                    if ($reminder->channel === 'email') {
+                        if (!$user->email) {
+                            throw new \RuntimeException('Task assignee has no email address.');
+                        }
+                        Mail::raw("تذكير بالمهمة\n\n{$task->title}\n\n{$task->description}", function ($message) use ($user, $task): void {
+                            $message->to($user->email, $user->name)->subject("تذكير بالمهمة: {$task->title}");
+                        });
+                    } elseif ($reminder->channel === 'in-app') {
                         TaskNotification::create([
                             'tenant_id' => $task->tenant_id,
                             'user_id' => $user->id,
@@ -40,11 +49,13 @@ class DispatchTaskReminders extends Command
                             'message' => $task->title,
                         ]);
                     }
-                    // Email/WhatsApp delivery is intentionally recorded as dispatched here;
-                    // provider-specific jobs can be attached without changing the reminder contract.
                     $reminder->update(['status' => 'sent', 'notified_at' => now()]);
                     $count++;
-                });
+                    });
+                } catch (\Throwable $exception) {
+                    $reminder->update(['status' => 'failed', 'failure_reason' => $exception->getMessage()]);
+                    $this->error("Reminder {$reminder->id} failed: {$exception->getMessage()}");
+                }
             });
 
         $this->info("Dispatched {$count} reminder(s).");
