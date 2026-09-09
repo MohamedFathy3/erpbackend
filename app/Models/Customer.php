@@ -11,6 +11,7 @@ class Customer extends BaseModel
 
     protected $casts = [
         'active' => 'boolean',
+        'whatsapp_last_inbound_at' => 'datetime',
     ];
 
     public function invoices()
