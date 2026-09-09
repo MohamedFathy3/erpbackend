@@ -56,7 +56,7 @@ class SalesRepresentativeAuthController extends Controller
         $to = $request->date('to');
 
         $invoices = SalesInvoice::query()
-            ->with(['customer:id,name,name_ar', 'salesRepresentative:id,name,commission_rate'])
+            ->with(['customer:id,name', 'salesRepresentative:id,name,commission_rate'])
             ->where('sales_representative_id', $representative->id)
             ->when($from, fn ($query) => $query->whereDate('invoice_date', '>=', $from))
             ->when($to, fn ($query) => $query->whereDate('invoice_date', '<=', $to))
