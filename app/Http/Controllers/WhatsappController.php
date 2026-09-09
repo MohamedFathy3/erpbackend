@@ -54,7 +54,7 @@ class WhatsappController extends Controller
             'type' => $data['type'],
             'template_name' => $data['template_name'] ?? null,
             'status' => 'pending',
-            'payload' => $data,
+            'payload' => json_encode($data, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
         ]);
 
         try {
@@ -102,7 +102,7 @@ class WhatsappController extends Controller
                 'type' => 'template',
                 'template_name' => $data['template_name'],
                 'status' => 'pending',
-                'payload' => $data,
+                'payload' => json_encode($data, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
             ]);
             $response = $this->whatsapp->sendTemplate($phone, $data['template_name'], $data['language_code'], $data['components'] ?? []);
             $result['availability_checked'] = true;
