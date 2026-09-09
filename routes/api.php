@@ -102,6 +102,7 @@ Route::middleware(['auth:sanctum'])->prefix('sales-representative')->group(funct
     Route::get('/me', [SalesRepresentativeAuthController::class, 'me']);
     Route::post('/logout', [SalesRepresentativeAuthController::class, 'logout']);
     Route::get('/dashboard', [SalesRepresentativeAuthController::class, 'dashboard']);
+    Route::post('/customers', [SalesRepresentativeAuthController::class, 'storeCustomer']);
 });
 ////////////////////////////////////////// Admin ////////////////////////////////
 ////////////////////////////////////////// Admin ////////////////////////////////

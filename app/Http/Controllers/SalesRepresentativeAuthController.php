@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\SalesInvoice;
 use App\Models\SalesInvoiceReturn;
 use App\Models\SalesRepresentative;
+use App\Models\Customer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
@@ -100,6 +101,20 @@ class SalesRepresentativeAuthController extends Controller
                 'returns' => $returns->values(),
             ],
         ]);
+    }
+
+    public function storeCustomer(Request $request)
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'phone' => ['nullable', 'string', 'max:50'],
+            'email' => ['nullable', 'email', 'max:255'],
+            'address' => ['nullable', 'string', 'max:1000'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+        $data['tenant_id'] = $request->user()->tenant_id;
+        $data['active'] = true;
+        return response()->json(['data' => Customer::create($data)], 201);
     }
 
     private function representative(Request $request): SalesRepresentative
