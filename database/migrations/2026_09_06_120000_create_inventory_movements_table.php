@@ -29,7 +29,7 @@ return new class extends Migration
             $table->text('notes')->nullable();
             $table->timestamps();
 
-            $table->index(['product_id', 'product_unit_id', 'size_id', 'color_id']);
+            $table->index(['product_id', 'product_unit_id', 'size_id', 'color_id'], 'inv_mov_product_variant_idx');
             $table->index(['branch_id', 'warehouse_id', 'created_at']);
             $table->index(['reference_type', 'reference_id']);
         });
