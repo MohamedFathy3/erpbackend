@@ -93,6 +93,8 @@ Route::middleware(['auth:sanctum', 'resolve.tenant', 'subscription'])->group(fun
 
 Route::post('login', [UserController::class, 'login']);
 Route::post('logout', [UserController::class, 'logout'])->middleware('auth:sanctum');
+// Public registration creates a new trial workspace and its first admin.
+Route::post('/admin', [AdminController::class, 'store'])->middleware('throttle:signup');
 Route::post('application-form', [UserController::class, 'applicationForm']);
 Route::post('/log/index', [UserController::class, 'logIndex']);
 Route::get('/user-total-count-country', [UserController::class, 'totalCountPerCountry']);
@@ -124,8 +126,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/admin-select', [AdminController::class, 'index']);
     Route::post('/admin-logout', [AdminController::class, 'logout']);
     Route::get('/get-admin', [AdminController::class, 'getCurrentAdmin']);
+    Route::apiResource('admin', AdminController::class)->except(['store']);
     });
-    Route::apiResource('admin', AdminController::class);
 Route::post('/admin/login', [AdminController::class, 'login']);
 Route::post('/sales-representative/login', [SalesRepresentativeController::class, 'login']);
 Route::middleware('auth:sanctum')->get('/sales-representative/me', [SalesRepresentativeController::class, 'me']);
@@ -179,13 +181,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
 //////////////////////////////////////// warehouse ////////////////////////////////
 //////////////////////////////////////// warehouse ////////////////////////////////
 
-Route::get('warehouses/{warehouse}/products', [WarehouseController::class, 'warehouseProducts']);
-Route::post('warehouses/transfer', [WarehouseController::class, 'transfer']);
-Route::post('warehouses/inventory-store', [WarehouseController::class, 'inventoryStore']);
-Route::put('inventory-logs/{inventoryLog}/counted-stock', [WarehouseController::class, 'updateCountedStock']);
-Route::get('inventory-logs/{inventoryLog}', [InventoryLogController::class, 'show']);
-Route::post('/inventory/index', [InventoryLogController::class, 'index']);
-Route::post('/warehouses/index-product', [InventoryLogController::class, 'indexProduct']);
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('warehouses/{warehouse}/products', [WarehouseController::class, 'warehouseProducts']);
+    Route::post('warehouses/transfer', [WarehouseController::class, 'transfer']);
+    Route::post('warehouses/inventory-store', [WarehouseController::class, 'inventoryStore']);
+    Route::put('inventory-logs/{inventoryLog}/counted-stock', [WarehouseController::class, 'updateCountedStock']);
+    Route::get('inventory-logs/{inventoryLog}', [InventoryLogController::class, 'show']);
+    Route::post('/inventory/index', [InventoryLogController::class, 'index']);
+    Route::post('/warehouses/index-product', [InventoryLogController::class, 'indexProduct']);
+});
 
 //////////////////////////////////////// color ////////////////////////////////
 
@@ -245,9 +249,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
 });
 
-Route::get('/reports/revenue', [ProductController::class, 'getRevenueReport']);
-Route::post('/products/import', [ProductController::class, 'importProducts']);
-Route::post('/products/add-stock', [ProductController::class, 'addStock']);
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/reports/revenue', [ProductController::class, 'getRevenueReport']);
+    Route::post('/products/import', [ProductController::class, 'importProducts']);
+    Route::post('/products/add-stock', [ProductController::class, 'addStock']);
+});
 
 //////////////////////////////////////// product ////////////////////////////////
 //////////////////////////////////////// product ////////////////////////////////
@@ -284,7 +290,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('customer/force-delete', [CustomerController::class, 'forceDelete']);
     Route::apiResource('customer', CustomerController::class);
 });
-Route::post('/customers/import', [CustomerController::class, 'importCustomers']);
+Route::post('/customers/import', [CustomerController::class, 'importCustomers'])->middleware('auth:sanctum');
 
 Route::middleware(['auth:sanctum'])->get('/workflow/transactions', [WorkflowController::class, 'index']);
 Route::middleware(['auth:sanctum'])->get('/dashboard/summary', [DashboardController::class, 'summary']);

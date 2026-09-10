@@ -1,10 +1,12 @@
 <?php
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 
 class WorkflowTransaction extends Model
 {
+    use BelongsToTenant;
     protected $guarded = ['id'];
     protected $casts = ['payload' => 'array', 'occurred_at' => 'datetime'];
 

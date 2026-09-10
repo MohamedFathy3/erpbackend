@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 use App\Models\Unit;
 use App\Models\Color;
@@ -10,6 +11,7 @@ use App\Models\PurchaseInvoice;
 
 class PurchaseInvoiceItem extends Model
 {
+    use BelongsToTenant;
     // ✅ أضف الأعمدة الجديدة في $fillable
     protected $fillable = [
         'purchase_invoice_id',

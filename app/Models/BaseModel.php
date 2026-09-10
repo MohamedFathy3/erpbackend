@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Schema;
+use LogicException;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Models\Activity;
 use Spatie\Activitylog\Traits\LogsActivity;
@@ -28,7 +29,13 @@ class BaseModel extends Model
             $user = auth()->user();
             if ($user && !((bool) ($user->super_admin ?? false))) {
                 $tenantId = $user->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
-                if ($tenantId) $builder->where($model->qualifyColumn('tenant_id'), $tenantId);
+                // Fail closed: an authenticated account without a tenant must never
+                // receive rows from every workspace.
+                if ($tenantId) {
+                    $builder->where($model->qualifyColumn('tenant_id'), $tenantId);
+                } else {
+                    $builder->whereRaw('1 = 0');
+                }
             }
         });
 
@@ -38,8 +45,11 @@ class BaseModel extends Model
             }
 
             $user = auth()->user();
-            if ($user && !((bool) ($user->super_admin ?? false)) && $user->tenant_id) {
-                $model->tenant_id = $user->tenant_id;
+            $tenantId = $user?->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
+            if ($user && !((bool) ($user->super_admin ?? false)) && $tenantId) {
+                $model->tenant_id = $tenantId;
+            } elseif ($user && !((bool) ($user->super_admin ?? false))) {
+                throw new LogicException('Cannot create a tenant-owned record without a tenant.');
             }
         });
     }

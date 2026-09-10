@@ -9,9 +9,13 @@ use App\Http\Resources\EmployeeResource;
 use App\Interfaces\AdminRepositoryInterface;
 use App\Models\Admin;
 use App\Models\Employee;
+use App\Models\Tenant;
+use App\Models\TenantModule;
 use Exception;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 class AdminController extends BaseController
 {
@@ -39,7 +43,44 @@ class AdminController extends BaseController
     public function store(AdminRequest $request)
     {
         try {
-            $admin = $this->crudRepository->create($request->validated());
+            $data = $request->validated();
+            $actor = $request->user();
+
+            if ($actor && !($actor->super_admin ?? false)) {
+                $data['tenant_id'] = $actor->tenant_id;
+            } elseif (!$actor) {
+                // The public registration endpoint is a workspace signup, not a
+                // way to create an unscoped admin in the shared database.
+                $tenant = DB::transaction(function () use ($data): Tenant {
+                    $baseSlug = Str::slug($data['name'] ?? Str::before($data['email'], '@')) ?: 'workspace';
+                    $slug = $baseSlug;
+                    $suffix = 1;
+                    while (Tenant::withoutGlobalScopes()->where('slug', $slug)->exists()) {
+                        $slug = $baseSlug . '-' . (++$suffix);
+                    }
+                    $tenant = Tenant::withoutGlobalScopes()->create([
+                        'name' => $data['name'] ?? $slug,
+                        'slug' => $slug,
+                        'status' => 'trial',
+                        'plan' => 'trial',
+                        'trial_starts_at' => now(),
+                        'trial_ends_at' => now()->addDays(15),
+                        'subscription_status' => 'trial',
+                    ]);
+                    foreach (TenantModule::available() as $moduleKey) {
+                        TenantModule::withoutGlobalScopes()->create([
+                            'tenant_id' => $tenant->id,
+                            'module_key' => $moduleKey,
+                            'is_enabled' => true,
+                        ]);
+                    }
+                    return $tenant;
+                });
+                $data['tenant_id'] = $tenant->id;
+                $data['super_admin'] = false;
+            }
+
+            $admin = $this->crudRepository->create($data);
             if (request('logo') !== null) {
                 $this->crudRepository->AddMediaCollection('logo', $admin,'logo');
             }

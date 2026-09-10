@@ -20,6 +20,7 @@ use Illuminate\Notifications\DatabaseNotificationCollection;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Schema;
+use LogicException;
 use Laravel\Sanctum\HasApiTokens;
 use Laravel\Sanctum\PersonalAccessToken;
 use Spatie\Activitylog\LogOptions;
@@ -114,11 +115,19 @@ class User extends Authenticatable implements CanResetPasswordContract
             if ($user && ($user->super_admin ?? false)) return;
             $tenantId = $user?->tenant_id;
             if (!$tenantId && app()->bound('currentTenantId')) $tenantId = app('currentTenantId');
-            if ($tenantId) $builder->where($builder->getModel()->getTable().'.tenant_id', $tenantId);
+            if ($tenantId) {
+                $builder->where($builder->getModel()->getTable().'.tenant_id', $tenantId);
+            } else {
+                $builder->whereRaw('1 = 0');
+            }
         });
         static::creating(function ($model) {
             $actor = auth()->user();
-            if (!$model->tenant_id && $actor && !($actor->super_admin ?? false)) $model->tenant_id = $actor->tenant_id;
+            $tenantId = $actor?->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
+            if (!$model->tenant_id && $actor && !($actor->super_admin ?? false) && $tenantId) $model->tenant_id = $tenantId;
+            if ($actor && !($actor->super_admin ?? false) && !$model->tenant_id) {
+                throw new LogicException('Cannot create a tenant-owned user without a tenant.');
+            }
         });
     }
     
