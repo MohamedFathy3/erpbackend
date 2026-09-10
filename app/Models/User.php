@@ -124,8 +124,15 @@ class User extends Authenticatable implements CanResetPasswordContract
         static::creating(function ($model) {
             $actor = auth()->user();
             $tenantId = $actor?->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
-            if (!$model->tenant_id && $actor && !($actor->super_admin ?? false) && $tenantId) $model->tenant_id = $tenantId;
-            if ($actor && !($actor->super_admin ?? false) && !$model->tenant_id) {
+            if ($actor && ($actor->super_admin ?? false)) {
+                $requestedTenantId = request()->input('tenant_id');
+                $tenantId = $requestedTenantId ? (int) $requestedTenantId : $tenantId;
+                if ($tenantId && !Tenant::withoutGlobalScopes()->whereKey($tenantId)->exists()) {
+                    throw new LogicException('The selected tenant does not exist.');
+                }
+            }
+            if (!$model->tenant_id && $actor && $tenantId) $model->tenant_id = $tenantId;
+            if ($actor && !$model->tenant_id) {
                 throw new LogicException('Cannot create a tenant-owned user without a tenant.');
             }
         });

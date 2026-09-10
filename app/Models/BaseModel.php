@@ -46,10 +46,20 @@ class BaseModel extends Model
 
             $user = auth()->user();
             $tenantId = $user?->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
-            if ($user && !((bool) ($user->super_admin ?? false)) && $tenantId) {
+            if ($user && (bool) ($user->super_admin ?? false)) {
+                $requestedTenantId = request()->input('tenant_id');
+                $tenantId = $requestedTenantId ? (int) $requestedTenantId : $tenantId;
+                if ($tenantId && !Tenant::withoutGlobalScopes()->whereKey($tenantId)->exists()) {
+                    throw new LogicException('The selected tenant does not exist.');
+                }
+            }
+
+            if ($user && $tenantId) {
                 $model->tenant_id = $tenantId;
             } elseif ($user && !((bool) ($user->super_admin ?? false))) {
                 throw new LogicException('Cannot create a tenant-owned record without a tenant.');
+            } elseif ($user && (bool) ($user->super_admin ?? false)) {
+                throw new LogicException('Super admin must select a tenant before creating this record.');
             }
         });
     }
