@@ -3,6 +3,8 @@
 use App\Http\Middleware\BranchScope;
 use App\Http\Middleware\CheckModuleEnabled;
 use App\Http\Middleware\ForceJsonResponse;
+use App\Http\Middleware\EnsureTenantSubscriptionActive;
+use App\Http\Middleware\ResolveTenant;
 use App\Http\Middleware\SnakeCaseMiddleware;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -27,6 +29,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'api' => ForceJsonResponse::class,
             'branch.scope' => BranchScope::class,
             'module.enabled' => CheckModuleEnabled::class,
+            'resolve.tenant' => ResolveTenant::class,
+            'subscription' => EnsureTenantSubscriptionActive::class,
         ]);
 
         //
