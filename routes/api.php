@@ -52,6 +52,7 @@ use App\Http\Controllers\SuperAdminTenantController;
 use App\Http\Controllers\TrialSignupController;
 use App\Http\Controllers\TrialManagementController;
 use App\Http\Controllers\PublicContactController;
+use App\Http\Controllers\SuperAdminOverviewController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -65,6 +66,7 @@ Route::post('/public/contact', [PublicContactController::class, 'store'])->middl
 Route::middleware(['auth:sanctum', 'resolve.tenant', 'subscription'])->group(function () {
     Route::get('/me/enabled-modules', [SuperAdminTenantController::class, 'enabledModules']);
     Route::prefix('super-admin')->group(function () {
+        Route::get('/overview', [SuperAdminOverviewController::class, 'index']);
         Route::get('/tenants', [SuperAdminTenantController::class, 'index']);
         Route::post('/tenants', [SuperAdminTenantController::class, 'store']);
         Route::get('/tenants/{tenant}/modules', [SuperAdminTenantController::class, 'modules']);
