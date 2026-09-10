@@ -52,6 +52,7 @@ use App\Http\Controllers\SuperAdminTenantController;
 use App\Http\Controllers\TrialSignupController;
 use App\Http\Controllers\TrialManagementController;
 use App\Http\Controllers\PublicContactController;
+use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\SuperAdminOverviewController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -62,6 +63,8 @@ Route::middleware(['auth:sanctum'])->get('/user', function (Request $request) {
 
 Route::post('/public/trial-signup', [TrialSignupController::class, 'store'])->middleware('throttle:signup');
 Route::post('/public/contact', [PublicContactController::class, 'store'])->middleware('throttle:signup');
+Route::get('/auth/google/url', [GoogleAuthController::class, 'url'])->middleware('throttle:signup');
+Route::get('/auth/google/callback', [GoogleAuthController::class, 'callback'])->middleware('throttle:signup');
 
 Route::middleware(['auth:sanctum', 'resolve.tenant', 'subscription'])->group(function () {
     Route::get('/me/enabled-modules', [SuperAdminTenantController::class, 'enabledModules']);

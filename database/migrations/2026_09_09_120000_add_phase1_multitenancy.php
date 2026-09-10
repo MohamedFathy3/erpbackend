@@ -28,7 +28,7 @@ return new class extends Migration
 
     public function up(): void
     {
-        Schema::create('tenants', function (Blueprint $table): void {
+        if (!Schema::hasTable('tenants')) Schema::create('tenants', function (Blueprint $table): void {
             $table->id();
             $table->string('name');
             $table->string('slug')->unique();
@@ -40,7 +40,7 @@ return new class extends Migration
             $table->softDeletes();
         });
 
-        Schema::create('tenant_modules', function (Blueprint $table): void {
+        if (!Schema::hasTable('tenant_modules')) Schema::create('tenant_modules', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('tenant_id')->constrained()->cascadeOnDelete();
             $table->string('module_key');
@@ -49,7 +49,7 @@ return new class extends Migration
             $table->unique(['tenant_id', 'module_key']);
         });
 
-        DB::table('tenants')->insert([
+        DB::table('tenants')->insertOrIgnore([
             'name' => 'Default Tenant',
             'slug' => 'default',
             'status' => 'active',
@@ -77,7 +77,7 @@ return new class extends Migration
             })->update(['tenant_id' => $tenantId]);
         }
 
-        DB::table('tenant_modules')->insert(array_map(
+        DB::table('tenant_modules')->insertOrIgnore(array_map(
             fn (string $module): array => [
                 'tenant_id' => $tenantId,
                 'module_key' => $module,

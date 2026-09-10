@@ -12,6 +12,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Auth\Passwords\CanResetPassword;
+use Illuminate\Contracts\Auth\CanResetPassword as CanResetPasswordContract;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Notifications\DatabaseNotificationCollection;
@@ -100,9 +102,9 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * @method static Builder|User whereWebsite($value)
  * @mixin Eloquent
  */
-class User extends Authenticatable
+class User extends Authenticatable implements CanResetPasswordContract
 {
-    use HasFactory, Notifiable, HasApiTokens, LogsActivity , HasMedia ,SoftDeletes, HasAdvancedPermissions;
+    use HasFactory, Notifiable, HasApiTokens, LogsActivity, HasMedia, SoftDeletes, HasAdvancedPermissions, CanResetPassword;
 
     protected static function booted(): void
     {

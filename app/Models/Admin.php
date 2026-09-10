@@ -10,6 +10,8 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Auth\Authenticatable as AuthenticatableTrait;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Notifications\DatabaseNotificationCollection;
 use Illuminate\Notifications\Notifiable;
@@ -60,9 +62,9 @@ use Spatie\Activitylog\Models\Activity;
  * @method static Builder|Admin withoutTrashed()
  * @mixin Eloquent
  */
-    class Admin extends BaseModel implements MustVerifyEmail
+class Admin extends BaseModel implements Authenticatable, MustVerifyEmail
 {
-    use HasApiTokens, HasFactory, Notifiable, MustVerifyEmailTrait, HasMedia, HasAdvancedPermissions;
+    use AuthenticatableTrait, HasApiTokens, HasFactory, Notifiable, MustVerifyEmailTrait, HasMedia, HasAdvancedPermissions;
 
     protected $with = [
         'media',
