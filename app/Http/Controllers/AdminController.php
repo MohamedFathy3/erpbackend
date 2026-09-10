@@ -139,9 +139,13 @@ class AdminController extends BaseController
 
                 $token = $admin->createToken('admin-token')->plainTextToken;
 
+                $adminData = (new AdminResource($admin))->resolve($request);
+                $adminData['super_admin'] = (bool) $admin->super_admin;
+                $adminData['tenant_id'] = $admin->tenant_id;
+
                 return response()->json([
                     'type' => 'admin',
-                    'data' => new AdminResource($admin),
+                    'data' => $adminData,
                     'token' => $token,
                 ]);
             }
