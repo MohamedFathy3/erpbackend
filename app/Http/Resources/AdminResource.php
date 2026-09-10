@@ -17,6 +17,7 @@ class AdminResource extends JsonResource
         return [
             'id' => $this->id,
             'name' => $this->name,
+            'name' => $this->name,
             'email' => $this->email,
             'super_admin' => (bool) $this->super_admin,
             'tenant_id' => $this->tenant_id,
@@ -37,8 +38,6 @@ class AdminResource extends JsonResource
 
             'website' => $this->website,
             'role' => 'admin',
-            'super_admin' => (bool) $this->super_admin,
-            'tenant_id' => $this->tenant_id,
 
         ];
     }
