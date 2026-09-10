@@ -27,7 +27,8 @@ class BaseModel extends Model
 
             $user = auth()->user();
             if ($user && !((bool) ($user->super_admin ?? false))) {
-                $builder->where($model->qualifyColumn('tenant_id'), $user->tenant_id);
+                $tenantId = $user->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
+                if ($tenantId) $builder->where($model->qualifyColumn('tenant_id'), $tenantId);
             }
         });
 
@@ -40,24 +41,6 @@ class BaseModel extends Model
             if ($user && !((bool) ($user->super_admin ?? false)) && $user->tenant_id) {
                 $model->tenant_id = $user->tenant_id;
             }
-        });
-    }
-
-    protected static function booted(): void
-    {
-        static::addGlobalScope('tenant', function (Builder $builder) {
-            $model = $builder->getModel();
-            if ($model instanceof Tenant || !Schema::hasColumn($model->getTable(), 'tenant_id')) return;
-            $user = auth()->user();
-            if ($user && ($user->super_admin ?? false)) return;
-            $tenantId = $user?->tenant_id;
-            if (!$tenantId && app()->bound('currentTenantId')) $tenantId = app('currentTenantId');
-            if ($tenantId) $builder->where($model->getTable().'.tenant_id', $tenantId);
-        });
-        static::creating(function (Model $model) {
-            if (!Schema::hasColumn($model->getTable(), 'tenant_id') || $model->tenant_id) return;
-            $actor = auth()->user();
-            if ($actor && !($actor->super_admin ?? false)) $model->tenant_id = $actor->tenant_id;
         });
     }
 
