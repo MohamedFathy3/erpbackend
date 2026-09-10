@@ -13,23 +13,35 @@ use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Models\Activity;
 use Spatie\Activitylog\Traits\LogsActivity;
 
-/**
- *
- *
- * @property-read Collection<int, Activity> $activities
- * @property-read int|null $activities_count
- * @method static Builder|BaseModel filter($filters = null, $filterOperator = '=')
- * @method static Builder|BaseModel newModelQuery()
- * @method static Builder|BaseModel newQuery()
- * @method static Builder|BaseModel onlyTrashed()
- * @method static Builder|BaseModel query()
- * @method static Builder|BaseModel withTrashed()
- * @method static Builder|BaseModel withoutTrashed()
- * @mixin Eloquent
- */
 class BaseModel extends Model
 {
-    use SoftDeletes , LogsActivity;
+    use SoftDeletes, LogsActivity;
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope('tenant', function (Builder $builder): void {
+            $model = $builder->getModel();
+            if ($model instanceof Tenant || !Schema::hasColumn($model->getTable(), 'tenant_id')) {
+                return;
+            }
+
+            $user = auth()->user();
+            if ($user && !((bool) ($user->super_admin ?? false))) {
+                $builder->where($model->qualifyColumn('tenant_id'), $user->tenant_id);
+            }
+        });
+
+        static::creating(function (Model $model): void {
+            if (!Schema::hasColumn($model->getTable(), 'tenant_id') || $model instanceof Tenant || $model->tenant_id) {
+                return;
+            }
+
+            $user = auth()->user();
+            if ($user && !((bool) ($user->super_admin ?? false)) && $user->tenant_id) {
+                $model->tenant_id = $user->tenant_id;
+            }
+        });
+    }
 
     protected static function booted(): void
     {
@@ -53,20 +65,16 @@ class BaseModel extends Model
     {
         return LogOptions::defaults()->logOnly(['*'])->logOnlyDirty();
     }
-    public function scopeFilter($builder, $filters = null, $filterOperator = "=")
+
+    public function scopeFilter($builder, $filters = null, $filterOperator = '=')
     {
         if (isset($filters) && is_array($filters)) {
             foreach ($filters as $field => $value) {
-                if ($value == Constants::NULL)
-                    $builder->whereNull($field);
-                elseif ($value == Constants::NOT_NULL)
-                    $builder->whereNotNull($field);
-                elseif (is_array($value))
-                    $builder->whereIn($field, $value);
-                elseif ($filterOperator == "like")
-                    $builder->where($field, $filterOperator, '%' . $value . '%');
-                else
-                    $builder->where($field, $value);
+                if ($value == Constants::NULL) $builder->whereNull($field);
+                elseif ($value == Constants::NOT_NULL) $builder->whereNotNull($field);
+                elseif (is_array($value)) $builder->whereIn($field, $value);
+                elseif ($filterOperator == 'like') $builder->where($field, $filterOperator, '%' . $value . '%');
+                else $builder->where($field, $value);
             }
         }
         return $builder;

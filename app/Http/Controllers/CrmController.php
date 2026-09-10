@@ -1,58 +1,23 @@
 <?php
 namespace App\Http\Controllers;
-
-use App\Http\Requests\CrmActivityRequest;
-use App\Http\Requests\DealRequest;
-use App\Http\Requests\LeadRequest;
-use App\Http\Requests\PipelineStageRequest;
 use App\Models\CrmActivity;
-use App\Models\Customer;
 use App\Models\Deal;
 use App\Models\Lead;
 use App\Models\PipelineStage;
-use App\Notifications\CrmSystemNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-
 class CrmController extends Controller
 {
-    private function ensureTenantRecord($model): void { abort_unless($model, 404); }
-
-    public function dashboard()
-    {
-        $stages = PipelineStage::withCount('deals')->orderBy('sort_order')->get();
-        return response()->json(['data' => [
-            'stages' => $stages,
-            'deals_count' => Deal::count(),
-            'pipeline_value' => (float) Deal::sum('value'),
-            'won_count' => Deal::whereHas('stage', fn($q) => $q->where('is_won', true))->count(),
-            'conversion_rate' => Lead::count() ? round((Lead::where('status', 'converted')->count() / Lead::count()) * 100, 2) : 0,
-        ]]);
-    }
-
-    public function stages() { return response()->json(['data' => PipelineStage::orderBy('sort_order')->get()]); }
-    public function storeStage(PipelineStageRequest $request) { $stage = PipelineStage::create($request->validated()); return response()->json(['data'=>$stage], 201); }
-    public function updateStage(PipelineStageRequest $request, PipelineStage $pipelineStage) { $pipelineStage->update($request->validated()); return response()->json(['data'=>$pipelineStage]); }
-    public function destroyStage(PipelineStage $pipelineStage) { abort_if($pipelineStage->deals()->exists(), 422, 'Cannot delete a stage containing deals.'); $pipelineStage->delete(); return response()->json(['message'=>'deleted']); }
-
-    public function leads(Request $request) { return response()->json(['data'=>Lead::with(['customer','assignee'])->latest()->paginate($request->integer('per_page', 25))]); }
-    public function storeLead(LeadRequest $request) { $data=$request->validated(); if (!empty($data['customer_id'])) $this->ensureTenantRecord(Customer::find($data['customer_id'])); $lead=Lead::create($data); return response()->json(['data'=>$lead->load(['customer','assignee'])], 201); }
-    public function showLead(Lead $lead) { return response()->json(['data'=>$lead->load(['customer','assignee','deals.stage','activities'])]); }
-    public function updateLead(LeadRequest $request, Lead $lead) { $data=$request->validated(); if (!empty($data['customer_id'])) $this->ensureTenantRecord(Customer::find($data['customer_id'])); $lead->update($data); return response()->json(['data'=>$lead->fresh()->load(['customer','assignee'])]); }
-    public function destroyLead(Lead $lead) { $lead->delete(); return response()->json(['message'=>'deleted']); }
-
-    public function deals(Request $request) { return response()->json(['data'=>Deal::with(['stage','lead','customer','assignee'])->latest()->paginate($request->integer('per_page', 50))]); }
-    public function storeDeal(DealRequest $request) { $data=$request->validated(); $this->validateDealRelations($data); $deal=Deal::create($data)->load(['stage','lead','customer','assignee']); if ($deal->assignee) $deal->assignee->notify(new CrmSystemNotification('New CRM deal', "A new deal was assigned: {$deal->title}", 'deal', '/crm')); return response()->json(['data'=>$deal], 201); }
-    public function showDeal(Deal $deal) { return response()->json(['data'=>$deal->load(['stage','lead','customer','assignee','activities'])]); }
-    public function updateDeal(DealRequest $request, Deal $deal) { $data=$request->validated(); $this->validateDealRelations($data); $deal->update($data); return response()->json(['data'=>$deal->fresh()->load(['stage','lead','customer','assignee'])]); }
-    public function destroyDeal(Deal $deal) { $deal->delete(); return response()->json(['message'=>'deleted']); }
-    public function moveStage(Request $request, Deal $deal) { $data=$request->validate(['stage_id'=>'required|integer']); $this->ensureTenantRecord(PipelineStage::find($data['stage_id'])); $deal->update(['stage_id'=>$data['stage_id']]); $deal=$deal->fresh()->load(['stage','assignee']); if ($deal->assignee) $deal->assignee->notify(new CrmSystemNotification('Deal stage changed', "{$deal->title} moved to {$deal->stage->name}", 'deal', '/crm')); return response()->json(['data'=>$deal]); }
-
-    public function activities(Request $request) { $query=CrmActivity::with(['creator','lead','deal','customer'])->latest('occurred_at'); foreach (['lead_id','deal_id','customer_id','type'] as $field) if ($request->filled($field)) $query->where($field,$request->input($field)); return response()->json(['data'=>$query->paginate($request->integer('per_page', 50))]); }
-    public function storeActivity(CrmActivityRequest $request) { $data=$request->validated(); $data['created_by']=$request->user()->id; $activity=CrmActivity::create($data); return response()->json(['data'=>$activity->load(['creator','lead','deal','customer'])], 201); }
-    public function showActivity(CrmActivity $activity) { return response()->json(['data'=>$activity->load(['creator','lead','deal','customer'])]); }
-    public function updateActivity(CrmActivityRequest $request, CrmActivity $activity) { $activity->update($request->validated()); return response()->json(['data'=>$activity->fresh()]); }
-    public function destroyActivity(CrmActivity $activity) { $activity->delete(); return response()->json(['message'=>'deleted']); }
-
-    private function validateDealRelations(array $data): void { $this->ensureTenantRecord(PipelineStage::find($data['stage_id'])); if (!empty($data['lead_id'])) $this->ensureTenantRecord(Lead::find($data['lead_id'])); if (!empty($data['customer_id'])) $this->ensureTenantRecord(Customer::find($data['customer_id'])); }
+    public function stages() { return response()->json(['data'=>PipelineStage::query()->orderBy('position')->withCount('deals')->get()]); }
+    public function storeStage(Request $request) { $data=$request->validate(['name'=>'required|string|max:120','name_ar'=>'nullable|string|max:120','position'=>'nullable|integer|min:0','is_won'=>'boolean','is_lost'=>'boolean']); $stage=PipelineStage::create($data); activity()->performedOn($stage)->log('crm pipeline stage created'); return response()->json(['data'=>$stage],201); }
+    public function updateStage(Request $request, PipelineStage $stage) { $stage->update($request->validate(['name'=>'sometimes|required|string|max:120','name_ar'=>'nullable|string|max:120','position'=>'nullable|integer|min:0','is_won'=>'boolean','is_lost'=>'boolean'])); activity()->performedOn($stage)->log('crm pipeline stage updated'); return response()->json(['data'=>$stage]); }
+    public function leads(Request $request) { $query=Lead::query()->with(['customer','assignedTo'])->latest(); if($request->filled('status')) $query->where('status',$request->string('status')); return response()->json(['data'=>$query->paginate($request->integer('per_page',25))]); }
+    public function storeLead(Request $request) { $lead=Lead::create($request->validate(['name'=>'required|string|max:160','company'=>'nullable|string|max:160','email'=>'nullable|email|max:160','phone'=>'nullable|string|max:40','source'=>'nullable|string|max:80','status'=>'nullable|string|max:40','assigned_to'=>'nullable|exists:admins,id','customer_id'=>'nullable|exists:customers,id'])); activity()->performedOn($lead)->log('crm lead created'); return response()->json(['data'=>$lead->load('customer')],201); }
+    public function updateLead(Request $request, Lead $lead) { $lead->update($request->validate(['name'=>'sometimes|required|string|max:160','company'=>'nullable|string|max:160','email'=>'nullable|email|max:160','phone'=>'nullable|string|max:40','source'=>'nullable|string|max:80','status'=>'nullable|string|max:40','assigned_to'=>'nullable|exists:admins,id','customer_id'=>'nullable|exists:customers,id'])); activity()->performedOn($lead)->log('crm lead updated'); return response()->json(['data'=>$lead]); }
+    public function deals(Request $request) { $query=Deal::query()->with(['stage','lead','customer','assignedTo'])->latest(); if($request->filled('pipeline_stage_id')) $query->where('pipeline_stage_id',$request->integer('pipeline_stage_id')); return response()->json(['data'=>$query->paginate($request->integer('per_page',50))]); }
+    public function storeDeal(Request $request) { $deal=Deal::create($request->validate(['title'=>'required|string|max:180','value'=>'nullable|numeric|min:0','pipeline_stage_id'=>'required|exists:pipeline_stages,id','lead_id'=>'nullable|exists:leads,id','customer_id'=>'nullable|exists:customers,id','assigned_to'=>'nullable|exists:admins,id','expected_close_date'=>'nullable|date','notes'=>'nullable|string'])); activity()->performedOn($deal)->log('crm deal created'); return response()->json(['data'=>$deal->load('stage')],201); }
+    public function moveDeal(Request $request, Deal $deal) { $data=$request->validate(['pipeline_stage_id'=>'required|exists:pipeline_stages,id']); $old=$deal->pipeline_stage_id; $deal->update($data); activity()->performedOn($deal)->withProperties(['from'=>$old,'to'=>$deal->pipeline_stage_id])->log('crm deal moved'); return response()->json(['data'=>$deal->load('stage')]); }
+    public function activities(Request $request) { $query=CrmActivity::query()->with(['creator'])->latest('occurred_at'); foreach(['lead_id','deal_id','customer_id'] as $key) if($request->filled($key)) $query->where($key,$request->integer($key)); return response()->json(['data'=>$query->paginate($request->integer('per_page',50))]); }
+    public function storeActivity(Request $request) { $data=$request->validate(['type'=>'required|string|max:40','body'=>'nullable|string','occurred_at'=>'nullable|date','lead_id'=>'nullable|exists:leads,id','deal_id'=>'nullable|exists:deals,id','customer_id'=>'nullable|exists:customers,id']); $data['created_by']=auth()->id(); $activity=CrmActivity::create($data); activity()->performedOn($activity)->log('crm activity created'); return response()->json(['data'=>$activity->load('creator')],201); }
+    public function dashboard() { $stages=PipelineStage::query()->withCount('deals')->withSum('deals','value')->orderBy('position')->get(); $total=Deal::query()->count(); $won=Deal::query()->whereHas('stage',fn($q)=>$q->where('is_won',true))->count(); return response()->json(['data'=>['stages'=>$stages,'deals_count'=>$total,'conversion_rate'=>$total?round($won/$total*100,2):0,'pipeline_value'=>(float)Deal::query()->sum('value')]]); }
 }

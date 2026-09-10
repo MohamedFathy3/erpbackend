@@ -7,10 +7,10 @@ use App\Interfaces\RoleRepositoryInterface;
 use App\Models\Role;
 use Exception;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class RoleController extends BaseController
 {
-
     protected mixed $crudRepository;
 
     public function __construct(RoleRepositoryInterface $pattern)
@@ -18,47 +18,60 @@ class RoleController extends BaseController
         $this->crudRepository = $pattern;
     }
 
-    public function index()
+    public function index(Request $request)
     {
         try {
-            $roles = $this->crudRepository->all();
-            return JsonResponse::respondSuccess('Items Fetched Successfully', $roles);
+            $query = Role::query()->with('permissions');
+            if ($request->filled('search')) {
+                $query->where('name', 'like', '%' . $request->input('search') . '%');
+            }
+            return JsonResponse::respondSuccess('Items Fetched Successfully', $query->latest('id')->get());
         } catch (Exception $e) {
             return JsonResponse::respondError($e->getMessage());
         }
     }
 
-    // public function store(SupplierRequest $request)
-    // {
-    //     try {
-    //         $supplier = $this->crudRepository->create($request->validated());
-    //         return new SupplierResource($supplier);
-    //     } catch (Exception $e) {
-    //         return JsonResponse::respondError($e->getMessage());
-    //     }
-    // }
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:100', 'unique:roles,name'],
+            'permission_ids' => ['sometimes', 'array'],
+            'permission_ids.*' => ['integer', 'exists:permissions,id'],
+        ]);
 
-    // public function show(Supplier $supplier): ?\Illuminate\Http\JsonResponse
-    // {
-    //     try {
-    //         return JsonResponse::respondSuccess('Item Fetched Successfully', new SupplierResource($supplier));
-    //     } catch (Exception $e) {
-    //         return JsonResponse::respondError($e->getMessage());
-    //     }
-    // }
+        return DB::transaction(function () use ($data) {
+            $role = Role::create(['name' => $data['name']]);
+            $role->permissions()->sync($data['permission_ids'] ?? []);
+            return JsonResponse::respondSuccess('Role created successfully', $role->load('permissions'));
+        });
+    }
 
+    public function permissions()
+    {
+        return JsonResponse::respondSuccess('Permissions Fetched Successfully', \App\Models\Permission::query()->orderBy('name')->get());
+    }
 
-    // public function update(SupplierRequest $request, Supplier $supplier)
-    // {
-    //     try {
-    //         $this->crudRepository->update($request->validated(), $supplier->id);
-    //         activity()->performedOn($supplier)->withProperties(['attributes' => $supplier])->log('update');
-    //         return JsonResponse::respondSuccess(trans(JsonResponse::MSG_UPDATED_SUCCESSFULLY));
-    //     } catch (Exception $e) {
-    //         return JsonResponse::respondError($e->getMessage());
-    //     }
-    // }
+    public function show(Role $role)
+    {
+        return JsonResponse::respondSuccess('Role Fetched Successfully', $role->load('permissions'));
+    }
 
+    public function update(Request $request, Role $role)
+    {
+        $data = $request->validate([
+            'name' => ['sometimes', 'string', 'max:100', 'unique:roles,name,' . $role->id],
+            'permission_ids' => ['sometimes', 'array'],
+            'permission_ids.*' => ['integer', 'exists:permissions,id'],
+        ]);
+
+        return DB::transaction(function () use ($data, $role) {
+            $role->update(array_filter(['name' => $data['name'] ?? null], fn ($value) => $value !== null));
+            if (array_key_exists('permission_ids', $data)) {
+                $role->permissions()->sync($data['permission_ids']);
+            }
+            return JsonResponse::respondSuccess('Role updated successfully', $role->load('permissions'));
+        });
+    }
 
     public function destroy(Request $request): ?\Illuminate\Http\JsonResponse
     {
@@ -80,9 +93,6 @@ class RoleController extends BaseController
         }
     }
 
-
-
-
     public function forceDelete(Request $request): \Illuminate\Http\JsonResponse
     {
         try {
@@ -92,5 +102,4 @@ class RoleController extends BaseController
             return JsonResponse::respondError($e->getMessage());
         }
     }
-
 }

@@ -32,4 +32,9 @@ class Employee extends BaseModel
     {
         return $this->belongsTo(Treasury::class);
     }
+
+    public function hasPermission(string $permission): bool
+    {
+        return $this->role?->hasPermission($permission) ?? false;
+    }
 }

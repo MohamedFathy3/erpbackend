@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Http\Middleware;
 
 use App\Models\TenantModule;
@@ -11,11 +12,23 @@ class CheckModuleEnabled
     public function handle(Request $request, Closure $next, string $module): Response
     {
         $user = $request->user();
-        if (!$user || ($user->super_admin ?? false)) return $next($request);
-        $enabled = TenantModule::withoutGlobalScopes()
-            ->where('tenant_id', $user->tenant_id)->where('module_key', $module)
-            ->value('is_enabled');
-        if (!$enabled) return response()->json(['message' => "The {$module} module is disabled for this tenant."], 403);
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+        if ((bool) ($user->super_admin ?? false)) {
+            return $next($request);
+        }
+        if (!$user->tenant_id) {
+            return response()->json(['message' => 'Tenant is not configured.'], 403);
+        }
+        $enabled = TenantModule::query()
+            ->where('tenant_id', $user->tenant_id)
+            ->where('module_key', $module)
+            ->where('is_enabled', true)
+            ->exists();
+        if (!$enabled) {
+            return response()->json(['message' => 'This module is disabled for your tenant.'], 403);
+        }
         return $next($request);
     }
 }

@@ -21,17 +21,19 @@ class SalesRepresentativeRequest extends FormRequest
             'name'  => 'required|string|max:255',
 
             'phone' => [
-                'required',
+                'nullable',
                 'string',
                 'max:20',
                 Rule::unique('sales_representatives', 'phone')->ignore($id)
             ],
 
             'email' => [
-                'nullable',
+                'required',
                 'email',
                 Rule::unique('sales_representatives', 'email')->ignore($id)
             ],
+
+            'password' => [$id ? 'nullable' : 'required', 'string', 'min:8', 'confirmed'],
 
             'commission_rate' => 'nullable|numeric|min:0|max:100',
 

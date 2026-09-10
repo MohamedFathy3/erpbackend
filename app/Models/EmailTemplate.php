@@ -1,8 +1,4 @@
 <?php
 namespace App\Models;
-
-class EmailTemplate extends BaseModel
-{
-    protected $table = 'email_templates';
-    protected $guarded = ['id'];
-}
+use Illuminate\Database\Eloquent\Relations\HasMany;
+class EmailTemplate extends BaseModel { protected $guarded=['id']; public function logs(): HasMany { return $this->hasMany(EmailLog::class,'template_id'); } }

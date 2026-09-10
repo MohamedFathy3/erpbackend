@@ -32,4 +32,9 @@ class SalesInvoiceItem extends BaseModel
     {
         return $this->belongsTo(Color::class);
     }
+
+    public function size()
+    {
+        return $this->belongsTo(Size::class);
+    }
 }

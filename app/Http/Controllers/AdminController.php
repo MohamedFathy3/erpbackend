@@ -114,20 +114,27 @@ class AdminController extends BaseController
 
    public function login(Request $request): \Illuminate\Http\JsonResponse
     {
-        $credentials = $request->only('email', 'password');
+        $credentials = $request->validate([
+            'email' => ['nullable', 'email'],
+            'identifier' => ['nullable', 'string'],
+            'password' => ['required', 'string'],
+        ]);
+        $credentials['email'] = $credentials['email'] ?? $credentials['identifier'] ?? null;
+        if (!$credentials['email']) {
+            return response()->json(['message' => 'Email is required'], 422);
+        }
 
         // 🔹 محاولة تسجيل الدخول كـ Admin
         $admin = Admin::where('email', $credentials['email'])->first();
 
         if ($admin) {
             // تحديث الـ hash إذا لازم
-            if (Hash::needsRehash($admin->password)) {
+            if ($admin->password && Hash::needsRehash($admin->password)) {
                 $admin->password = Hash::make($credentials['password']);
                 $admin->save();
             }
 
-            if (Hash::check($credentials['password'], $admin->password)) {
-                if (!($admin->super_admin ?? false) && !app()->bound('currentTenantId')) return response()->json(['message'=>'Use your tenant subdomain to sign in.','code'=>'tenant_subdomain_required'], 422);
+            if ($admin->password && Hash::check($credentials['password'], $admin->password)) {
                 activity()->performedOn($admin)->withProperties(['attributes' => $admin])->log('login');
 
                 $token = $admin->createToken('admin-token')->plainTextToken;
@@ -144,7 +151,6 @@ class AdminController extends BaseController
         $employee = Employee::where('email', $credentials['email'])->first();
 
         if ($employee && Hash::check($credentials['password'], $employee->password)) {
-            if (!app()->bound('currentTenantId')) return response()->json(['message'=>'Use your tenant subdomain to sign in.','code'=>'tenant_subdomain_required'], 422);
             $token = $employee->createToken('employee-token')->plainTextToken;
 
             return response()->json([
