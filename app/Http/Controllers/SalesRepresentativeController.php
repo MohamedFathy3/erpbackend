@@ -21,6 +21,35 @@ class SalesRepresentativeController extends BaseController
         $this->crudRepository = $pattern;
     }
 
+    public function login(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $credentials = $request->validate([
+            'identifier' => ['required', 'string'],
+            'password' => ['required', 'string'],
+        ]);
+
+        $representative = SalesRepresentative::query()
+            ->where('email', $credentials['identifier'])
+            ->orWhere('phone', $credentials['identifier'])
+            ->first();
+
+        if (!$representative || !$representative->active || !Hash::check($credentials['password'], $representative->password)) {
+            return response()->json(['message' => 'بيانات دخول المندوب غير صحيحة أو الحساب غير مفعل'], 401);
+        }
+
+        $token = $representative->createToken('sales-representative')->plainTextToken;
+
+        return response()->json([
+            'data' => new SalesRepresentativeResource($representative),
+            'token' => $token,
+        ]);
+    }
+
+    public function me(Request $request): \Illuminate\Http\JsonResponse
+    {
+        return response()->json(['data' => new SalesRepresentativeResource($request->user())]);
+    }
+
     public function index()
     {
         try {

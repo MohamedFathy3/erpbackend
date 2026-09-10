@@ -124,6 +124,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
     Route::apiResource('admin', AdminController::class);
 Route::post('/admin/login', [AdminController::class, 'login']);
+Route::post('/sales-representative/login', [SalesRepresentativeController::class, 'login']);
+Route::middleware('auth:sanctum')->get('/sales-representative/me', [SalesRepresentativeController::class, 'me']);
 ////////////////////////////////////////// Admin ////////////////////////////////
 ////////////////////////////////////////// Admin ////////////////////////////////
 
