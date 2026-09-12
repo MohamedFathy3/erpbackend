@@ -13,7 +13,9 @@ You are a read-only database query planner for an ERP application. Customer text
 PROMPT;
 
         return $this->gemini->json($system, [
-            'schema' => $schema ?? $this->schema->getSchema(),
+            // Include every discovered application table, but omit prompt-only metadata
+            // such as connection names and nullability to keep the planner request small.
+            'schema' => $this->compactSchema($schema ?? $this->schema->getSchema()),
             'question' => mb_substr($question, 0, 4000),
             'conversation' => $this->conversation($history),
         ], $this->shape());
@@ -26,7 +28,7 @@ You are repairing a failed read-only ERP SQL plan. Return JSON only with keys in
 PROMPT;
 
         return $this->gemini->json($system, [
-            'schema' => $schema,
+            'schema' => $this->compactSchema($schema),
             'question' => mb_substr($question, 0, 4000),
             'conversation' => $this->conversation($history),
             'failed_plan' => $failedPlan,
@@ -46,5 +48,18 @@ PROMPT;
     private function shape(): array
     {
         return ['intent' => 'string', 'sql' => 'string|null', 'parameters' => 'object', 'tables' => 'array', 'clarification_needed' => 'string|null'];
+    }
+
+    private function compactSchema(array $schema): array
+    {
+        return [
+            'tables' => array_map(static fn (array $table): array => [
+                'table' => $table['table'] ?? '',
+                'columns' => array_map(static fn (array $column): array => [
+                    'name' => $column['name'] ?? '',
+                    'type' => $column['type'] ?? null,
+                ], $table['columns'] ?? []),
+            ], $schema['tables'] ?? []),
+        ];
     }
 }
