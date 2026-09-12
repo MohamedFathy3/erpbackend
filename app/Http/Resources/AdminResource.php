@@ -21,6 +21,7 @@ class AdminResource extends JsonResource
             'email' => $this->email,
             'super_admin' => (bool) $this->super_admin,
             'tenant_id' => $this->tenant_id,
+            'tenant_slug' => $this->tenant?->slug,
             'logoUrl' => $this->getFirstMediaUrl('logo'),
             'logo' => new MediaResource($this->getFirstMedia('logo')),
             'logo_icon' => $this->getFirstMediaUrl('logo_icon'),
