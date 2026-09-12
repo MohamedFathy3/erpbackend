@@ -40,7 +40,7 @@ class Customer extends BaseModel
     {
         return (float) $this->invoices()->sum('remaining_amount')
             + (float) $this->salesInvoices()->sum('net_total')
-            - (float) $this->salesReturns()->sum('total_amount');
+            - (float) $this->salesReturns()->sum('sales_invoice_returns.total_amount');
     }
 
     // مجموع كل الفواتير
