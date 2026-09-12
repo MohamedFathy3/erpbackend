@@ -10,6 +10,7 @@ use App\Models\PurchaseInvoiceItem;
 use App\Models\Transfer;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
+use App\Models\User;
 use App\Services\WorkflowPostingService;
 use App\Services\InventoryMovementService;
 use Illuminate\Http\Request;
@@ -155,7 +156,7 @@ class PurchaseInvoiceController extends Controller
                     'type' => 'out',
                     'amount' => $request->paid_amount,
                     'description' => "دفعة لفاتورة مشتريات رقم {$invoice->invoice_number}",
-                    'created_by' => optional(auth()->user())->id,
+                    'created_by' => auth()->user() instanceof User ? auth()->user()->id : null,
                 ]);
 
                 Transfer::create([
@@ -163,7 +164,7 @@ class PurchaseInvoiceController extends Controller
                     'from_treasury_id' => $request->treasury_id,
                     'amount' => $request->paid_amount,
                     'notes' => "دفعة لفاتورة مشتريات رقم {$invoice->invoice_number}",
-                    'created_by' => optional(auth()->user())->id,
+                    'created_by' => auth()->user() instanceof User ? auth()->user()->id : null,
                 ]);
             }
 
@@ -376,7 +377,7 @@ class PurchaseInvoiceController extends Controller
             $treasury = Treasury::lockForUpdate()->findOrFail($treasuryId);
             if ($treasury->balance < $amount) throw new \RuntimeException('رصيد الخزنة غير كافي');
             $treasury->decrement('balance', $amount);
-            TreasuryTransaction::create(['treasury_id' => $treasury->id, 'reference_type' => PurchaseInvoice::class, 'reference_id' => $invoice->id, 'type' => 'out', 'amount' => $amount, 'description' => "دفعة إضافية لفاتورة مشتريات رقم {$invoice->invoice_number}", 'created_by' => auth()->id()]);
+            TreasuryTransaction::create(['treasury_id' => $treasury->id, 'reference_type' => PurchaseInvoice::class, 'reference_id' => $invoice->id, 'type' => 'out', 'amount' => $amount, 'description' => "دفعة إضافية لفاتورة مشتريات رقم {$invoice->invoice_number}", 'created_by' => auth()->user() instanceof User ? auth()->user()->id : null]);
             $invoice->update(['treasury_id' => $treasury->id, 'paid_amount' => $newPaid, 'remaining_amount' => (float) $invoice->total_amount - $newPaid]);
             DB::commit();
             return response()->json(['message' => 'Payment updated successfully', 'invoice' => $invoice->fresh(), 'remaining' => $invoice->remaining_amount]);

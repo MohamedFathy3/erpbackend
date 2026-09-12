@@ -15,6 +15,7 @@ use App\Models\LoyaltySetting;
 use App\Models\Customer;
 use App\Models\Employee;
 use App\Models\Admin;
+use App\Models\User;
 use App\Services\WorkflowPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -241,7 +242,7 @@ class SalesInvoiceReturnController extends Controller
                 'shift_id' => $shiftId,
                 'cashier_id' => $cashierId,
                 'treasury_id' => $treasuryId,
-                'created_by' => auth()->id(),
+                'created_by' => auth()->user() instanceof User ? auth()->user()->id : null,
                 'is_direct' => true,
             ]);
 
@@ -300,7 +301,7 @@ class SalesInvoiceReturnController extends Controller
                     'type' => 'out',
                     'amount' => $cashReturn,
                     'description' => "مرتجع منتجات رقم {$return->return_number}",
-                    'created_by' => $user?->id,
+                    'created_by' => $user instanceof User ? $user->id : null,
                     'created_at' => now(),
                 ]);
             }
@@ -470,7 +471,7 @@ class SalesInvoiceReturnController extends Controller
                     'type' => 'out',
                     'amount' => $cashReturn,
                     'description' => "مرتجع مبيعات رقم {$return->return_number} من الفاتورة {$invoice->invoice_number}",
-                    'created_by' => auth()->id(),
+                    'created_by' => auth()->user() instanceof User ? auth()->user()->id : null,
                     'created_at' => now(),
                 ]);
             }
@@ -702,7 +703,7 @@ class SalesInvoiceReturnController extends Controller
             $refund = TreasuryTransaction::where('reference_type', SalesInvoiceReturn::class)->where('reference_id', $return->id)->where('type', 'out')->latest()->first();
             if ($refund) {
                 Treasury::whereKey($refund->treasury_id)->increment('balance', $refund->amount);
-                TreasuryTransaction::create(['treasury_id' => $refund->treasury_id, 'reference_type' => SalesInvoiceReturn::class, 'reference_id' => $return->id, 'type' => 'in', 'amount' => $refund->amount, 'description' => "عكس إلغاء مرتجع مبيعات رقم {$return->return_number}", 'created_by' => auth()->id()]);
+                TreasuryTransaction::create(['treasury_id' => $refund->treasury_id, 'reference_type' => SalesInvoiceReturn::class, 'reference_id' => $return->id, 'type' => 'in', 'amount' => $refund->amount, 'description' => "عكس إلغاء مرتجع مبيعات رقم {$return->return_number}", 'created_by' => auth()->user() instanceof User ? auth()->user()->id : null]);
             }
             if ($return->invoice?->customer_id) {
                 $this->deductLoyaltyPoints($return->invoice->customer_id, -$amount);

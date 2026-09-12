@@ -8,6 +8,7 @@ use App\Http\Resources\TransferResource;
 use App\Models\Bank;
 use App\Models\Transfer;
 use App\Models\Treasury;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -58,7 +59,7 @@ class TransferController extends Controller
                     'amount'           => $amount,
                     'currency'         => $request->currency,
                     'notes'            => $request->notes,
-                    'created_by'       => auth()->id() ?? null,
+                    'created_by'       => auth()->user() instanceof User ? auth()->user()->id : null,
                 ]);
             });
 

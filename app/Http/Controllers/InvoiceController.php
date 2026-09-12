@@ -14,6 +14,7 @@ use App\Models\LoyaltySetting;
 use App\Models\Product;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -261,7 +262,7 @@ public function store(Request $request)
                     'type' => 'in',
                     'amount' => $cashPaid,
                     'description' => "فاتورة مبيعات رقم {$invoice->invoice_number}",
-                    'created_by' => $user?->id,
+                    'created_by' => $user instanceof User ? $user->id : null,
                 ]);
             }
         }
