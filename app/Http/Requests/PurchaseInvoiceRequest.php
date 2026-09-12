@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\Schema;
 
 class PurchaseInvoiceRequest extends FormRequest
 {
@@ -47,7 +48,13 @@ class PurchaseInvoiceRequest extends FormRequest
             'items.*.tax' => 'nullable|numeric|min:0',
             'items.*.unit_id' => 'nullable|exists:units,id',
             'items.*.color_id' => 'nullable|exists:colors,id',
-            'items.*.product_variant_id' => 'nullable|exists:product_variants,id',
+            // This installation stores color/size variants without a product_variants table.
+            // Do not make validation query a table that is not part of the deployed schema.
+            'items.*.product_variant_id' => [
+                'nullable',
+                'integer',
+                ...(Schema::hasTable('product_variants') ? ['exists:product_variants,id'] : []),
+            ],
         ];
     }
 

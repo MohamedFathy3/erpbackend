@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Schema;
 
 class PurchaseInvoiceResource extends JsonResource
 {
@@ -57,7 +58,8 @@ class PurchaseInvoiceResource extends JsonResource
                 'size_id' => $item->size_id,
                 'size_name' => $item->size?->name,
                 'product_variant_id' => $item->product_variant_id,
-                'variant_name' => $item->variant?->name,
+                // The current schema has no product_variants table; variants are represented by color/size.
+                'variant_name' => Schema::hasTable('product_variants') ? $item->variant?->name : null,
 
                 'quantity' => $item->quantity,
                 'price' => (float) $item->price,
