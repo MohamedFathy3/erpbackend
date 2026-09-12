@@ -53,6 +53,7 @@ use App\Http\Controllers\TrialSignupController;
 use App\Http\Controllers\TrialManagementController;
 use App\Http\Controllers\PublicContactController;
 use App\Http\Controllers\GoogleAuthController;
+use App\Http\Controllers\GoogleIntegrationController;
 use App\Http\Controllers\SuperAdminOverviewController;
 use App\Http\Controllers\AIChatController;
 use Illuminate\Http\Request;
@@ -71,6 +72,15 @@ Route::post('/public/trial-signup', [TrialSignupController::class, 'store'])->mi
 Route::post('/public/contact', [PublicContactController::class, 'store'])->middleware('throttle:signup');
 Route::get('/auth/google/url', [GoogleAuthController::class, 'url'])->middleware('throttle:signup');
 Route::get('/auth/google/callback', [GoogleAuthController::class, 'callback'])->middleware('throttle:signup');
+Route::get('/integrations/google/callback', [GoogleIntegrationController::class, 'callback'])->middleware('throttle:signup');
+
+Route::middleware(['auth:sanctum', 'resolve.tenant', 'subscription', 'module.enabled:google_calendar'])->prefix('integrations/google')->group(function () {
+    Route::get('/auth-url', [GoogleIntegrationController::class, 'authUrl']);
+    Route::get('/status', [GoogleIntegrationController::class, 'status']);
+    Route::post('/disconnect', [GoogleIntegrationController::class, 'disconnect']);
+    Route::get('/events', [GoogleIntegrationController::class, 'events']);
+    Route::post('/events', [GoogleIntegrationController::class, 'storeEvent']);
+});
 
 Route::middleware(['auth:sanctum', 'resolve.tenant', 'subscription'])->group(function () {
     Route::get('/me/enabled-modules', [SuperAdminTenantController::class, 'enabledModules']);
