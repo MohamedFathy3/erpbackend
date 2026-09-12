@@ -30,6 +30,8 @@ class AIChatController extends Controller
         $question = trim($data['message']);
         $requestId = (string) Str::uuid();
         $phase = 'schema_introspection';
+        $generatedSql = null;
+        $queryParameters = [];
         $audit = ['user_id' => $request->user()?->id, 'question' => $question, 'model' => config('ai.gemini_model')];
         try {
             $schema = $this->schema->getSchema();
@@ -40,10 +42,12 @@ class AIChatController extends Controller
                 return response()->json(['success' => true, 'answer' => $plan['clarification_needed'], 'data' => [], 'meta' => ['rows' => 0]]);
             }
             $parameters = (array) ($plan['parameters'] ?? []);
+            $queryParameters = $parameters;
             $tenantId = $request->user()?->tenant_id;
             if ($tenantId !== null) $parameters['tenant_id'] = $tenantId;
             $phase = 'schema_and_sql_validation';
             $sql = $this->validator->validate($plan['sql'] ?? null, $parameters, $schema, $tenantId);
+            $generatedSql = $sql;
             $phase = 'readonly_database_query';
             $result = $this->query->run($sql, $parameters);
             $phase = 'gemini_response';
@@ -51,8 +55,8 @@ class AIChatController extends Controller
             $this->audit($audit + ['sql' => $sql, 'parameters' => $parameters, 'validation_passed' => true, 'duration_ms' => $result['duration_ms'], 'row_count' => count($result['rows'])]);
             return response()->json(['success' => true, 'answer' => $answer, 'data' => $result['rows'], 'meta' => ['rows' => count($result['rows']), 'duration_ms' => $result['duration_ms'], 'intent' => $plan['intent'] ?? null]]);
         } catch (Throwable $e) {
-            Log::error('AI database query failed', ['request_id' => $requestId, 'user_id' => $request->user()?->id, 'exception' => get_class($e), 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
-            $this->audit($audit + ['validation_passed' => false, 'error' => $e->getMessage()]);
+            Log::error('AI database query failed', ['request_id' => $requestId, 'user_id' => $request->user()?->id, 'phase' => $phase, 'sql' => $generatedSql, 'parameters' => $queryParameters, 'exception' => get_class($e), 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            $this->audit($audit + ['sql' => $generatedSql, 'parameters' => $queryParameters, 'validation_passed' => false, 'error' => $e->getMessage()]);
             $safePhase = match (true) {
                 $phase === 'schema_introspection' => 'schema',
                 str_starts_with($phase, 'gemini') => 'gemini',
