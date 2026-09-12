@@ -54,11 +54,17 @@ use App\Http\Controllers\TrialManagementController;
 use App\Http\Controllers\PublicContactController;
 use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\SuperAdminOverviewController;
+use App\Http\Controllers\AIChatController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth:sanctum'])->get('/user', function (Request $request) {
     return $request->user();
+});
+
+Route::middleware(['auth:sanctum'])->prefix('ai')->group(function () {
+    Route::post('/chat', [AIChatController::class, 'chat'])->middleware('throttle:60,1');
+    Route::get('/schema', [AIChatController::class, 'schema']);
 });
 
 Route::post('/public/trial-signup', [TrialSignupController::class, 'store'])->middleware('throttle:signup');
