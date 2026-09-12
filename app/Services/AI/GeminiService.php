@@ -16,6 +16,7 @@ class GeminiService
             'https://generativelanguage.googleapis.com/v1beta/models/' . config('ai.gemini_model', 'gemini-3.7-flash') . ':generateContent',
             ['contents' => [['role' => 'user', 'parts' => [['text' => $prompt]]]], 'generationConfig' => array_filter([
                 'temperature' => 0.1,
+                'maxOutputTokens' => 2048,
                 'responseMimeType' => $json ? 'application/json' : null,
             ])]
         );
@@ -27,16 +28,24 @@ class GeminiService
 
     public function json(string $system, array $data, array $shape): array
     {
-        $raw = $this->call($system . "\nRequired JSON shape: " . json_encode($shape), $data, true);
-        $raw = trim(preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $raw));
-        $decoded = json_decode($raw, true);
-        if (!is_array($decoded)) {
-            $start = strpos($raw, '{');
-            $end = strrpos($raw, '}');
-            if ($start !== false && $end !== false && $end > $start) $decoded = json_decode(substr($raw, $start, $end - $start + 1), true);
+        $jsonInstruction = "\nReturn one valid JSON object only. No markdown, no code fences, and no explanation. Required JSON shape: " . json_encode($shape, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $lastRaw = '';
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $raw = $this->call($system . $jsonInstruction . ($attempt ? "\nYour previous response was invalid JSON. Recompute and output only the object." : ''), $data, true);
+            $lastRaw = trim(preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $raw));
+            $decoded = json_decode($lastRaw, true);
+            if (is_array($decoded)) return $decoded;
+
+            // Recover a JSON object if the provider added a short prefix/suffix.
+            $start = strpos($lastRaw, '{');
+            $end = strrpos($lastRaw, '}');
+            if ($start !== false && $end !== false && $end > $start) {
+                $decoded = json_decode(substr($lastRaw, $start, $end - $start + 1), true);
+                if (is_array($decoded)) return $decoded;
+            }
         }
-        if (!is_array($decoded)) throw new RuntimeException('AI planner returned invalid JSON: ' . mb_substr($raw, 0, 500));
-        return $decoded;
+
+        throw new RuntimeException('AI planner returned invalid JSON: ' . mb_substr($lastRaw, 0, 500));
     }
 
     public function text(string $system, array $data): string { return $this->call($system, $data, false); }
