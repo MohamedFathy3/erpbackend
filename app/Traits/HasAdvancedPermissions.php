@@ -9,7 +9,7 @@ trait HasAdvancedPermissions
     {
         if ($this->super_admin ?? false) return true;
         if (!$this->role_id || !method_exists($this, 'role')) return false;
-        return $this->role?->permissions()->where('key', $permission)->exists() ?? false;
+        return $this->role?->permissions()->where(Permission::identifierColumn(), $permission)->exists() ?? false;
     }
 
     public function hasAnyPermission(array $permissions): bool
@@ -20,7 +20,8 @@ trait HasAdvancedPermissions
 
     public function permissionKeys(): array
     {
-        if ($this->super_admin ?? false) return Permission::query()->pluck('key')->all();
-        return method_exists($this, 'role') ? ($this->role?->permissions()->pluck('key')->all() ?? []) : [];
+        $column = Permission::identifierColumn();
+        if ($this->super_admin ?? false) return Permission::query()->pluck($column)->all();
+        return method_exists($this, 'role') ? ($this->role?->permissions()->pluck($column)->all() ?? []) : [];
     }
 }

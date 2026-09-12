@@ -15,8 +15,9 @@ class Role extends BaseModel
 
     public function hasPermission(string $permission): bool
     {
+        $column = Permission::identifierColumn();
         return $this->relationLoaded('permissions')
-            ? $this->permissions->contains('slug', $permission)
-            : $this->permissions()->where('slug', $permission)->exists();
+            ? $this->permissions->contains($column, $permission)
+            : $this->permissions()->where($column, $permission)->exists();
     }
 }
