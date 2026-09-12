@@ -502,6 +502,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
 //////////////////////////////////////// SalesInvoice ////////////////////////////////
 //////////////////////////////////////// SalesInvoice ////////////////////////////////
+Route::middleware(['auth:sanctum', 'resolve.tenant'])->group(function () {
     Route::post('/sales-invoice/store', [SalesInvoiceController::class, 'store']);
     Route::post('/sales-invoices/index', [SalesInvoiceController::class, 'invoiceIndex']);
     Route::get('/sales-invoices/{id}', [SalesInvoiceController::class, 'show']);
@@ -510,6 +511,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/sales-return/index', [SalesInvoiceReturnController::class, 'index']);
     Route::get('/sales-return/{id}', [SalesInvoiceReturnController::class, 'show']);
     Route::post('/sales-return/{id}/cancel', [SalesInvoiceReturnController::class, 'cancel']);
+});
 
 //////////////////////////////////////// SalesInvoice ////////////////////////////////
 //////////////////////////////////////// SalesInvoice ////////////////////////////////
@@ -533,9 +535,11 @@ Route::post('/suppliers/import', [SuppliersController::class, 'importSuppliers']
 
 //////////////////////////////////////// purchases-orders ////////////////////////////////
 //////////////////////////////////////// purchases-orders ////////////////////////////////
+Route::middleware(['auth:sanctum', 'resolve.tenant'])->group(function () {
     Route::post('/purchases-orders/store', [PurchaseOrderController::class, 'store']);
     Route::post('/purchases-orders/index', [PurchaseOrderController::class, 'index']);
     Route::get('/purchases-orders/{id}', [PurchaseOrderController::class, 'show']);
+});
 //////////////////////////////////////// purchases-orders ////////////////////////////////
 //////////////////////////////////////// purchases-orders ////////////////////////////////
 
@@ -543,6 +547,7 @@ Route::post('/suppliers/import', [SuppliersController::class, 'importSuppliers']
 
 //////////////////////////////////////// purchases-invoices ////////////////////////////////
 //////////////////////////////////////// purchases-invoices ////////////////////////////////
+Route::middleware(['auth:sanctum', 'resolve.tenant'])->group(function () {
     Route::post('/purchases-invoices/store', [PurchaseInvoiceController::class, 'store']);
     Route::post('/purchases-invoices/index', [PurchaseInvoiceController::class, 'index']);
     Route::get('/purchases-invoices/{id}', [PurchaseInvoiceController::class, 'show']);
@@ -551,6 +556,7 @@ Route::post('/suppliers/import', [SuppliersController::class, 'importSuppliers']
 //////////////////////////////////////// purchases-invoices ////////////////////////////////
 
     Route::put('/purchases-invoices/update/{id}', [PurchaseInvoiceController::class, 'update']);
+});
 
 //////////////////////////////////////// purchases-invoices ////////////////////////////////
 
@@ -558,11 +564,12 @@ Route::post('/suppliers/import', [SuppliersController::class, 'importSuppliers']
 
 /////////////////////////////////////// purchases-returns ////////////////////////////////
 //////////////////////////////////////// purchases-returns ////////////////////////////////
-
-Route::post('/purchase-returns/store', [PurchaseReturnController::class, 'store']);
-Route::post('/purchase-returns/index', [PurchaseReturnController::class, 'index']);
-Route::get('/purchase-returns/{id}', [PurchaseReturnController::class, 'show']);
-Route::post('/purchase-returns/{id}/cancel', [PurchaseReturnController::class, 'destroy']);
+Route::middleware(['auth:sanctum', 'resolve.tenant'])->group(function () {
+    Route::post('/purchase-returns/store', [PurchaseReturnController::class, 'store']);
+    Route::post('/purchase-returns/index', [PurchaseReturnController::class, 'index']);
+    Route::get('/purchase-returns/{id}', [PurchaseReturnController::class, 'show']);
+    Route::post('/purchase-returns/{id}/cancel', [PurchaseReturnController::class, 'destroy']);
+});
 
 /////////////////////////////////////// purchases-returns ////////////////////////////////
 //////////////////////////////////////// purchases-returns ////////////////////////////////

@@ -36,7 +36,8 @@ class AIChatController extends Controller
         $phase = 'schema_introspection';
         $generatedSql = null;
         $queryParameters = [];
-        $tenantId = $request->user()?->tenant_id;
+        $tenantId = $request->user()?->tenant_id
+            ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
         $audit = [
             'user_id' => $request->user()?->id,
             'tenant_id' => $tenantId,
