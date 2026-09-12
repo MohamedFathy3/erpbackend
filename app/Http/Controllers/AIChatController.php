@@ -29,9 +29,11 @@ class AIChatController extends Controller
         $data = $request->validate(['message' => ['required', 'string', 'max:' . config('ai.max_message_chars', 4000)], 'history' => ['sometimes', 'array', 'max:12']]);
         $question = trim($data['message']);
         $requestId = (string) Str::uuid();
-        $phase = 'gemini_planning';
+        $phase = 'schema_introspection';
         $audit = ['user_id' => $request->user()?->id, 'question' => $question, 'model' => config('ai.gemini_model')];
         try {
+            $schema = $this->schema->getSchema();
+            $phase = 'gemini_planning';
             $plan = $this->generator->generate($question, $data['history'] ?? []);
             if (!empty($plan['clarification_needed']) && empty($plan['sql'])) {
                 $this->audit($audit + ['validation_passed' => true, 'row_count' => 0]);
@@ -41,7 +43,7 @@ class AIChatController extends Controller
             $tenantId = $request->user()?->tenant_id;
             if ($tenantId !== null) $parameters['tenant_id'] = $tenantId;
             $phase = 'schema_and_sql_validation';
-            $sql = $this->validator->validate($plan['sql'] ?? null, $parameters, $this->schema->getSchema(), $tenantId);
+            $sql = $this->validator->validate($plan['sql'] ?? null, $parameters, $schema, $tenantId);
             $phase = 'readonly_database_query';
             $result = $this->query->run($sql, $parameters);
             $phase = 'gemini_response';
@@ -52,6 +54,7 @@ class AIChatController extends Controller
             Log::error('AI database query failed', ['request_id' => $requestId, 'user_id' => $request->user()?->id, 'exception' => get_class($e), 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->audit($audit + ['validation_passed' => false, 'error' => $e->getMessage()]);
             $safePhase = match (true) {
+                $phase === 'schema_introspection' => 'schema',
                 str_starts_with($phase, 'gemini') => 'gemini',
                 $phase === 'readonly_database_query' => 'database',
                 default => 'sql_validation',
