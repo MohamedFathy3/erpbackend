@@ -3,12 +3,14 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Auth\Authenticatable as AuthenticatableTrait;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-class Employee extends BaseModel
+class Employee extends BaseModel implements Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable;
+    use AuthenticatableTrait, HasApiTokens, HasFactory, Notifiable;
 
     protected $guarded = ['id'];
 
