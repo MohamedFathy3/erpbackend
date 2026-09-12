@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\Schema;
 
 class PurchaseOrderRequest extends FormRequest
 {
@@ -19,7 +20,11 @@ class PurchaseOrderRequest extends FormRequest
             'items.*.quantity' => 'required|numeric|min:1',
             'items.*.unit_cost' => 'required|numeric|min:0',
             'items.*.color_id' => 'nullable|exists:colors,id',
-            'items.*.product_variant_id' => 'nullable|exists:product_variants,id',
+            'items.*.product_variant_id' => [
+                'nullable',
+                'integer',
+                ...(Schema::hasTable('product_variants') ? ['exists:product_variants,id'] : []),
+            ],
         ];
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\Schema;
 
 class StoreReturnRequest extends FormRequest
 {
@@ -21,7 +22,11 @@ class StoreReturnRequest extends FormRequest
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.product_unit_id' => 'nullable|exists:units,id',
             'items.*.color_id' => 'nullable|exists:colors,id',
-            'items.*.product_variant_id' => 'nullable|exists:product_variants,id',
+            'items.*.product_variant_id' => [
+                'nullable',
+                'integer',
+                ...(Schema::hasTable('product_variants') ? ['exists:product_variants,id'] : []),
+            ],
             'items.*.quantity' => 'required|integer|min:1',
             'items.*.unit_price' => 'required|numeric|min:0',
         ];
