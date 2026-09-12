@@ -52,7 +52,12 @@ class SuperAdminTenantController extends Controller
                 'status' => $data['status'] ?? 'active',
                 'plan' => $data['plan'] ?? 'starter',
                 'trial_ends_at' => $data['trial_ends_at'] ?? null,
-                'subscription_status' => ($data['status'] ?? 'active') === 'trial' ? 'trial' : 'active',
+                'subscription_status' => match ($data['status'] ?? 'active') {
+                    'trial' => 'trial',
+                    'suspended' => 'suspended',
+                    'expired' => 'expired',
+                    default => 'active',
+                },
             ]);
 
             foreach (self::MODULES as $moduleKey) {
