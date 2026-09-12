@@ -301,7 +301,7 @@ Route::post('/customers/import', [CustomerController::class, 'importCustomers'])
 Route::middleware(['auth:sanctum'])->get('/workflow/transactions', [WorkflowController::class, 'index']);
 Route::middleware(['auth:sanctum'])->get('/dashboard/summary', [DashboardController::class, 'summary']);
 
-Route::middleware(['auth:sanctum', 'resolve.tenant', 'module:crm'])->prefix('crm')->group(function () {
+Route::middleware(['auth:sanctum', 'resolve.tenant', 'module.enabled:crm'])->prefix('crm')->group(function () {
     Route::get('/dashboard', [CrmController::class, 'dashboard']);
     Route::get('/reports/analytics', [CrmAnalyticsController::class, 'overview'])->middleware('permission:crm.view_reports');
     Route::get('/pipeline-stages', [CrmController::class, 'stages']);
@@ -324,12 +324,14 @@ Route::middleware(['auth:sanctum', 'resolve.tenant', 'module:crm'])->prefix('crm
     Route::get('/activities/{activity}', [CrmController::class, 'showActivity']);
     Route::put('/activities/{activity}', [CrmController::class, 'updateActivity']);
     Route::delete('/activities/{activity}', [CrmController::class, 'destroyActivity']);
-    Route::get('/email/templates', [EmailController::class, 'templates']);
-    Route::post('/email/templates', [EmailController::class, 'storeTemplate']);
-    Route::put('/email/templates/{emailTemplate}', [EmailController::class, 'updateTemplate']);
-    Route::delete('/email/templates/{emailTemplate}', [EmailController::class, 'destroyTemplate']);
-    Route::get('/email/logs', [EmailController::class, 'logs']);
-    Route::post('/customers/{customer}/send-email', [EmailController::class, 'sendToCustomer'])->middleware('permission:crm.send_email');
+    Route::middleware('module.enabled:email')->group(function () {
+        Route::get('/email/templates', [EmailController::class, 'templates']);
+        Route::post('/email/templates', [EmailController::class, 'storeTemplate']);
+        Route::put('/email/templates/{emailTemplate}', [EmailController::class, 'updateTemplate']);
+        Route::delete('/email/templates/{emailTemplate}', [EmailController::class, 'destroyTemplate']);
+        Route::get('/email/logs', [EmailController::class, 'logs']);
+        Route::post('/customers/{customer}/send-email', [EmailController::class, 'sendToCustomer'])->middleware('permission:crm.send_email');
+    });
 });
 
 Route::middleware(['auth:sanctum'])->prefix('manufacturing')->group(function () {
