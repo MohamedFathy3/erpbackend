@@ -29,8 +29,12 @@ class CustomerResource extends JsonResource
             'point' => $this->point, // أي نقاط يدوية موجودة
             'active' => $this->active,
             'last_paid_amount' => $this->last_paid_amount,
-            'total_purchases' => (float) $this->invoices()->sum('total_amount') + (float) $this->salesInvoices()->sum('net_total'),
-            'outstanding_balance' => (float) $this->invoices()->sum('remaining_amount'),
+            'total_purchases' => (float) $this->invoices()->sum('total_amount')
+                + (float) $this->salesInvoices()->sum('net_total')
+                - (float) $this->salesReturns()->sum('total_amount'),
+            'outstanding_balance' => (float) $this->invoices()->sum('remaining_amount')
+                + (float) $this->salesInvoices()->sum('net_total')
+                - (float) $this->salesReturns()->sum('total_amount'),
             'created_at'      => $this->created_at?->format('Y-m-d H:i:s'),
             // 'total_invoices_amount' => $this->total_invoices_amount,
             // 'loyalty_points' => $this->loyalty_points, // النقاط المحسوبة تلقائياً

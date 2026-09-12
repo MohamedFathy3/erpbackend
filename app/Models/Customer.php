@@ -24,10 +24,23 @@ class Customer extends BaseModel
         return $this->hasMany(SalesInvoice::class);
     }
 
+    public function salesReturns()
+    {
+        return $this->hasManyThrough(
+            SalesInvoiceReturn::class,
+            SalesInvoice::class,
+            'customer_id',
+            'sales_invoice_id',
+            'id',
+            'id'
+        );
+    }
+
     public function getOutstandingBalanceAttribute(): float
     {
         return (float) $this->invoices()->sum('remaining_amount')
-            + (float) $this->salesInvoices()->sum('net_total');
+            + (float) $this->salesInvoices()->sum('net_total')
+            - (float) $this->salesReturns()->sum('total_amount');
     }
 
     // مجموع كل الفواتير

@@ -92,7 +92,20 @@ class CustomerController extends BaseController
                 'payments' => [],
             ]);
 
-            $transactions = $posInvoices->concat($salesInvoices)->sortByDesc('date')->values();
+            $salesReturns = $customer->salesReturns()->latest('created_at')->get()->map(fn ($return) => [
+                'id' => $return->id,
+                'source' => 'sales_return',
+                'type' => 'return',
+                'number' => $return->return_number,
+                'date' => $return->created_at?->toDateString(),
+                'total' => -((float) ($return->total_amount ?? 0)),
+                'paid' => -((float) ($return->total_amount ?? 0)),
+                'due' => 0,
+                'status' => 'returned',
+                'payments' => [],
+            ]);
+
+            $transactions = $posInvoices->concat($salesInvoices)->concat($salesReturns)->sortByDesc('date')->values();
             $total = $transactions->sum('total');
             $paid = $transactions->sum('paid');
 

@@ -23,6 +23,11 @@ class SalesInvoice extends BaseModel
         return $this->belongsTo(Customer::class);
     }
 
+    public function returns()
+    {
+        return $this->hasMany(SalesInvoiceReturn::class, 'sales_invoice_id');
+    }
+
     public function salesRepresentative()
     {
         return $this->belongsTo(SalesRepresentative::class);
