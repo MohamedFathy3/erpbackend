@@ -104,7 +104,11 @@ class AIChatController extends Controller
                 $phase === 'readonly_database_query' => 'database',
                 default => 'sql_validation',
             };
-            return response()->json(['success' => false, 'message' => 'تعذر تنفيذ طلب القراءة بأمان. حاول إعادة صياغة السؤال.', 'request_id' => $requestId, 'failed_at' => $safePhase], 422);
+            $safeError = preg_replace('/(x-goog-api-key|Authorization|GEMINI_API_KEY|password|secret)\s*[:=]\s*[^\s,;]+/i', '$1=[redacted]', $e->getMessage());
+            $message = config('ai.expose_errors', true)
+                ? 'فشل الطلب في مرحلة ' . $safePhase . ': ' . mb_substr((string) $safeError, 0, 1200)
+                : 'تعذر تنفيذ طلب القراءة بأمان. حاول إعادة صياغة السؤال.';
+            return response()->json(['success' => false, 'message' => $message, 'request_id' => $requestId, 'failed_at' => $safePhase], 422);
         }
     }
 

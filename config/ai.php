@@ -4,6 +4,7 @@ return [
     'gemini_key' => env('GEMINI_API_KEY'),
     'gemini_model' => env('GEMINI_MODEL', 'gemini-3.7-flash'),
     'gemini_timeout' => (int) env('GEMINI_TIMEOUT', 30),
+    'expose_errors' => (bool) env('AI_EXPOSE_ERRORS', true),
     'database_connection' => env('AI_DB_CONNECTION', 'ai_readonly'),
     'max_rows' => (int) env('MAX_AI_ROWS', 100),
     'max_repair_attempts' => (int) env('AI_MAX_REPAIR_ATTEMPTS', 2),
