@@ -30,6 +30,11 @@ class GeminiService
         $raw = $this->call($system . "\nRequired JSON shape: " . json_encode($shape), $data, true);
         $raw = trim(preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $raw));
         $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            $start = strpos($raw, '{');
+            $end = strrpos($raw, '}');
+            if ($start !== false && $end !== false && $end > $start) $decoded = json_decode(substr($raw, $start, $end - $start + 1), true);
+        }
         if (!is_array($decoded)) throw new RuntimeException('AI planner returned invalid JSON: ' . mb_substr($raw, 0, 500));
         return $decoded;
     }
