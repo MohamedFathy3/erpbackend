@@ -9,7 +9,8 @@ return new class extends Migration {
     {
         Schema::create('ai_query_audits', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
+            // Sanctum can authenticate users, admins, or employees; keep a polymorphic actor ID.
+            $table->unsignedBigInteger('user_id')->nullable()->index();
             $table->foreignId('tenant_id')->nullable()->constrained()->nullOnDelete();
             $table->text('question');
             $table->text('sql')->nullable();
