@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Throwable;
 
 class AIChatController extends Controller
@@ -27,6 +28,7 @@ class AIChatController extends Controller
     {
         $data = $request->validate(['message' => ['required', 'string', 'max:' . config('ai.max_message_chars', 4000)], 'history' => ['sometimes', 'array', 'max:12']]);
         $question = trim($data['message']);
+        $requestId = (string) Str::uuid();
         $audit = ['user_id' => $request->user()?->id, 'question' => $question, 'model' => config('ai.gemini_model')];
         try {
             $plan = $this->generator->generate($question, $data['history'] ?? []);
@@ -43,9 +45,9 @@ class AIChatController extends Controller
             $this->audit($audit + ['sql' => $sql, 'parameters' => $parameters, 'validation_passed' => true, 'duration_ms' => $result['duration_ms'], 'row_count' => count($result['rows'])]);
             return response()->json(['success' => true, 'answer' => $answer, 'data' => $result['rows'], 'meta' => ['rows' => count($result['rows']), 'duration_ms' => $result['duration_ms'], 'intent' => $plan['intent'] ?? null]]);
         } catch (Throwable $e) {
-            Log::warning('AI database query failed', ['user_id' => $request->user()?->id, 'error' => $e->getMessage()]);
+            Log::error('AI database query failed', ['request_id' => $requestId, 'user_id' => $request->user()?->id, 'exception' => get_class($e), 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->audit($audit + ['validation_passed' => false, 'error' => $e->getMessage()]);
-            return response()->json(['success' => false, 'message' => 'تعذر تنفيذ طلب القراءة بأمان. حاول إعادة صياغة السؤال.'], 422);
+            return response()->json(['success' => false, 'message' => 'تعذر تنفيذ طلب القراءة بأمان. حاول إعادة صياغة السؤال.', 'request_id' => $requestId], 422);
         }
     }
 
