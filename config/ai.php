@@ -3,6 +3,7 @@
 return [
     'gemini_key' => env('GEMINI_API_KEY'),
     'gemini_model' => env('GEMINI_MODEL', 'gemini-3.7-flash'),
+    'gemini_fallback_models' => array_values(array_filter(array_map('trim', explode(',', env('GEMINI_FALLBACK_MODELS', 'gemini-2.5-flash'))))),
     'gemini_timeout' => (int) env('GEMINI_TIMEOUT', 30),
     'expose_errors' => (bool) env('AI_EXPOSE_ERRORS', true),
     'database_connection' => env('AI_DB_CONNECTION', 'ai_readonly'),
