@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\PurchaseInvoice;
 use App\Models\SalesInvoice;
 use App\Models\Supplier;
+use App\Models\Admin;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Activity;
@@ -17,6 +18,22 @@ class ActivityLogController extends Controller
     public function index(Request $request)
     {
         $query = Activity::with(['causer']);
+        $user = $request->user() ?: auth('sanctum')->user();
+
+        // Activity records are created by the authenticated Admin. A normal
+        // tenant user must only see activity caused by admins in that tenant;
+        // only super admins may inspect the complete audit trail.
+        if (!$user || !(bool) ($user->super_admin ?? false)) {
+            $tenantId = $user?->tenant_id;
+            if (!$tenantId) {
+                $query->whereRaw('1 = 0');
+            } else {
+                $query->where('causer_type', Admin::class)
+                    ->whereIn('causer_id', Admin::withoutGlobalScopes()
+                        ->where('tenant_id', $tenantId)
+                        ->select('id'));
+            }
+        }
 
         if ($request->model) {
             $query->where('subject_type', $request->model);
