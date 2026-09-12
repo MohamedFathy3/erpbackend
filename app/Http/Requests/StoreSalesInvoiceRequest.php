@@ -33,6 +33,7 @@ class StoreSalesInvoiceRequest extends FormRequest
             'items.*.discount_percentage' => 'nullable|numeric|min:0|max:100',
             'items.*.discount_amount' => 'nullable|numeric|min:0',
             'items.*.unit_id' => 'nullable|exists:units,id',
+            'items.*.product_unit_id' => 'nullable|integer',
             'items.*.color_id' => 'nullable|exists:colors,id',
         ];
     }

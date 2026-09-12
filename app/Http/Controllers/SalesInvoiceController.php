@@ -33,7 +33,29 @@ class SalesInvoiceController extends Controller
             $itemsData = [];
 
             foreach ($request->items as $item) {
-                Product::findOrFail($item['product_id']);
+                $product = Product::findOrFail($item['product_id']);
+
+                // unit_id is the catalog unit ID; product_unit_id is the product-specific
+                // pivot row ID. Accept either payload shape, but always persist the pivot ID.
+                $productUnitId = $item['product_unit_id'] ?? null;
+                if ($productUnitId) {
+                    $productUnitBelongs = DB::table('product_units')
+                        ->where('id', $productUnitId)
+                        ->where('product_id', $product->id)
+                        ->exists();
+                    if (!$productUnitBelongs) {
+                        $productUnitId = null;
+                    }
+                }
+                if (!$productUnitId && !empty($item['unit_id'])) {
+                    $productUnitId = DB::table('product_units')
+                        ->where('product_id', $product->id)
+                        ->where('unit_id', $item['unit_id'])
+                        ->value('id');
+                }
+                if (!$productUnitId && (!empty($item['product_unit_id']) || !empty($item['unit_id']))) {
+                    throw new \RuntimeException('Selected unit is not configured for this product');
+                }
 
                 // حساب سعر المنتج بعد خصمه الفردي
                 $itemDiscountPercentage = $item['discount_percentage'] ?? 0;
@@ -42,7 +64,7 @@ class SalesInvoiceController extends Controller
 
                 $itemsData[] = [
                     'product_id' => $item['product_id'],
-                    'product_unit_id' => $item['unit_id'] ?? $item['product_unit_id'] ?? null,
+                    'product_unit_id' => $productUnitId,
                     'size_id' => $item['size_id'] ?? null,
                     'product_variant_id' => $item['product_variant_id'] ?? null,
                     'color_id' => $item['color_id'] ?? null,
