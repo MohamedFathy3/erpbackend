@@ -17,7 +17,7 @@ class GeminiService
             'https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent',
             ['contents' => [['role' => 'user', 'parts' => [['text' => $prompt]]]], 'generationConfig' => array_filter([
                 'temperature' => 0.1,
-                'maxOutputTokens' => 2048,
+                'maxOutputTokens' => (int) config('ai.gemini_max_output_tokens', 4096),
                 'responseMimeType' => $json ? 'application/json' : null,
             ])]
         );

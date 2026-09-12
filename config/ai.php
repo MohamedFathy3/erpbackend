@@ -10,6 +10,7 @@ return [
         ['gemini-3.7-flash', 'gemini-3.5-flash-lite']
     ))),
     'gemini_timeout' => (int) env('GEMINI_TIMEOUT', 30),
+    'gemini_max_output_tokens' => (int) env('GEMINI_MAX_OUTPUT_TOKENS', 4096),
     'expose_errors' => (bool) env('AI_EXPOSE_ERRORS', true),
     'database_connection' => env('AI_DB_CONNECTION', 'ai_readonly'),
     'max_rows' => (int) env('MAX_AI_ROWS', 100),
