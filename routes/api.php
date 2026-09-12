@@ -62,7 +62,7 @@ Route::middleware(['auth:sanctum'])->get('/user', function (Request $request) {
     return $request->user();
 });
 
-Route::middleware(['auth:sanctum'])->prefix('ai')->group(function () {
+Route::middleware(['auth:sanctum', 'resolve.tenant'])->prefix('ai')->group(function () {
     Route::post('/chat', [AIChatController::class, 'chat'])->middleware('throttle:60,1');
     Route::get('/schema', [AIChatController::class, 'schema']);
 });
