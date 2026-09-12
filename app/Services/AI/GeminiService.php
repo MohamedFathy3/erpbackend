@@ -30,21 +30,29 @@ class GeminiService
     {
         $jsonInstruction = "\nReturn one valid JSON object only. No markdown, no code fences, and no explanation. Required JSON shape: " . json_encode($shape, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $lastRaw = '';
-        for ($attempt = 0; $attempt < 2; $attempt++) {
-            $raw = $this->call($system . $jsonInstruction . ($attempt ? "\nYour previous response was invalid JSON. Recompute and output only the object." : ''), $data, true);
-            $lastRaw = trim(preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $raw));
-            $decoded = json_decode($lastRaw, true);
-            if (is_array($decoded)) return $decoded;
-
-            // Recover a JSON object if the provider added a short prefix/suffix.
-            $start = strpos($lastRaw, '{');
-            $end = strrpos($lastRaw, '}');
-            if ($start !== false && $end !== false && $end > $start) {
-                $decoded = json_decode(substr($lastRaw, $start, $end - $start + 1), true);
+        $lastError = null;
+        // First use Gemini's JSON MIME mode; then fall back to plain text because
+        // some deployed Gemini model aliases reject responseMimeType.
+        foreach ([true, false, false] as $jsonMode) {
+            try {
+                $raw = $this->call($system . $jsonInstruction . ($lastRaw ? "\nYour previous response was invalid JSON. Recompute and output only the object." : ''), $data, $jsonMode);
+                $lastRaw = trim(preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $raw));
+                $decoded = json_decode($lastRaw, true);
                 if (is_array($decoded)) return $decoded;
+
+                // Recover a JSON object if the provider added a short prefix/suffix.
+                $start = strpos($lastRaw, '{');
+                $end = strrpos($lastRaw, '}');
+                if ($start !== false && $end !== false && $end > $start) {
+                    $decoded = json_decode(substr($lastRaw, $start, $end - $start + 1), true);
+                    if (is_array($decoded)) return $decoded;
+                }
+            } catch (\Throwable $exception) {
+                $lastError = $exception;
             }
         }
 
+        if ($lastError && $lastRaw === '') throw new RuntimeException('AI planner request failed: ' . $lastError->getMessage(), 0, $lastError);
         throw new RuntimeException('AI planner returned invalid JSON: ' . mb_substr($lastRaw, 0, 500));
     }
 
