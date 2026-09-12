@@ -29,6 +29,7 @@ class AIChatController extends Controller
         $data = $request->validate(['message' => ['required', 'string', 'max:' . config('ai.max_message_chars', 4000)], 'history' => ['sometimes', 'array', 'max:12']]);
         $question = trim($data['message']);
         $requestId = (string) Str::uuid();
+        $phase = 'gemini_planning';
         $audit = ['user_id' => $request->user()?->id, 'question' => $question, 'model' => config('ai.gemini_model')];
         try {
             $plan = $this->generator->generate($question, $data['history'] ?? []);
@@ -39,15 +40,23 @@ class AIChatController extends Controller
             $parameters = (array) ($plan['parameters'] ?? []);
             $tenantId = $request->user()?->tenant_id;
             if ($tenantId !== null) $parameters['tenant_id'] = $tenantId;
+            $phase = 'schema_and_sql_validation';
             $sql = $this->validator->validate($plan['sql'] ?? null, $parameters, $this->schema->getSchema(), $tenantId);
+            $phase = 'readonly_database_query';
             $result = $this->query->run($sql, $parameters);
+            $phase = 'gemini_response';
             $answer = $this->response->answer($question, $result['rows'], $plan);
             $this->audit($audit + ['sql' => $sql, 'parameters' => $parameters, 'validation_passed' => true, 'duration_ms' => $result['duration_ms'], 'row_count' => count($result['rows'])]);
             return response()->json(['success' => true, 'answer' => $answer, 'data' => $result['rows'], 'meta' => ['rows' => count($result['rows']), 'duration_ms' => $result['duration_ms'], 'intent' => $plan['intent'] ?? null]]);
         } catch (Throwable $e) {
             Log::error('AI database query failed', ['request_id' => $requestId, 'user_id' => $request->user()?->id, 'exception' => get_class($e), 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->audit($audit + ['validation_passed' => false, 'error' => $e->getMessage()]);
-            return response()->json(['success' => false, 'message' => 'تعذر تنفيذ طلب القراءة بأمان. حاول إعادة صياغة السؤال.', 'request_id' => $requestId], 422);
+            $safePhase = match (true) {
+                str_starts_with($phase, 'gemini') => 'gemini',
+                $phase === 'readonly_database_query' => 'database',
+                default => 'sql_validation',
+            };
+            return response()->json(['success' => false, 'message' => 'تعذر تنفيذ طلب القراءة بأمان. حاول إعادة صياغة السؤال.', 'request_id' => $requestId, 'failed_at' => $safePhase], 422);
         }
     }
 
