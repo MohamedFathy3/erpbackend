@@ -10,9 +10,16 @@ class ResolveTenant
 {
     public function handle(Request $request, Closure $next): Response
     {
+        $user=$request->user() ?: auth('sanctum')->user();
+
+        // Super admins operate at the platform level. Do not require a tenant
+        // subdomain/header or attempt to resolve the host slug for them.
+        if ($user && (bool) ($user->super_admin ?? false)) {
+            return $next($request);
+        }
+
         $host=strtolower($request->getHost());
         $slug=$this->slugFromHost($host, $request);
-        $user=$request->user() ?: auth('sanctum')->user();
         if ($slug) {
             $tenant=Tenant::withoutGlobalScopes()->where('slug',$slug)->first();
             if (!$tenant) return response()->json(['message'=>'Tenant workspace was not found.','code'=>'tenant_not_found'],404);
