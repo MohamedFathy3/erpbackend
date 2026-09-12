@@ -25,8 +25,11 @@ class SQLValidatorService
         preg_match_all('/:([a-zA-Z_][a-zA-Z0-9_]*)/', $sql, $all);
         foreach (array_unique($all[1]) as $name) if (!array_key_exists($name, $parameters)) throw new RuntimeException('Missing query parameter.');
         $max = (int) config('ai.max_rows', 100);
-        if (preg_match('/\bLIMIT\s+(\d+)/i', $sql, $limit) && (int) $limit[1] > $max) $sql = preg_replace('/\bLIMIT\s+\d+/i', 'LIMIT ' . $max, $sql);
-        elseif (!preg_match('/\b(count|sum|avg|min|max)\s*\(/i', $sql)) $sql .= ' LIMIT ' . $max;
+        if (preg_match('/\bLIMIT\s+(\d+)/i', $sql, $limit)) {
+            if ((int) $limit[1] > $max) $sql = preg_replace('/\bLIMIT\s+\d+/i', 'LIMIT ' . $max, $sql);
+        } elseif (!preg_match('/\b(count|sum|avg|min|max)\s*\(/i', $sql)) {
+            $sql .= ' LIMIT ' . $max;
+        }
         return $sql;
     }
 }
