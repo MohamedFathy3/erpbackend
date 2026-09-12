@@ -63,5 +63,26 @@ class GeminiService
         throw new RuntimeException('AI planner returned invalid JSON: ' . mb_substr($lastRaw, 0, 500));
     }
 
-    public function text(string $system, array $data): string { return $this->call($system, $data, false); }
+    public function text(string $system, array $data): string
+    {
+        $lastError = null;
+        $models = array_values(array_unique(array_merge(
+            [config('ai.gemini_model', 'gemini-3.7-flash')],
+            config('ai.gemini_fallback_models', [])
+        )));
+
+        foreach ($models as $model) {
+            try {
+                return $this->call($system, $data, false, $model);
+            } catch (\Throwable $exception) {
+                $lastError = $exception;
+            }
+        }
+
+        throw new RuntimeException(
+            'AI response request failed: ' . ($lastError?->getMessage() ?? 'No model is configured.'),
+            0,
+            $lastError
+        );
+    }
 }
