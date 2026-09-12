@@ -28,6 +28,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
         $middleware->api(append: [
             CheckModuleEnabled::class,
+            EnsureTenantSubscriptionActive::class,
         ]);
 
         $middleware->alias([

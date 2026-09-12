@@ -176,6 +176,7 @@ class AdminController extends BaseController
             }
 
             if ($admin->password && Hash::check($credentials['password'], $admin->password)) {
+                if ($blocked = $this->tenantLoginBlock($admin)) return $blocked;
                 activity()->performedOn($admin)->withProperties(['attributes' => $admin])->log('login');
 
                 $token = $admin->createToken('admin-token')->plainTextToken;
@@ -192,6 +193,7 @@ class AdminController extends BaseController
         $employee = Employee::where('email', $credentials['email'])->first();
 
         if ($employee && Hash::check($credentials['password'], $employee->password)) {
+            if ($blocked = $this->tenantLoginBlock($employee)) return $blocked;
             $token = $employee->createToken('employee-token')->plainTextToken;
 
             return response()->json([
@@ -206,6 +208,23 @@ class AdminController extends BaseController
             'result' => 'Error',
             'message' => 'Invalid credentials',
         ], 401);
+    }
+
+    private function tenantLoginBlock(object $user): ?\Illuminate\Http\JsonResponse
+    {
+        if (($user->super_admin ?? false) || !$user->tenant_id) return null;
+        $tenant = Tenant::withoutGlobalScopes()->find($user->tenant_id);
+        if (!$tenant) return response()->json(['message' => 'Your workspace is unavailable.', 'code' => 'tenant_unavailable'], 403);
+        if ($tenant->status === 'suspended' || $tenant->subscription_status === 'suspended') {
+            return response()->json(['message' => 'Your workspace is suspended. Please contact support.', 'code' => 'tenant_suspended'], 403);
+        }
+        if ($tenant->status === 'expired' || $tenant->subscription_status === 'expired') {
+            return response()->json(['message' => 'Your subscription has expired. Please subscribe to continue.', 'code' => 'subscription_expired'], 402);
+        }
+        if ($tenant->subscription_status === 'trial' && $tenant->trial_ends_at?->isPast()) {
+            return response()->json(['message' => 'Your free trial has ended. Please subscribe to continue.', 'code' => 'trial_expired'], 402);
+        }
+        return null;
     }
 
     public function logout()

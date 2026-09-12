@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Admin;
+use App\Models\Employee;
 use App\Models\Tenant;
 use App\Models\TenantModule;
 use Illuminate\Http\Request;
@@ -98,6 +99,34 @@ class SuperAdminTenantController extends Controller
         return response()->json([
             'data' => Tenant::query()->withCount('modules')->withCount('admins')->latest()->get(),
         ]);
+    }
+
+    public function updateStatus(Request $request, Tenant $tenant)
+    {
+        abort_unless((bool) auth()->user()?->super_admin, 403);
+        $data = $request->validate([
+            'status' => ['required', 'in:active,suspended,trial,expired'],
+        ]);
+
+        $subscriptionStatus = match ($data['status']) {
+            'trial' => 'trial',
+            'suspended' => 'suspended',
+            'expired' => 'expired',
+            default => 'active',
+        };
+
+        $tenant->update([
+            'status' => $data['status'],
+            'subscription_status' => $subscriptionStatus,
+        ]);
+
+        if ($data['status'] === 'suspended') {
+            Admin::withoutGlobalScopes()->where('tenant_id', $tenant->id)->get()->each(fn (Admin $admin) => $admin->tokens()->delete());
+            Employee::withoutGlobalScopes()->where('tenant_id', $tenant->id)->get()->each(fn (Employee $employee) => $employee->tokens()->delete());
+        }
+
+        activity()->causedBy(auth()->user())->performedOn($tenant)->withProperties($data)->log('tenant status updated');
+        return response()->json(['data' => $tenant->fresh()]);
     }
 
     public function modules(Tenant $tenant)

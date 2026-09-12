@@ -78,6 +78,7 @@ Route::middleware(['auth:sanctum', 'resolve.tenant', 'subscription'])->group(fun
         Route::get('/overview', [SuperAdminOverviewController::class, 'index']);
         Route::get('/tenants', [SuperAdminTenantController::class, 'index']);
         Route::post('/tenants', [SuperAdminTenantController::class, 'store']);
+        Route::patch('/tenants/{tenant}/status', [SuperAdminTenantController::class, 'updateStatus']);
         Route::get('/tenants/{tenant}/modules', [SuperAdminTenantController::class, 'modules']);
         Route::patch('/tenants/{tenant}/modules/{moduleKey}', [SuperAdminTenantController::class, 'updateModule']);
         Route::get('/trials', [TrialManagementController::class, 'index']);
