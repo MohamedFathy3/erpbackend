@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\InventoryMovement;
 use App\Models\InventoryVariantStock;
 use App\Models\Product;
+use App\Models\User;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -56,6 +57,12 @@ class InventoryMovementService
                 ], $delta);
             }
 
+            $actor = auth()->user();
+            $createdBy = $data['created_by'] ?? ($actor instanceof User ? $actor->id : null);
+            if ($createdBy !== null && !User::query()->whereKey($createdBy)->exists()) {
+                $createdBy = null;
+            }
+
             return InventoryMovement::create([
                 'product_id' => $product->id,
                 'product_unit_id' => $productUnitId,
@@ -69,7 +76,7 @@ class InventoryMovementService
                 'inventory_variant_stock_id' => $variantStock?->id,
                 'reference_type' => $data['reference_type'] ?? null,
                 'reference_id' => $data['reference_id'] ?? null,
-                'created_by' => $data['created_by'] ?? optional(auth()->user())->id,
+                'created_by' => $createdBy,
                 'notes' => $data['notes'] ?? null,
             ]);
         });
