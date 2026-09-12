@@ -152,10 +152,22 @@ class InventoryMovementService
     private function updateVariantStock(array $identity, float $delta): InventoryVariantStock
     {
         $identityKey = $this->identityKey($identity);
-        $row = InventoryVariantStock::query()
+        $tenantId = auth()->user()?->tenant_id
+            ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
+        $row = InventoryVariantStock::withoutGlobalScopes()
             ->where('identity_key', $identityKey)
+            ->when($tenantId !== null, function ($query) use ($tenantId): void {
+                $query->where(function ($tenantQuery) use ($tenantId): void {
+                    $tenantQuery->where('tenant_id', $tenantId)->orWhereNull('tenant_id');
+                });
+            })
             ->lockForUpdate()
             ->first();
+
+        if ($row && $row->tenant_id === null && $tenantId !== null) {
+            $row->tenant_id = $tenantId;
+            $row->save();
+        }
 
         if (!$row) {
             // Existing stock is not assigned to a size retrospectively. Use the
