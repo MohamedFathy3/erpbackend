@@ -26,6 +26,9 @@ return Application::configure(basePath: dirname(__DIR__))
            SnakeCaseMiddleware::class,
            ForceJsonResponse::class,
         ]);
+        $middleware->api(append: [
+            CheckModuleEnabled::class,
+        ]);
 
         $middleware->alias([
             'verified' => \App\Http\Middleware\EnsureEmailIsVerified::class,
