@@ -29,7 +29,14 @@ class ResolveTenant
         $central=collect(explode(',',(string)config('tenancy.central_domains','')))->map(fn($item)=>trim(strtolower($item)))->filter()->all();
         if (in_array($host,$central,true)) return null;
         $root=strtolower((string)config('tenancy.root_domain','example.com'));
-        if ($host === $root || !str_ends_with($host,'.'.$root)) return app()->environment('local') && $request->header('X-Tenant-Slug') ? strtolower((string)$request->header('X-Tenant-Slug')) : null;
+        // The central frontend may serve tenant users on a shared host. In
+        // that case the frontend sends the workspace slug explicitly. This
+        // is still fail-closed because handle() verifies it against the
+        // authenticated user's tenant before setting the current tenant.
+        if ($host === $root || !str_ends_with($host,'.'.$root)) {
+            $headerSlug = trim((string) $request->header('X-Tenant-Slug', ''));
+            return $headerSlug !== '' ? strtolower($headerSlug) : null;
+        }
         $prefix=substr($host,0,-(strlen($root)+1));
         return $prefix && !str_contains($prefix,'.') ? $prefix : null;
     }
