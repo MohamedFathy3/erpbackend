@@ -18,6 +18,12 @@ use App\Models\SalesInvoice;
 use App\Models\SalesInvoiceReturn;
 use App\Models\ReturnInvoice;
 use App\Models\WorkflowTransaction;
+use App\Services\AI\AIResponseService;
+use App\Services\AI\DatabaseSchemaService;
+use App\Services\AI\GeminiService;
+use App\Services\AI\ReadOnlyQueryService;
+use App\Services\AI\SQLGeneratorService;
+use App\Services\AI\SQLValidatorService;
 class AppServiceProvider extends ServiceProvider
 {
     /**
@@ -25,6 +31,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->app->singleton(GeminiService::class);
+        $this->app->singleton(DatabaseSchemaService::class);
+        $this->app->singleton(SQLGeneratorService::class);
+        $this->app->singleton(SQLValidatorService::class);
+        $this->app->singleton(ReadOnlyQueryService::class);
+        $this->app->singleton(AIResponseService::class);
         if ($this->app->environment('local') && class_exists(\Laravel\Telescope\TelescopeServiceProvider::class)) {
             $this->app->register(\Laravel\Telescope\TelescopeServiceProvider::class);
             $this->app->register(TelescopeServiceProvider::class);
