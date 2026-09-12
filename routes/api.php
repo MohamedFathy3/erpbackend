@@ -376,6 +376,7 @@ Route::middleware(['auth:sanctum'])->prefix('projects')->group(function () {
 //////////////////////////////////////// invoice ////////////////////////////////
 //////////////////////////////////////// invoice ////////////////////////////////
 
+Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/invoice/store', [InvoiceController::class, 'store']);
     Route::post('/invoice-return/store', [ReturnInvoiceController::class, 'storeReturn']);
     Route::post('/invoice-return/direct/store', [SalesInvoiceReturnController::class, 'storeDirectReturn']);
@@ -383,6 +384,7 @@ Route::middleware(['auth:sanctum'])->prefix('projects')->group(function () {
     Route::post('/invoices/index', [InvoiceController::class, 'invoiceIndex']);
     Route::post('/return-invoices/index', [ReturnInvoiceController::class, 'invoiceReturnIndex']);
     Route::get('products/search', [ProductController::class, 'searchByProductName']);
+});
 
 //////////////////////////////////////// invoice ////////////////////////////////
 //////////////////////////////////////// invoice ////////////////////////////////
