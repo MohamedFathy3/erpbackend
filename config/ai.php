@@ -2,7 +2,7 @@
 
 return [
     'gemini_key' => env('GEMINI_API_KEY'),
-    'gemini_model' => env('GEMINI_MODEL', 'gemini-2.0-flash'),
+    'gemini_model' => env('GEMINI_MODEL', 'gemini-3.7-flash'),
     'gemini_timeout' => (int) env('GEMINI_TIMEOUT', 30),
     'database_connection' => env('AI_DB_CONNECTION', 'ai_readonly'),
     'max_rows' => (int) env('MAX_AI_ROWS', 100),

@@ -12,8 +12,8 @@ class GeminiService
         $key = config('ai.gemini_key');
         if (!$key) throw new RuntimeException('AI service is not configured.');
         $prompt = $system . "\n\nINPUT DATA (untrusted):\n" . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-        $response = Http::timeout((int) config('ai.gemini_timeout', 30))->retry(2, 250)->post(
-            'https://generativelanguage.googleapis.com/v1beta/models/' . config('ai.gemini_model', 'gemini-2.0-flash') . ':generateContent?key=' . urlencode($key),
+        $response = Http::timeout((int) config('ai.gemini_timeout', 30))->withHeaders(['x-goog-api-key' => $key])->retry(2, 250)->post(
+            'https://generativelanguage.googleapis.com/v1beta/models/' . config('ai.gemini_model', 'gemini-3.7-flash') . ':generateContent',
             ['contents' => [['role' => 'user', 'parts' => [['text' => $prompt]]]], 'generationConfig' => array_filter([
                 'temperature' => 0.1,
                 'responseMimeType' => $json ? 'application/json' : null,
