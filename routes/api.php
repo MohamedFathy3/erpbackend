@@ -59,672 +59,2120 @@ use App\Http\Controllers\AIChatController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware(['auth:sanctum'])->get('/user', function (Request $request) {
-    return $request->user();
-});
 
-Route::middleware(['auth:sanctum', 'resolve.tenant'])->prefix('ai')->group(function () {
-    Route::post('/chat', [AIChatController::class, 'chat'])->middleware('throttle:60,1');
+/*
+|--------------------------------------------------------------------------
+| Authenticated User
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware(['auth:sanctum', 'resolve.tenant'])
+    ->get('/user', function (Request $request) {
+        return $request->user();
+    });
+
+
+/*
+|--------------------------------------------------------------------------
+| AI
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->prefix('ai')->group(function () {
+
+    Route::post('/chat', [AIChatController::class, 'chat'])
+        ->middleware('throttle:60,1');
+
     Route::get('/schema', [AIChatController::class, 'schema']);
 });
 
-Route::post('/public/trial-signup', [TrialSignupController::class, 'store'])->middleware('throttle:signup');
-Route::post('/public/contact', [PublicContactController::class, 'store'])->middleware('throttle:signup');
-Route::get('/auth/google/url', [GoogleAuthController::class, 'url'])->middleware('throttle:signup');
-Route::get('/auth/google/callback', [GoogleAuthController::class, 'callback'])->middleware('throttle:signup');
-Route::get('/integrations/google/callback', [GoogleIntegrationController::class, 'callback'])->middleware('throttle:signup');
 
-Route::middleware(['auth:sanctum', 'resolve.tenant', 'subscription', 'module.enabled:google_calendar'])->prefix('integrations/google')->group(function () {
+/*
+|--------------------------------------------------------------------------
+| Public Routes
+|--------------------------------------------------------------------------
+*/
+
+Route::post('/public/trial-signup', [TrialSignupController::class, 'store'])
+    ->middleware('throttle:signup');
+
+Route::post('/public/contact', [PublicContactController::class, 'store'])
+    ->middleware('throttle:signup');
+
+Route::get('/auth/google/url', [GoogleAuthController::class, 'url'])
+    ->middleware('throttle:signup');
+
+Route::get('/auth/google/callback', [GoogleAuthController::class, 'callback'])
+    ->middleware('throttle:signup');
+
+Route::get('/integrations/google/callback', [GoogleIntegrationController::class, 'callback'])
+    ->middleware('throttle:signup');
+
+
+/*
+|--------------------------------------------------------------------------
+| Google Integration
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+    'subscription',
+    'module.enabled:google_calendar',
+])->prefix('integrations/google')->group(function () {
+
     Route::get('/auth-url', [GoogleIntegrationController::class, 'authUrl']);
+
     Route::get('/status', [GoogleIntegrationController::class, 'status']);
+
     Route::post('/disconnect', [GoogleIntegrationController::class, 'disconnect']);
+
     Route::get('/events', [GoogleIntegrationController::class, 'events']);
+
     Route::post('/events', [GoogleIntegrationController::class, 'storeEvent']);
 });
 
-Route::middleware(['auth:sanctum', 'resolve.tenant', 'subscription'])->group(function () {
-    Route::get('/me/enabled-modules', [SuperAdminTenantController::class, 'enabledModules']);
+
+/*
+|--------------------------------------------------------------------------
+| Current Tenant / Super Admin / Notifications
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+    'subscription',
+])->group(function () {
+
+    Route::get('/me/enabled-modules', [
+        SuperAdminTenantController::class,
+        'enabledModules'
+    ]);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Super Admin
+    |--------------------------------------------------------------------------
+    */
+
     Route::prefix('super-admin')->group(function () {
-        Route::get('/overview', [SuperAdminOverviewController::class, 'index']);
-        Route::get('/tenants', [SuperAdminTenantController::class, 'index']);
-        Route::post('/tenants', [SuperAdminTenantController::class, 'store']);
-        Route::patch('/tenants/{tenant}/status', [SuperAdminTenantController::class, 'updateStatus']);
-        Route::get('/tenants/{tenant}/modules', [SuperAdminTenantController::class, 'modules']);
-        Route::patch('/tenants/{tenant}/modules/{moduleKey}', [SuperAdminTenantController::class, 'updateModule']);
-        Route::get('/trials', [TrialManagementController::class, 'index']);
-        Route::post('/trials/{tenant}/extend', [TrialManagementController::class, 'extend']);
-        Route::post('/trials/{tenant}/activate', [TrialManagementController::class, 'activate']);
-        Route::post('/trials/{tenant}/suspend', [TrialManagementController::class, 'suspend']);
+
+        Route::get('/overview', [
+            SuperAdminOverviewController::class,
+            'index'
+        ]);
+
+        Route::get('/tenants', [
+            SuperAdminTenantController::class,
+            'index'
+        ]);
+
+        Route::post('/tenants', [
+            SuperAdminTenantController::class,
+            'store'
+        ]);
+
+        Route::patch('/tenants/{tenant}/status', [
+            SuperAdminTenantController::class,
+            'updateStatus'
+        ]);
+
+        Route::get('/tenants/{tenant}/modules', [
+            SuperAdminTenantController::class,
+            'modules'
+        ]);
+
+        Route::patch('/tenants/{tenant}/modules/{moduleKey}', [
+            SuperAdminTenantController::class,
+            'updateModule'
+        ]);
+
+        Route::get('/trials', [
+            TrialManagementController::class,
+            'index'
+        ]);
+
+        Route::post('/trials/{tenant}/extend', [
+            TrialManagementController::class,
+            'extend'
+        ]);
+
+        Route::post('/trials/{tenant}/activate', [
+            TrialManagementController::class,
+            'activate'
+        ]);
+
+        Route::post('/trials/{tenant}/suspend', [
+            TrialManagementController::class,
+            'suspend'
+        ]);
     });
-    Route::get('/me/permissions', [AdvancedAccessController::class, 'mePermissions']);
-    Route::middleware('permission:roles.manage')->prefix('access-control')->group(function () {
-        Route::get('/permissions', [AdvancedAccessController::class, 'permissions']);
-        Route::get('/roles', [AdvancedAccessController::class, 'roles']);
-        Route::put('/roles/{role}', [AdvancedAccessController::class, 'updateRole']);
-    });
-    Route::get('/notifications', [NotificationController::class, 'index']);
-    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
-    Route::post('/notifications/{id}/read', [NotificationController::class, 'read']);
-    Route::post('/notifications/read-all', [NotificationController::class, 'readAll']);
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Permissions
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get('/me/permissions', [
+        AdvancedAccessController::class,
+        'mePermissions'
+    ]);
+
+    Route::middleware('permission:roles.manage')
+        ->prefix('access-control')
+        ->group(function () {
+
+            Route::get('/permissions', [
+                AdvancedAccessController::class,
+                'permissions'
+            ]);
+
+            Route::get('/roles', [
+                AdvancedAccessController::class,
+                'roles'
+            ]);
+
+            Route::put('/roles/{role}', [
+                AdvancedAccessController::class,
+                'updateRole'
+            ]);
+        });
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Notifications
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get('/notifications', [
+        NotificationController::class,
+        'index'
+    ]);
+
+    Route::get('/notifications/unread-count', [
+        NotificationController::class,
+        'unreadCount'
+    ]);
+
+    Route::post('/notifications/{id}/read', [
+        NotificationController::class,
+        'read'
+    ]);
+
+    Route::post('/notifications/read-all', [
+        NotificationController::class,
+        'readAll'
+    ]);
 });
 
-Route::post('login', [UserController::class, 'login']);
-Route::post('logout', [UserController::class, 'logout'])->middleware('auth:sanctum');
-// Public registration creates a new trial workspace and its first admin.
-Route::post('/admin', [AdminController::class, 'store'])->middleware('throttle:signup');
-Route::post('application-form', [UserController::class, 'applicationForm']);
-Route::post('/log/index', [UserController::class, 'logIndex']);
-Route::get('/user-total-count-country', [UserController::class, 'totalCountPerCountry']);
 
-//////////////////////////////////////// user ////////////////////////////////
+/*
+|--------------------------------------------------------------------------
+| Authentication
+|--------------------------------------------------------------------------
+*/
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/user/index', [UserController::class, 'index']);
-    Route::post('user/restore', [UserController::class, 'restore']);
-    Route::delete('user/delete', [UserController::class, 'destroy']);
-    Route::put('/user/{id}/{column}', [UserController::class, 'toggle']);
-    Route::delete('user/force-delete', [UserController::class, 'forceDelete']);
+Route::post('login', [
+    UserController::class,
+    'login'
+]);
+
+Route::post('logout', [
+    UserController::class,
+    'logout'
+])->middleware('auth:sanctum');
+
+
+/*
+|--------------------------------------------------------------------------
+| Public Registration
+|--------------------------------------------------------------------------
+*/
+
+Route::post('/admin', [
+    AdminController::class,
+    'store'
+])->middleware('throttle:signup');
+
+Route::post('application-form', [
+    UserController::class,
+    'applicationForm'
+]);
+
+Route::post('/log/index', [
+    UserController::class,
+    'logIndex'
+]);
+
+Route::get('/user-total-count-country', [
+    UserController::class,
+    'totalCountPerCountry'
+]);
+
+
+/*
+|--------------------------------------------------------------------------
+| User
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
+
+    Route::post('/user/index', [
+        UserController::class,
+        'index'
+    ]);
+
+    Route::post('user/restore', [
+        UserController::class,
+        'restore'
+    ]);
+
+    Route::delete('user/delete', [
+        UserController::class,
+        'destroy'
+    ]);
+
+    Route::put('/user/{id}/{column}', [
+        UserController::class,
+        'toggle'
+    ]);
+
+    Route::delete('user/force-delete', [
+        UserController::class,
+        'forceDelete'
+    ]);
+
     Route::apiResource('user', UserController::class);
 });
 
 
-Route::get('/get-user-public', [UserController::class, 'indexPublic']);
-Route::get('/get-user-active', [UserController::class, 'indexActive']);
+/*
+|--------------------------------------------------------------------------
+| Public User
+|--------------------------------------------------------------------------
+*/
 
-//////////////////////////////////////// user ////////////////////////////////
+Route::get('/get-user-public', [
+    UserController::class,
+    'indexPublic'
+]);
 
-////////////////////////////////////////// Admin ////////////////////////////////
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/admin/index', [AdminController::class, 'index']);
-    Route::post('admin/restore', [AdminController::class, 'restore']);
-    Route::delete('admin/delete', [AdminController::class, 'destroy']);
-    Route::delete('admin/force-delete', [AdminController::class, 'forceDelete']);
-    Route::put('/admin/{id}/{column}', [AdminController::class, 'toggle']);
-    Route::post('/admin-select', [AdminController::class, 'index']);
-    Route::post('/admin-logout', [AdminController::class, 'logout']);
-    Route::get('/get-admin', [AdminController::class, 'getCurrentAdmin']);
-    Route::apiResource('admin', AdminController::class)->except(['store']);
-    });
-Route::post('/admin/login', [AdminController::class, 'login']);
-Route::post('/sales-representative/login', [SalesRepresentativeController::class, 'login']);
-Route::middleware('auth:sanctum')->get('/sales-representative/me', [SalesRepresentativeController::class, 'me']);
-////////////////////////////////////////// Admin ////////////////////////////////
-////////////////////////////////////////// Admin ////////////////////////////////
-
-////////////////////////////////////////// media ////////////////////////////////
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->get('/get-user-active', [
+    UserController::class,
+    'indexActive'
+]);
 
 
+/*
+|--------------------------------------------------------------------------
+| Admin
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
+
+    Route::post('/admin/index', [
+        AdminController::class,
+        'index'
+    ]);
+
+    Route::post('admin/restore', [
+        AdminController::class,
+        'restore'
+    ]);
+
+    Route::delete('admin/delete', [
+        AdminController::class,
+        'destroy'
+    ]);
+
+    Route::delete('admin/force-delete', [
+        AdminController::class,
+        'forceDelete'
+    ]);
+
+    Route::put('/admin/{id}/{column}', [
+        AdminController::class,
+        'toggle'
+    ]);
+
+    Route::post('/admin-select', [
+        AdminController::class,
+        'index'
+    ]);
+
+    Route::post('/admin-logout', [
+        AdminController::class,
+        'logout'
+    ]);
+
+    Route::get('/get-admin', [
+        AdminController::class,
+        'getCurrentAdmin'
+    ]);
+
+    Route::apiResource('admin', AdminController::class)
+        ->except(['store']);
+});
+
+
+Route::post('/admin/login', [
+    AdminController::class,
+    'login'
+]);
+
+Route::post('/sales-representative/login', [
+    SalesRepresentativeController::class,
+    'login'
+]);
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->get('/sales-representative/me', [
+    SalesRepresentativeController::class,
+    'me'
+]);
+
+
+/*
+|--------------------------------------------------------------------------
+| Media
+|--------------------------------------------------------------------------
+|
+| Media is kept public here because the existing application exposes
+| public media endpoints.
+|
+*/
 
 Route::group(['middleware' => ['api']], static function () {
-    Route::get('/media', [MediaController::class, 'index']);
-    Route::get('/media/{media}', [MediaController::class, 'show']);
-    Route::post('/media', [MediaController::class, 'store']);
-    Route::delete('/media/{media}', [MediaController::class, 'destroy']);
-    Route::get('/get-unused-media', [MediaController::class, 'getUnUsedImages']);
-    Route::delete('/delete-unused-media', [MediaController::class, 'deleteUnUsedImages']);
+
+    Route::get('/media', [
+        MediaController::class,
+        'index'
+    ]);
+
+    Route::get('/media/{media}', [
+        MediaController::class,
+        'show'
+    ]);
+
+    Route::post('/media', [
+        MediaController::class,
+        'store'
+    ]);
+
+    Route::delete('/media/{media}', [
+        MediaController::class,
+        'destroy'
+    ]);
+
+    Route::get('/get-unused-media', [
+        MediaController::class,
+        'getUnUsedImages'
+    ]);
+
+    Route::delete('/delete-unused-media', [
+        MediaController::class,
+        'deleteUnUsedImages'
+    ]);
 });
-Route::get('/get-media/{media}', [MediaController::class, 'show']);
-Route::post('/media-array', [MediaController::class, 'showMedia']);
-Route::post('/media-upload-many', [MediaController::class, 'storeMany']);
 
-//////////////////////////////////////// media ////////////////////////////////
-//////////////////////////////////////// media ////////////////////////////////
+Route::get('/get-media/{media}', [
+    MediaController::class,
+    'show'
+]);
+
+Route::post('/media-array', [
+    MediaController::class,
+    'showMedia'
+]);
+
+Route::post('/media-upload-many', [
+    MediaController::class,
+    'storeMany'
+]);
 
 
+/*
+|--------------------------------------------------------------------------
+| Branch
+|--------------------------------------------------------------------------
+*/
 
-//////////////////////////////////////// branch ////////////////////////////////
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/branch/index', [BranchController::class, 'index']);
-    Route::post('branch/restore', [BranchController::class, 'restore']);
-    Route::delete('branch/delete', [BranchController::class, 'destroy']);
-    Route::put('/branch/{id}/{column}', [BranchController::class, 'toggle']);
-    Route::delete('branch/force-delete', [BranchController::class, 'forceDelete']);
+    Route::post('/branch/index', [
+        BranchController::class,
+        'index'
+    ]);
+
+    Route::post('branch/restore', [
+        BranchController::class,
+        'restore'
+    ]);
+
+    Route::delete('branch/delete', [
+        BranchController::class,
+        'destroy'
+    ]);
+
+    Route::put('/branch/{id}/{column}', [
+        BranchController::class,
+        'toggle'
+    ]);
+
+    Route::delete('branch/force-delete', [
+        BranchController::class,
+        'forceDelete'
+    ]);
+
     Route::apiResource('branch', BranchController::class);
 });
-//////////////////////////////////////// branch ////////////////////////////////
-//////////////////////////////////////// branch ////////////////////////////////
 
-//////////////////////////////////////// warehouse ////////////////////////////////
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/warehouse/index', [WarehouseController::class, 'index']);
-    Route::post('warehouse/restore', [WarehouseController::class, 'restore']);
-    Route::delete('warehouse/delete', [WarehouseController::class, 'destroy']);
-    Route::put('/warehouse/{id}/{column}', [WarehouseController::class, 'toggle']);
-    Route::delete('warehouse/force-delete', [WarehouseController::class, 'forceDelete']);
+/*
+|--------------------------------------------------------------------------
+| Warehouse
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
+
+    Route::post('/warehouse/index', [
+        WarehouseController::class,
+        'index'
+    ]);
+
+    Route::post('warehouse/restore', [
+        WarehouseController::class,
+        'restore'
+    ]);
+
+    Route::delete('warehouse/delete', [
+        WarehouseController::class,
+        'destroy'
+    ]);
+
+    Route::put('/warehouse/{id}/{column}', [
+        WarehouseController::class,
+        'toggle'
+    ]);
+
+    Route::delete('warehouse/force-delete', [
+        WarehouseController::class,
+        'forceDelete'
+    ]);
+
     Route::apiResource('warehouse', WarehouseController::class);
+
+
+    Route::get('warehouses/{warehouse}/products', [
+        WarehouseController::class,
+        'warehouseProducts'
+    ]);
+
+    Route::post('warehouses/transfer', [
+        WarehouseController::class,
+        'transfer'
+    ]);
+
+    Route::post('warehouses/inventory-store', [
+        WarehouseController::class,
+        'inventoryStore'
+    ]);
+
+    Route::put('inventory-logs/{inventoryLog}/counted-stock', [
+        WarehouseController::class,
+        'updateCountedStock'
+    ]);
+
+    Route::get('inventory-logs/{inventoryLog}', [
+        InventoryLogController::class,
+        'show'
+    ]);
+
+    Route::post('/inventory/index', [
+        InventoryLogController::class,
+        'index'
+    ]);
+
+    Route::post('/warehouses/index-product', [
+        InventoryLogController::class,
+        'indexProduct'
+    ]);
 });
-//////////////////////////////////////// warehouse ////////////////////////////////
-//////////////////////////////////////// warehouse ////////////////////////////////
 
-Route::middleware('auth:sanctum')->group(function () {
-    Route::get('warehouses/{warehouse}/products', [WarehouseController::class, 'warehouseProducts']);
-    Route::post('warehouses/transfer', [WarehouseController::class, 'transfer']);
-    Route::post('warehouses/inventory-store', [WarehouseController::class, 'inventoryStore']);
-    Route::put('inventory-logs/{inventoryLog}/counted-stock', [WarehouseController::class, 'updateCountedStock']);
-    Route::get('inventory-logs/{inventoryLog}', [InventoryLogController::class, 'show']);
-    Route::post('/inventory/index', [InventoryLogController::class, 'index']);
-    Route::post('/warehouses/index-product', [InventoryLogController::class, 'indexProduct']);
-});
 
-//////////////////////////////////////// color ////////////////////////////////
+/*
+|--------------------------------------------------------------------------
+| Color
+|--------------------------------------------------------------------------
+*/
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/color/index', [ColorController::class, 'index']);
-    Route::post('color/restore', [ColorController::class, 'restore']);
-    Route::delete('color/delete', [ColorController::class, 'destroy']);
-    Route::put('/color/{id}/{column}', [ColorController::class, 'toggle']);
-    Route::delete('color/force-delete', [ColorController::class, 'forceDelete']);
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
+
+    Route::post('/color/index', [
+        ColorController::class,
+        'index'
+    ]);
+
+    Route::post('color/restore', [
+        ColorController::class,
+        'restore'
+    ]);
+
+    Route::delete('color/delete', [
+        ColorController::class,
+        'destroy'
+    ]);
+
+    Route::put('/color/{id}/{column}', [
+        ColorController::class,
+        'toggle'
+    ]);
+
+    Route::delete('color/force-delete', [
+        ColorController::class,
+        'forceDelete'
+    ]);
+
     Route::apiResource('color', ColorController::class);
 });
-//////////////////////////////////////// color ////////////////////////////////
-//////////////////////////////////////// color ////////////////////////////////
 
 
-//////////////////////////////////////// unit ////////////////////////////////
+/*
+|--------------------------------------------------------------------------
+| Unit
+|--------------------------------------------------------------------------
+*/
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/unit/index', [UnitController::class, 'index']);
-    Route::post('unit/restore', [UnitController::class, 'restore']);
-    Route::delete('unit/delete', [UnitController::class, 'destroy']);
-    Route::put('/unit/{id}/{column}', [UnitController::class, 'toggle']);
-    Route::delete('unit/force-delete', [UnitController::class, 'forceDelete']);
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
+
+    Route::post('/unit/index', [
+        UnitController::class,
+        'index'
+    ]);
+
+    Route::post('unit/restore', [
+        UnitController::class,
+        'restore'
+    ]);
+
+    Route::delete('unit/delete', [
+        UnitController::class,
+        'destroy'
+    ]);
+
+    Route::put('/unit/{id}/{column}', [
+        UnitController::class,
+        'toggle'
+    ]);
+
+    Route::delete('unit/force-delete', [
+        UnitController::class,
+        'forceDelete'
+    ]);
+
     Route::apiResource('unit', UnitController::class);
 });
-//////////////////////////////////////// unit ////////////////////////////////
-//////////////////////////////////////// unit ////////////////////////////////
 
-//////////////////////////////////////// category ////////////////////////////////
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/category/index', [CategoryController::class, 'index']);
-    Route::post('category/restore', [CategoryController::class, 'restore']);
-    Route::delete('category/delete', [CategoryController::class, 'destroy']);
-    Route::put('/category/{id}/{column}', [CategoryController::class, 'toggle']);
-    Route::delete('category/force-delete', [CategoryController::class, 'forceDelete']);
+/*
+|--------------------------------------------------------------------------
+| Category
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
+
+    Route::post('/category/index', [
+        CategoryController::class,
+        'index'
+    ]);
+
+    Route::post('category/restore', [
+        CategoryController::class,
+        'restore'
+    ]);
+
+    Route::delete('category/delete', [
+        CategoryController::class,
+        'destroy'
+    ]);
+
+    Route::put('/category/{id}/{column}', [
+        CategoryController::class,
+        'toggle'
+    ]);
+
+    Route::delete('category/force-delete', [
+        CategoryController::class,
+        'forceDelete'
+    ]);
+
     Route::apiResource('category', CategoryController::class);
+
+    Route::get('/index-sub-account', [
+        CategoryController::class,
+        'indexSubAccount'
+    ]);
 });
-    Route::get('/index-sub-account', [CategoryController::class, 'indexSubAccount']);
-
-//////////////////////////////////////// category ////////////////////////////////
-//////////////////////////////////////// category ////////////////////////////////
 
 
+/*
+|--------------------------------------------------------------------------
+| Product
+|--------------------------------------------------------------------------
+*/
 
-//////////////////////////////////////// product ////////////////////////////////
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/product/index', [ProductController::class, 'index']);
-    Route::post('product/restore', [ProductController::class, 'restore']);
-    Route::delete('product/delete', [ProductController::class, 'destroy']);
-    Route::put('/product/{id}/{column}', [ProductController::class, 'toggle']);
-    Route::delete('product/force-delete', [ProductController::class, 'forceDelete']);
-    Route::post('/products/by-branch', [ProductController::class, 'getProductsByBranch']);
+    Route::post('/product/index', [
+        ProductController::class,
+        'index'
+    ]);
+
+    Route::post('product/restore', [
+        ProductController::class,
+        'restore'
+    ]);
+
+    Route::delete('product/delete', [
+        ProductController::class,
+        'destroy'
+    ]);
+
+    Route::put('/product/{id}/{column}', [
+        ProductController::class,
+        'toggle'
+    ]);
+
+    Route::delete('product/force-delete', [
+        ProductController::class,
+        'forceDelete'
+    ]);
+
+    Route::post('/products/by-branch', [
+        ProductController::class,
+        'getProductsByBranch'
+    ]);
+
     Route::apiResource('product', ProductController::class);
-        Route::post('/products/by-branch', [ProductController::class, 'getProductsByBranch']);
 
+    Route::get('/reports/revenue', [
+        ProductController::class,
+        'getRevenueReport'
+    ]);
+
+    Route::post('/products/import', [
+        ProductController::class,
+        'importProducts'
+    ]);
+
+    Route::post('/products/add-stock', [
+        ProductController::class,
+        'addStock'
+    ]);
 });
 
-Route::middleware('auth:sanctum')->group(function () {
-    Route::get('/reports/revenue', [ProductController::class, 'getRevenueReport']);
-    Route::post('/products/import', [ProductController::class, 'importProducts']);
-    Route::post('/products/add-stock', [ProductController::class, 'addStock']);
-});
 
-//////////////////////////////////////// product ////////////////////////////////
-//////////////////////////////////////// product ////////////////////////////////
+/*
+|--------------------------------------------------------------------------
+| Offer
+|--------------------------------------------------------------------------
+*/
 
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
 
+    Route::post('/offer/index', [
+        OfferController::class,
+        'index'
+    ]);
 
+    Route::post('offer/restore', [
+        OfferController::class,
+        'restore'
+    ]);
 
-//////////////////////////////////////// offer ////////////////////////////////
+    Route::delete('offer/delete', [
+        OfferController::class,
+        'destroy'
+    ]);
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/offer/index', [OfferController::class, 'index']);
-    Route::post('offer/restore', [OfferController::class, 'restore']);
-    Route::delete('offer/delete', [OfferController::class, 'destroy']);
-    Route::put('/offer/{id}/{column}', [OfferController::class, 'toggle']);
-    Route::delete('offer/force-delete', [OfferController::class, 'forceDelete']);
+    Route::put('/offer/{id}/{column}', [
+        OfferController::class,
+        'toggle'
+    ]);
+
+    Route::delete('offer/force-delete', [
+        OfferController::class,
+        'forceDelete'
+    ]);
+
     Route::apiResource('offer', OfferController::class);
+
+    Route::get('/offer/reports', [
+        OfferController::class,
+        'reports'
+    ]);
 });
-    Route::get('/offer/reports', [OfferController::class, 'reports']);
-
-//////////////////////////////////////// offer ////////////////////////////////
-//////////////////////////////////////// offer ////////////////////////////////
 
 
-//////////////////////////////////////// customer ////////////////////////////////
+/*
+|--------------------------------------------------------------------------
+| Customer
+|--------------------------------------------------------------------------
+*/
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/customer/index', [CustomerController::class, 'index']);
-    Route::get('/customer/{customer}/statement', [CustomerController::class, 'statement']);
-    Route::post('/customer/{customer}/statement', [CustomerController::class, 'statement']);
-    Route::match(['get', 'post'], '/product/{product}/ledger', [ProductLedgerController::class, 'show']);
-    Route::post('customer/restore', [CustomerController::class, 'restore']);
-    Route::delete('customer/delete', [CustomerController::class, 'destroy']);
-    Route::put('/customer/{id}/{column}', [CustomerController::class, 'toggle']);
-    Route::delete('customer/force-delete', [CustomerController::class, 'forceDelete']);
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
+
+    Route::post('/customer/index', [
+        CustomerController::class,
+        'index'
+    ]);
+
+    Route::get('/customer/{customer}/statement', [
+        CustomerController::class,
+        'statement'
+    ]);
+
+    Route::post('/customer/{customer}/statement', [
+        CustomerController::class,
+        'statement'
+    ]);
+
+    Route::match(
+        ['get', 'post'],
+        '/product/{product}/ledger',
+        [ProductLedgerController::class, 'show']
+    );
+
+    Route::post('customer/restore', [
+        CustomerController::class,
+        'restore'
+    ]);
+
+    Route::delete('customer/delete', [
+        CustomerController::class,
+        'destroy'
+    ]);
+
+    Route::put('/customer/{id}/{column}', [
+        CustomerController::class,
+        'toggle'
+    ]);
+
+    Route::delete('customer/force-delete', [
+        CustomerController::class,
+        'forceDelete'
+    ]);
+
     Route::apiResource('customer', CustomerController::class);
+
+    Route::post('/customers/import', [
+        CustomerController::class,
+        'importCustomers'
+    ]);
 });
-Route::post('/customers/import', [CustomerController::class, 'importCustomers'])->middleware('auth:sanctum');
 
-Route::middleware(['auth:sanctum'])->get('/workflow/transactions', [WorkflowController::class, 'index']);
-Route::middleware(['auth:sanctum'])->get('/dashboard/summary', [DashboardController::class, 'summary']);
 
-Route::middleware(['auth:sanctum', 'resolve.tenant', 'module.enabled:crm'])->prefix('crm')->group(function () {
-    Route::get('/dashboard', [CrmController::class, 'dashboard']);
-    Route::get('/reports/analytics', [CrmAnalyticsController::class, 'overview'])->middleware('permission:crm.view_reports');
-    Route::get('/pipeline-stages', [CrmController::class, 'stages']);
-    Route::post('/pipeline-stages', [CrmController::class, 'storeStage']);
-    Route::put('/pipeline-stages/{pipelineStage}', [CrmController::class, 'updateStage']);
-    Route::delete('/pipeline-stages/{pipelineStage}', [CrmController::class, 'destroyStage']);
-    Route::get('/leads', [CrmController::class, 'leads']);
-    Route::post('/leads', [CrmController::class, 'storeLead']);
-    Route::get('/leads/{lead}', [CrmController::class, 'showLead']);
-    Route::put('/leads/{lead}', [CrmController::class, 'updateLead']);
-    Route::delete('/leads/{lead}', [CrmController::class, 'destroyLead']);
-    Route::get('/deals', [CrmController::class, 'deals']);
-    Route::post('/deals', [CrmController::class, 'storeDeal']);
-    Route::get('/deals/{deal}', [CrmController::class, 'showDeal']);
-    Route::put('/deals/{deal}', [CrmController::class, 'updateDeal']);
-    Route::delete('/deals/{deal}', [CrmController::class, 'destroyDeal']);
-    Route::post('/deals/{deal}/move-stage', [CrmController::class, 'moveStage']);
-    Route::get('/activities', [CrmController::class, 'activities']);
-    Route::post('/activities', [CrmController::class, 'storeActivity']);
-    Route::get('/activities/{activity}', [CrmController::class, 'showActivity']);
-    Route::put('/activities/{activity}', [CrmController::class, 'updateActivity']);
-    Route::delete('/activities/{activity}', [CrmController::class, 'destroyActivity']);
+/*
+|--------------------------------------------------------------------------
+| Workflow / Dashboard
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
+
+    Route::get('/workflow/transactions', [
+        WorkflowController::class,
+        'index'
+    ]);
+
+    Route::get('/dashboard/summary', [
+        DashboardController::class,
+        'summary'
+    ]);
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| CRM
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+    'module.enabled:crm',
+])->prefix('crm')->group(function () {
+
+    Route::get('/dashboard', [
+        CrmController::class,
+        'dashboard'
+    ]);
+
+    Route::get('/reports/analytics', [
+        CrmAnalyticsController::class,
+        'overview'
+    ])->middleware('permission:crm.view_reports');
+
+    Route::get('/pipeline-stages', [
+        CrmController::class,
+        'stages'
+    ]);
+
+    Route::post('/pipeline-stages', [
+        CrmController::class,
+        'storeStage'
+    ]);
+
+    Route::put('/pipeline-stages/{pipelineStage}', [
+        CrmController::class,
+        'updateStage'
+    ]);
+
+    Route::delete('/pipeline-stages/{pipelineStage}', [
+        CrmController::class,
+        'destroyStage'
+    ]);
+
+    Route::get('/leads', [
+        CrmController::class,
+        'leads'
+    ]);
+
+    Route::post('/leads', [
+        CrmController::class,
+        'storeLead'
+    ]);
+
+    Route::get('/leads/{lead}', [
+        CrmController::class,
+        'showLead'
+    ]);
+
+    Route::put('/leads/{lead}', [
+        CrmController::class,
+        'updateLead'
+    ]);
+
+    Route::delete('/leads/{lead}', [
+        CrmController::class,
+        'destroyLead'
+    ]);
+
+    Route::get('/deals', [
+        CrmController::class,
+        'deals'
+    ]);
+
+    Route::post('/deals', [
+        CrmController::class,
+        'storeDeal'
+    ]);
+
+    Route::get('/deals/{deal}', [
+        CrmController::class,
+        'showDeal'
+    ]);
+
+    Route::put('/deals/{deal}', [
+        CrmController::class,
+        'updateDeal'
+    ]);
+
+    Route::delete('/deals/{deal}', [
+        CrmController::class,
+        'destroyDeal'
+    ]);
+
+    Route::post('/deals/{deal}/move-stage', [
+        CrmController::class,
+        'moveStage'
+    ]);
+
+    Route::get('/activities', [
+        CrmController::class,
+        'activities'
+    ]);
+
+    Route::post('/activities', [
+        CrmController::class,
+        'storeActivity'
+    ]);
+
+    Route::get('/activities/{activity}', [
+        CrmController::class,
+        'showActivity'
+    ]);
+
+    Route::put('/activities/{activity}', [
+        CrmController::class,
+        'updateActivity'
+    ]);
+
+    Route::delete('/activities/{activity}', [
+        CrmController::class,
+        'destroyActivity'
+    ]);
+
     Route::middleware('module.enabled:email')->group(function () {
-        Route::get('/email/templates', [EmailController::class, 'templates']);
-        Route::post('/email/templates', [EmailController::class, 'storeTemplate']);
-        Route::put('/email/templates/{emailTemplate}', [EmailController::class, 'updateTemplate']);
-        Route::delete('/email/templates/{emailTemplate}', [EmailController::class, 'destroyTemplate']);
-        Route::get('/email/logs', [EmailController::class, 'logs']);
-        Route::post('/customers/{customer}/send-email', [EmailController::class, 'sendToCustomer'])->middleware('permission:crm.send_email');
+
+        Route::get('/email/templates', [
+            EmailController::class,
+            'templates'
+        ]);
+
+        Route::post('/email/templates', [
+            EmailController::class,
+            'storeTemplate'
+        ]);
+
+        Route::put('/email/templates/{emailTemplate}', [
+            EmailController::class,
+            'updateTemplate'
+        ]);
+
+        Route::delete('/email/templates/{emailTemplate}', [
+            EmailController::class,
+            'destroyTemplate'
+        ]);
+
+        Route::get('/email/logs', [
+            EmailController::class,
+            'logs'
+        ]);
+
+        Route::post('/customers/{customer}/send-email', [
+            EmailController::class,
+            'sendToCustomer'
+        ])->middleware('permission:crm.send_email');
     });
 });
 
-Route::middleware(['auth:sanctum'])->prefix('manufacturing')->group(function () {
-    Route::get('/dashboard', [ManufacturingController::class, 'dashboard']);
-    Route::get('/boms', [ManufacturingController::class, 'boms']);
-    Route::post('/boms', [ManufacturingController::class, 'storeBom']);
-    Route::put('/boms/{bom}', [ManufacturingController::class, 'updateBom']);
-    Route::delete('/boms/{bom}', [ManufacturingController::class, 'destroyBom']);
-    Route::post('/work-centers', [ManufacturingController::class, 'storeWorkCenter']);
-    Route::get('/work-centers', [ManufacturingController::class, 'workCenters']);
-    Route::put('/work-centers/{workCenter}', [ManufacturingController::class, 'updateWorkCenter']);
-    Route::delete('/work-centers/{workCenter}', [ManufacturingController::class, 'destroyWorkCenter']);
-    Route::get('/orders', [ManufacturingController::class, 'orders']);
-    Route::post('/orders', [ManufacturingController::class, 'storeOrder']);
-    Route::put('/orders/{order}', [ManufacturingController::class, 'updateOrder']);
-    Route::post('/orders/{order}/start', [ManufacturingController::class, 'start']);
-    Route::get('/orders/{order}/operations', [ManufacturingController::class, 'operations']);
-    Route::post('/orders/{order}/operations', [ManufacturingController::class, 'storeOperation']);
-    Route::put('/operations/{operation}', [ManufacturingController::class, 'updateOperation']);
-    Route::post('/orders/{order}/complete', [ManufacturingController::class, 'complete']);
+
+/*
+|--------------------------------------------------------------------------
+| Manufacturing
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->prefix('manufacturing')->group(function () {
+
+    Route::get('/dashboard', [
+        ManufacturingController::class,
+        'dashboard'
+    ]);
+
+    Route::get('/boms', [
+        ManufacturingController::class,
+        'boms'
+    ]);
+
+    Route::post('/boms', [
+        ManufacturingController::class,
+        'storeBom'
+    ]);
+
+    Route::put('/boms/{bom}', [
+        ManufacturingController::class,
+        'updateBom'
+    ]);
+
+    Route::delete('/boms/{bom}', [
+        ManufacturingController::class,
+        'destroyBom'
+    ]);
+
+    Route::post('/work-centers', [
+        ManufacturingController::class,
+        'storeWorkCenter'
+    ]);
+
+    Route::get('/work-centers', [
+        ManufacturingController::class,
+        'workCenters'
+    ]);
+
+    Route::put('/work-centers/{workCenter}', [
+        ManufacturingController::class,
+        'updateWorkCenter'
+    ]);
+
+    Route::delete('/work-centers/{workCenter}', [
+        ManufacturingController::class,
+        'destroyWorkCenter'
+    ]);
+
+    Route::get('/orders', [
+        ManufacturingController::class,
+        'orders'
+    ]);
+
+    Route::post('/orders', [
+        ManufacturingController::class,
+        'storeOrder'
+    ]);
+
+    Route::put('/orders/{order}', [
+        ManufacturingController::class,
+        'updateOrder'
+    ]);
+
+    Route::post('/orders/{order}/start', [
+        ManufacturingController::class,
+        'start'
+    ]);
+
+    Route::get('/orders/{order}/operations', [
+        ManufacturingController::class,
+        'operations'
+    ]);
+
+    Route::post('/orders/{order}/operations', [
+        ManufacturingController::class,
+        'storeOperation'
+    ]);
+
+    Route::put('/operations/{operation}', [
+        ManufacturingController::class,
+        'updateOperation'
+    ]);
+
+    Route::post('/orders/{order}/complete', [
+        ManufacturingController::class,
+        'complete'
+    ]);
 });
 
-Route::middleware(['auth:sanctum'])->prefix('projects')->group(function () {
-    Route::get('/dashboard', [ProjectController::class, 'dashboard']);
-    Route::get('/', [ProjectController::class, 'index']);
-    Route::post('/', [ProjectController::class, 'store']);
-    Route::get('/{project}/wbs', [ProjectController::class, 'wbs']);
-    Route::post('/{project}/wbs', [ProjectController::class, 'storeWbs']);
-    Route::put('/{project}/wbs/{wbsItem}', [ProjectController::class, 'updateWbs']);
-    Route::delete('/{project}/wbs/{wbsItem}', [ProjectController::class, 'destroyWbs']);
-    Route::post('/{project}/wbs/{wbsItem}/progress', [ProjectController::class, 'recordProgress']);
-    Route::post('/{project}/claims', [ProjectController::class, 'createClaim']);
-    Route::post('/{project}/costs', [ProjectController::class, 'addCost']);
-    Route::get('/{project}', [ProjectController::class, 'show']);
-    Route::put('/{project}', [ProjectController::class, 'update']);
-    Route::delete('/{project}', [ProjectController::class, 'destroy']);
-    Route::post('/claims/{claim}/approve', [ProjectController::class, 'approveClaim']);
-    Route::post('/claims/{claim}/collect', [ProjectController::class, 'collectClaim']);
+
+/*
+|--------------------------------------------------------------------------
+| Projects
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->prefix('projects')->group(function () {
+
+    Route::get('/dashboard', [
+        ProjectController::class,
+        'dashboard'
+    ]);
+
+    Route::get('/', [
+        ProjectController::class,
+        'index'
+    ]);
+
+    Route::post('/', [
+        ProjectController::class,
+        'store'
+    ]);
+
+    Route::get('/{project}/wbs', [
+        ProjectController::class,
+        'wbs'
+    ]);
+
+    Route::post('/{project}/wbs', [
+        ProjectController::class,
+        'storeWbs'
+    ]);
+
+    Route::put('/{project}/wbs/{wbsItem}', [
+        ProjectController::class,
+        'updateWbs'
+    ]);
+
+    Route::delete('/{project}/wbs/{wbsItem}', [
+        ProjectController::class,
+        'destroyWbs'
+    ]);
+
+    Route::post('/{project}/wbs/{wbsItem}/progress', [
+        ProjectController::class,
+        'recordProgress'
+    ]);
+
+    Route::post('/{project}/claims', [
+        ProjectController::class,
+        'createClaim'
+    ]);
+
+    Route::post('/{project}/costs', [
+        ProjectController::class,
+        'addCost'
+    ]);
+
+    Route::get('/{project}', [
+        ProjectController::class,
+        'show'
+    ]);
+
+    Route::put('/{project}', [
+        ProjectController::class,
+        'update'
+    ]);
+
+    Route::delete('/{project}', [
+        ProjectController::class,
+        'destroy'
+    ]);
+
+    Route::post('/claims/{claim}/approve', [
+        ProjectController::class,
+        'approveClaim'
+    ]);
+
+    Route::post('/claims/{claim}/collect', [
+        ProjectController::class,
+        'collectClaim'
+    ]);
 });
 
-//////////////////////////////////////// customer ////////////////////////////////
-//////////////////////////////////////// customer ////////////////////////////////
 
-//////////////////////////////////////// invoice ////////////////////////////////
-//////////////////////////////////////// invoice ////////////////////////////////
+/*
+|--------------------------------------------------------------------------
+| Legacy Invoice
+|--------------------------------------------------------------------------
+*/
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/invoice/store', [InvoiceController::class, 'store']);
-    Route::post('/invoice-return/store', [ReturnInvoiceController::class, 'storeReturn']);
-    Route::post('/invoice-return/direct/store', [SalesInvoiceReturnController::class, 'storeDirectReturn']);
-    Route::get('/invoices/search', [InvoiceController::class, 'searchByInvoiceNumber']);
-    Route::post('/invoices/index', [InvoiceController::class, 'invoiceIndex']);
-    Route::post('/return-invoices/index', [ReturnInvoiceController::class, 'invoiceReturnIndex']);
-    Route::get('products/search', [ProductController::class, 'searchByProductName']);
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
+
+    Route::post('/invoice/store', [
+        InvoiceController::class,
+        'store'
+    ]);
+
+    Route::post('/invoice-return/store', [
+        ReturnInvoiceController::class,
+        'storeReturn'
+    ]);
+
+    Route::post('/invoice-return/direct/store', [
+        SalesInvoiceReturnController::class,
+        'storeDirectReturn'
+    ]);
+
+    Route::get('/invoices/search', [
+        InvoiceController::class,
+        'searchByInvoiceNumber'
+    ]);
+
+    Route::post('/invoices/index', [
+        InvoiceController::class,
+        'invoiceIndex'
+    ]);
+
+    Route::post('/return-invoices/index', [
+        ReturnInvoiceController::class,
+        'invoiceReturnIndex'
+    ]);
+
+    Route::get('products/search', [
+        ProductController::class,
+        'searchByProductName'
+    ]);
 });
 
-//////////////////////////////////////// invoice ////////////////////////////////
-//////////////////////////////////////// invoice ////////////////////////////////
 
+/*
+|--------------------------------------------------------------------------
+| Employee
+|--------------------------------------------------------------------------
+*/
 
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
 
+    Route::post('/employee/index', [
+        EmployeeController::class,
+        'index'
+    ]);
 
+    Route::post('employee/restore', [
+        EmployeeController::class,
+        'restore'
+    ]);
 
-//////////////////////////////////////// Employee ////////////////////////////////
+    Route::delete('employee/delete', [
+        EmployeeController::class,
+        'destroy'
+    ]);
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/employee/index', [EmployeeController::class, 'index']);
-    Route::post('employee/restore', [EmployeeController::class, 'restore']);
-    Route::delete('employee/delete', [EmployeeController::class, 'destroy']);
-    Route::put('/employee/{id}/{column}', [EmployeeController::class, 'toggle']);
-    Route::delete('employee/force-delete', [EmployeeController::class, 'forceDelete']);
+    Route::put('/employee/{id}/{column}', [
+        EmployeeController::class,
+        'toggle'
+    ]);
+
+    Route::delete('employee/force-delete', [
+        EmployeeController::class,
+        'forceDelete'
+    ]);
+
     Route::apiResource('employee', EmployeeController::class);
 });
-//////////////////////////////////////// Employee ////////////////////////////////
-//////////////////////////////////////// Employee ////////////////////////////////
 
 
+/*
+|--------------------------------------------------------------------------
+| Sales Representative
+|--------------------------------------------------------------------------
+*/
 
-//////////////////////////////////////// SalesRepresentative ////////////////////////////////
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/sales-representative/index', [SalesRepresentativeController::class, 'index']);
-    Route::post('sales-representative/restore', [SalesRepresentativeController::class, 'restore']);
-    Route::delete('sales-representative/delete', [SalesRepresentativeController::class, 'destroy']);
-    Route::put('/sales-representative/{id}/{column}', [SalesRepresentativeController::class, 'toggle']);
-    Route::delete('sales-representative/force-delete', [SalesRepresentativeController::class, 'forceDelete']);
-    Route::apiResource('sales-representative', SalesRepresentativeController::class);
+    Route::post('/sales-representative/index', [
+        SalesRepresentativeController::class,
+        'index'
+    ]);
+
+    Route::post('sales-representative/restore', [
+        SalesRepresentativeController::class,
+        'restore'
+    ]);
+
+    Route::delete('sales-representative/delete', [
+        SalesRepresentativeController::class,
+        'destroy'
+    ]);
+
+    Route::put('/sales-representative/{id}/{column}', [
+        SalesRepresentativeController::class,
+        'toggle'
+    ]);
+
+    Route::delete('sales-representative/force-delete', [
+        SalesRepresentativeController::class,
+        'forceDelete'
+    ]);
+
+    Route::apiResource(
+        'sales-representative',
+        SalesRepresentativeController::class
+    );
 });
-//////////////////////////////////////// SalesRepresentative ////////////////////////////////
-//////////////////////////////////////// SalesRepresentative ////////////////////////////////
 
 
+/*
+|--------------------------------------------------------------------------
+| Delivery Man
+|--------------------------------------------------------------------------
+*/
 
-//////////////////////////////////////// DeleveryMan ////////////////////////////////
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/delevery-man/index', [DeleveryManController::class, 'index']);
-    Route::post('delevery-man/restore', [DeleveryManController::class, 'restore']);
-    Route::delete('delevery-man/delete', [DeleveryManController::class, 'destroy']);
-    Route::put('/delevery-man/{id}/{column}', [DeleveryManController::class, 'toggle']);
-    Route::delete('delevery-man/force-delete', [DeleveryManController::class, 'forceDelete']);
+    Route::post('/delevery-man/index', [
+        DeleveryManController::class,
+        'index'
+    ]);
+
+    Route::post('delevery-man/restore', [
+        DeleveryManController::class,
+        'restore'
+    ]);
+
+    Route::delete('delevery-man/delete', [
+        DeleveryManController::class,
+        'destroy'
+    ]);
+
+    Route::put('/delevery-man/{id}/{column}', [
+        DeleveryManController::class,
+        'toggle'
+    ]);
+
+    Route::delete('delevery-man/force-delete', [
+        DeleveryManController::class,
+        'forceDelete'
+    ]);
+
     Route::apiResource('delevery-man', DeleveryManController::class);
 });
-//////////////////////////////////////// DeleveryMan ////////////////////////////////
-//////////////////////////////////////// DeleveryMan ////////////////////////////////
 
 
-//////////////////////////////////////// Attendance ////////////////////////////////
+/*
+|--------------------------------------------------------------------------
+| Attendance
+|--------------------------------------------------------------------------
+*/
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/attendance/index', [AttendanceController::class, 'index']);
-    Route::post('attendance/restore', [AttendanceController::class, 'restore']);
-    Route::delete('attendance/delete', [AttendanceController::class, 'destroy']);
-    Route::put('/attendance/{id}/{column}', [AttendanceController::class, 'toggle']);
-    Route::delete('attendance/force-delete', [AttendanceController::class, 'forceDelete']);
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
+
+    Route::post('/attendance/index', [
+        AttendanceController::class,
+        'index'
+    ]);
+
+    Route::post('attendance/restore', [
+        AttendanceController::class,
+        'restore'
+    ]);
+
+    Route::delete('attendance/delete', [
+        AttendanceController::class,
+        'destroy'
+    ]);
+
+    Route::put('/attendance/{id}/{column}', [
+        AttendanceController::class,
+        'toggle'
+    ]);
+
+    Route::delete('attendance/force-delete', [
+        AttendanceController::class,
+        'forceDelete'
+    ]);
+
     Route::apiResource('attendance', AttendanceController::class);
+
+    Route::post('/attendance/import', [
+        AttendanceController::class,
+        'importAttendance'
+    ]);
 });
-Route::post('/attendance/import', [AttendanceController::class, 'importAttendance']);
-//////////////////////////////////////// Attendance ////////////////////////////////
-//////////////////////////////////////// Attendance ////////////////////////////////
 
 
+/*
+|--------------------------------------------------------------------------
+| Loyalty
+|--------------------------------------------------------------------------
+*/
 
-//////////////////////////////////////// LoyaltySetting ////////////////////////////////
-//////////////////////////////////////// LoyaltySetting ////////////////////////////////
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/loyalty-points/index', [LoyaltySettingController::class, 'index']);
-    Route::post('/loyalty-points/restore', [LoyaltySettingController::class, 'restore']); // لو عايز soft delete
-    Route::delete('/loyalty-points/delete', [LoyaltySettingController::class, 'destroy']);
-    Route::put('/loyalty-points/{id}/{level}', [LoyaltySettingController::class, 'toggleLevel']);
-    Route::apiResource('loyalty-points', LoyaltySettingController::class);
+    Route::post('/loyalty-points/index', [
+        LoyaltySettingController::class,
+        'index'
+    ]);
+
+    Route::post('/loyalty-points/restore', [
+        LoyaltySettingController::class,
+        'restore'
+    ]);
+
+    Route::delete('/loyalty-points/delete', [
+        LoyaltySettingController::class,
+        'destroy'
+    ]);
+
+    Route::put('/loyalty-points/{id}/{level}', [
+        LoyaltySettingController::class,
+        'toggleLevel'
+    ]);
+
+    Route::apiResource(
+        'loyalty-points',
+        LoyaltySettingController::class
+    );
 });
-//////////////////////////////////////// LoyaltySetting ////////////////////////////////
-//////////////////////////////////////// LoyaltySetting ////////////////////////////////
 
 
+/*
+|--------------------------------------------------------------------------
+| Currency
+|--------------------------------------------------------------------------
+*/
 
-//////////////////////////////////////// Currency ////////////////////////////////
-//////////////////////////////////////// Currency ////////////////////////////////
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/currency/index', [CurrencyController::class, 'index']);
-    Route::post('/currency/restore', [CurrencyController::class, 'restore']); // لو عايز soft delete
-    Route::delete('/currency/delete', [CurrencyController::class, 'destroy']);
-    Route::put('/currency/{id}/{column}', [CurrencyController::class, 'toggle']);
+    Route::post('/currency/index', [
+        CurrencyController::class,
+        'index'
+    ]);
+
+    Route::post('/currency/restore', [
+        CurrencyController::class,
+        'restore'
+    ]);
+
+    Route::delete('/currency/delete', [
+        CurrencyController::class,
+        'destroy'
+    ]);
+
+    Route::put('/currency/{id}/{column}', [
+        CurrencyController::class,
+        'toggle'
+    ]);
+
     Route::apiResource('currency', CurrencyController::class);
 });
-//////////////////////////////////////// Currency ////////////////////////////////
-//////////////////////////////////////// Currency ////////////////////////////////
 
 
+/*
+|--------------------------------------------------------------------------
+| Tax
+|--------------------------------------------------------------------------
+*/
 
-//////////////////////////////////////// tax ////////////////////////////////
-//////////////////////////////////////// tax ////////////////////////////////
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/tax/index', [TaxController::class, 'index']);
-    Route::post('/tax/restore', [TaxController::class, 'restore']); // لو عايز soft delete
-    Route::delete('/tax/delete', [TaxController::class, 'destroy']);
-    Route::put('/tax/{id}/{column}', [TaxController::class, 'toggle']);
+    Route::post('/tax/index', [
+        TaxController::class,
+        'index'
+    ]);
+
+    Route::post('/tax/restore', [
+        TaxController::class,
+        'restore'
+    ]);
+
+    Route::delete('/tax/delete', [
+        TaxController::class,
+        'destroy'
+    ]);
+
+    Route::put('/tax/{id}/{column}', [
+        TaxController::class,
+        'toggle'
+    ]);
+
     Route::apiResource('tax', TaxController::class);
 });
-//////////////////////////////////////// tax ////////////////////////////////
-//////////////////////////////////////// tax ////////////////////////////////
 
 
+/*
+|--------------------------------------------------------------------------
+| Sales Invoice
+|--------------------------------------------------------------------------
+*/
 
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
 
+    Route::post('/sales-invoice/store', [
+        SalesInvoiceController::class,
+        'store'
+    ]);
 
-//////////////////////////////////////// SalesInvoice ////////////////////////////////
-//////////////////////////////////////// SalesInvoice ////////////////////////////////
-Route::middleware(['auth:sanctum', 'resolve.tenant'])->group(function () {
-    Route::post('/sales-invoice/store', [SalesInvoiceController::class, 'store']);
-    Route::post('/sales-invoices/index', [SalesInvoiceController::class, 'invoiceIndex']);
-    Route::get('/sales-invoices/{id}', [SalesInvoiceController::class, 'show']);
-    Route::post('/sales-invoices/{id}/cancel', [SalesInvoiceController::class, 'cancel']);
-    Route::post('/sales-invoice-return/store', [SalesInvoiceReturnController::class, 'storeReturn']);
-    Route::post('/sales-return/index', [SalesInvoiceReturnController::class, 'index']);
-    Route::get('/sales-return/{id}', [SalesInvoiceReturnController::class, 'show']);
-    Route::post('/sales-return/{id}/cancel', [SalesInvoiceReturnController::class, 'cancel']);
+    Route::post('/sales-invoices/index', [
+        SalesInvoiceController::class,
+        'invoiceIndex'
+    ]);
+
+    Route::get('/sales-invoices/{id}', [
+        SalesInvoiceController::class,
+        'show'
+    ]);
+
+    Route::post('/sales-invoices/{id}/cancel', [
+        SalesInvoiceController::class,
+        'cancel'
+    ]);
+
+    Route::post('/sales-invoice-return/store', [
+        SalesInvoiceReturnController::class,
+        'storeReturn'
+    ]);
+
+    Route::post('/sales-return/index', [
+        SalesInvoiceReturnController::class,
+        'index'
+    ]);
+
+    Route::get('/sales-return/{id}', [
+        SalesInvoiceReturnController::class,
+        'show'
+    ]);
+
+    Route::post('/sales-return/{id}/cancel', [
+        SalesInvoiceReturnController::class,
+        'cancel'
+    ]);
 });
 
-//////////////////////////////////////// SalesInvoice ////////////////////////////////
-//////////////////////////////////////// SalesInvoice ////////////////////////////////
 
+/*
+|--------------------------------------------------------------------------
+| Suppliers
+|--------------------------------------------------------------------------
+*/
 
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
 
-//////////////////////////////////////// suppliers ////////////////////////////////
-//////////////////////////////////////// suppliers ////////////////////////////////
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/suppliers/index', [SuppliersController::class, 'index']);
-    Route::post('/suppliers/restore', [SuppliersController::class, 'restore']);
-    Route::delete('/suppliers/delete', [SuppliersController::class, 'destroy']);
-    Route::put('/suppliers/{id}/{column}', [SuppliersController::class, 'toggle']);
+    Route::post('/suppliers/index', [
+        SuppliersController::class,
+        'index'
+    ]);
+
+    Route::post('/suppliers/restore', [
+        SuppliersController::class,
+        'restore'
+    ]);
+
+    Route::delete('/suppliers/delete', [
+        SuppliersController::class,
+        'destroy'
+    ]);
+
+    Route::put('/suppliers/{id}/{column}', [
+        SuppliersController::class,
+        'toggle'
+    ]);
+
     Route::apiResource('suppliers', SuppliersController::class);
-});
-Route::post('/suppliers/import', [SuppliersController::class, 'importSuppliers']);
 
-//////////////////////////////////////// suppliers ////////////////////////////////
-//////////////////////////////////////// suppliers ////////////////////////////////
-
-
-//////////////////////////////////////// purchases-orders ////////////////////////////////
-//////////////////////////////////////// purchases-orders ////////////////////////////////
-Route::middleware(['auth:sanctum', 'resolve.tenant'])->group(function () {
-    Route::post('/purchases-orders/store', [PurchaseOrderController::class, 'store']);
-    Route::post('/purchases-orders/index', [PurchaseOrderController::class, 'index']);
-    Route::get('/purchases-orders/{id}', [PurchaseOrderController::class, 'show']);
-});
-//////////////////////////////////////// purchases-orders ////////////////////////////////
-//////////////////////////////////////// purchases-orders ////////////////////////////////
-
-
-
-//////////////////////////////////////// purchases-invoices ////////////////////////////////
-//////////////////////////////////////// purchases-invoices ////////////////////////////////
-Route::middleware(['auth:sanctum', 'resolve.tenant'])->group(function () {
-    Route::post('/purchases-invoices/store', [PurchaseInvoiceController::class, 'store']);
-    Route::post('/purchases-invoices/index', [PurchaseInvoiceController::class, 'index']);
-    Route::get('/purchases-invoices/{id}', [PurchaseInvoiceController::class, 'show']);
-
-    Route::patch('purchase-invoices/{invoice}/pay', [PurchaseInvoiceController::class, 'pay']);
-//////////////////////////////////////// purchases-invoices ////////////////////////////////
-
-    Route::put('/purchases-invoices/update/{id}', [PurchaseInvoiceController::class, 'update']);
+    Route::post('/suppliers/import', [
+        SuppliersController::class,
+        'importSuppliers'
+    ]);
 });
 
-//////////////////////////////////////// purchases-invoices ////////////////////////////////
 
+/*
+|--------------------------------------------------------------------------
+| Purchase Orders
+|--------------------------------------------------------------------------
+*/
 
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
 
-/////////////////////////////////////// purchases-returns ////////////////////////////////
-//////////////////////////////////////// purchases-returns ////////////////////////////////
-Route::middleware(['auth:sanctum', 'resolve.tenant'])->group(function () {
-    Route::post('/purchase-returns/store', [PurchaseReturnController::class, 'store']);
-    Route::post('/purchase-returns/index', [PurchaseReturnController::class, 'index']);
-    Route::get('/purchase-returns/{id}', [PurchaseReturnController::class, 'show']);
-    Route::post('/purchase-returns/{id}/cancel', [PurchaseReturnController::class, 'destroy']);
+    Route::post('/purchases-orders/store', [
+        PurchaseOrderController::class,
+        'store'
+    ]);
+
+    Route::post('/purchases-orders/index', [
+        PurchaseOrderController::class,
+        'index'
+    ]);
+
+    Route::get('/purchases-orders/{id}', [
+        PurchaseOrderController::class,
+        'show'
+    ]);
 });
 
-/////////////////////////////////////// purchases-returns ////////////////////////////////
-//////////////////////////////////////// purchases-returns ////////////////////////////////
+
+/*
+|--------------------------------------------------------------------------
+| Purchase Invoices
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
+
+    Route::post('/purchases-invoices/store', [
+        PurchaseInvoiceController::class,
+        'store'
+    ]);
+
+    Route::post('/purchases-invoices/index', [
+        PurchaseInvoiceController::class,
+        'index'
+    ]);
+
+    Route::get('/purchases-invoices/{id}', [
+        PurchaseInvoiceController::class,
+        'show'
+    ]);
+
+    Route::patch(
+        'purchase-invoices/{invoice}/pay',
+        [PurchaseInvoiceController::class, 'pay']
+    );
+
+    Route::put('/purchases-invoices/update/{id}', [
+        PurchaseInvoiceController::class,
+        'update'
+    ]);
+});
 
 
+/*
+|--------------------------------------------------------------------------
+| Purchase Returns
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
+
+    Route::post('/purchase-returns/store', [
+        PurchaseReturnController::class,
+        'store'
+    ]);
+
+    Route::post('/purchase-returns/index', [
+        PurchaseReturnController::class,
+        'index'
+    ]);
+
+    Route::get('/purchase-returns/{id}', [
+        PurchaseReturnController::class,
+        'show'
+    ]);
+
+    Route::post('/purchase-returns/{id}/cancel', [
+        PurchaseReturnController::class,
+        'destroy'
+    ]);
+});
 
 
+/*
+|--------------------------------------------------------------------------
+| Roles
+|--------------------------------------------------------------------------
+*/
 
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
 
-//////////////////////////////////////// role ////////////////////////////////
-//////////////////////////////////////// role ////////////////////////////////
-   Route::post('/role/index', [RoleController::class, 'index']);
-    Route::post('role/restore', [RoleController::class, 'restore']);
-    Route::delete('role/delete', [RoleController::class, 'destroy']);
-    Route::put('/role/{id}/{column}', [RoleController::class, 'toggle']);
-    Route::delete('role/force-delete', [RoleController::class, 'forceDelete']);
+    Route::post('/role/index', [
+        RoleController::class,
+        'index'
+    ]);
+
+    Route::post('role/restore', [
+        RoleController::class,
+        'restore'
+    ]);
+
+    Route::delete('role/delete', [
+        RoleController::class,
+        'destroy'
+    ]);
+
+    Route::put('/role/{id}/{column}', [
+        RoleController::class,
+        'toggle'
+    ]);
+
+    Route::delete('role/force-delete', [
+        RoleController::class,
+        'forceDelete'
+    ]);
+
     Route::apiResource('role', RoleController::class);
-//////////////////////////////////////// role ////////////////////////////////
-//////////////////////////////////////// role ////////////////////////////////
-
-//////////////////////////////////////// shifts ////////////////////////////////
-//////////////////////////////////////// shifts ////////////////////////////////
-
-
-Route::middleware('auth:sanctum')->group(function () {
-    Route::get('shifts', [CashierShiftController::class, 'index']);
-    Route::get('shifts/current', [CashierShiftController::class, 'getCurrentShift']);
-    Route::get('shifts/{shift}', [CashierShiftController::class, 'show']);
-    Route::post('shifts/open', [CashierShiftController::class, 'openShift']);
-    Route::post('shifts/close', [CashierShiftController::class, 'closeShift']);
 });
 
-//////////////////////////////////////// shifts ////////////////////////////////
-//////////////////////////////////////// shifts ////////////////////////////////
+
+/*
+|--------------------------------------------------------------------------
+| Cashier Shifts
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
+
+    Route::get('shifts', [
+        CashierShiftController::class,
+        'index'
+    ]);
+
+    Route::get('shifts/current', [
+        CashierShiftController::class,
+        'getCurrentShift'
+    ]);
+
+    Route::get('shifts/{shift}', [
+        CashierShiftController::class,
+        'show'
+    ]);
+
+    Route::post('shifts/open', [
+        CashierShiftController::class,
+        'openShift'
+    ]);
+
+    Route::post('shifts/close', [
+        CashierShiftController::class,
+        'closeShift'
+    ]);
+});
 
 
+/*
+|--------------------------------------------------------------------------
+| Revenue
+|--------------------------------------------------------------------------
+*/
 
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
 
+    Route::post('/revenue/index', [
+        RevenueController::class,
+        'index'
+    ]);
 
-//////////////////////////////////////// Revenue ////////////////////////////////
-//////////////////////////////////////// Revenue ////////////////////////////////
+    Route::post('revenue/restore', [
+        RevenueController::class,
+        'restore'
+    ]);
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/revenue/index', [RevenueController::class, 'index']);
-    Route::post('revenue/restore', [RevenueController::class, 'restore']);
-    Route::delete('revenue/delete', [RevenueController::class, 'destroy']);
-    Route::put('/revenue/{id}/{column}', [RevenueController::class, 'toggle']);
-    Route::delete('revenue/force-delete', [RevenueController::class, 'forceDelete']);
+    Route::delete('revenue/delete', [
+        RevenueController::class,
+        'destroy'
+    ]);
+
+    Route::put('/revenue/{id}/{column}', [
+        RevenueController::class,
+        'toggle'
+    ]);
+
+    Route::delete('revenue/force-delete', [
+        RevenueController::class,
+        'forceDelete'
+    ]);
+
     Route::apiResource('revenue', RevenueController::class);
 });
 
-//////////////////////////////////////// Revenue ////////////////////////////////
-//////////////////////////////////////// Revenue ////////////////////////////////
 
-//////////////////////////////////////// Finance ////////////////////////////////
-//////////////////////////////////////// Finance ////////////////////////////////
+/*
+|--------------------------------------------------------------------------
+| Finance
+|--------------------------------------------------------------------------
+*/
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/finance/index', [FinanceController::class, 'index']);
-    Route::post('finance/restore', [FinanceController::class, 'restore']);
-    Route::delete('finance/delete', [FinanceController::class, 'destroy']);
-    Route::put('/finance/{id}/{column}', [FinanceController::class, 'toggle']);
-    Route::delete('finance/force-delete', [FinanceController::class, 'forceDelete']);
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
+
+    Route::post('/finance/index', [
+        FinanceController::class,
+        'index'
+    ]);
+
+    Route::post('finance/restore', [
+        FinanceController::class,
+        'restore'
+    ]);
+
+    Route::delete('finance/delete', [
+        FinanceController::class,
+        'destroy'
+    ]);
+
+    Route::put('/finance/{id}/{column}', [
+        FinanceController::class,
+        'toggle'
+    ]);
+
+    Route::delete('finance/force-delete', [
+        FinanceController::class,
+        'forceDelete'
+    ]);
+
     Route::apiResource('finance', FinanceController::class);
 });
 
-//////////////////////////////////////// Finance ////////////////////////////////
-//////////////////////////////////////// Finance ////////////////////////////////
 
+/*
+|--------------------------------------------------------------------------
+| Bank
+|--------------------------------------------------------------------------
+*/
 
-//////////////////////////////////////// Bank ////////////////////////////////
-//////////////////////////////////////// Bank ////////////////////////////////
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/bank/index', [BankController::class, 'index']);
-    Route::post('bank/restore', [BankController::class, 'restore']);
-    Route::delete('bank/delete', [BankController::class, 'destroy']);
-    Route::put('/bank/{id}/{column}', [BankController::class, 'toggle']);
-    Route::delete('bank/force-delete', [BankController::class, 'forceDelete']);
+    Route::post('/bank/index', [
+        BankController::class,
+        'index'
+    ]);
+
+    Route::post('bank/restore', [
+        BankController::class,
+        'restore'
+    ]);
+
+    Route::delete('bank/delete', [
+        BankController::class,
+        'destroy'
+    ]);
+
+    Route::put('/bank/{id}/{column}', [
+        BankController::class,
+        'toggle'
+    ]);
+
+    Route::delete('bank/force-delete', [
+        BankController::class,
+        'forceDelete'
+    ]);
+
     Route::apiResource('bank', BankController::class);
 });
 
-//////////////////////////////////////// Bank ////////////////////////////////
-//////////////////////////////////////// Bank ////////////////////////////////
 
+/*
+|--------------------------------------------------------------------------
+| Treasury
+|--------------------------------------------------------------------------
+*/
 
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
 
-//////////////////////////////////////// Treasury ////////////////////////////////
-//////////////////////////////////////// Treasury ////////////////////////////////
+    Route::post('/treasury/index', [
+        TreasuryController::class,
+        'index'
+    ]);
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::post('/treasury/index', [TreasuryController::class, 'index']);
-    Route::post('treasury/restore', [TreasuryController::class, 'restore']);
-    Route::put('treasury/update/{id}', [TreasuryController::class, 'update']);
-    Route::delete('treasury/delete', [TreasuryController::class, 'destroy']);
-    Route::put('/treasury/{id}/{column}', [TreasuryController::class, 'toggle']);
-    Route::delete('treasury/force-delete', [TreasuryController::class, 'forceDelete']);
+    Route::post('treasury/restore', [
+        TreasuryController::class,
+        'restore'
+    ]);
+
+    Route::put('treasury/update/{id}', [
+        TreasuryController::class,
+        'update'
+    ]);
+
+    Route::delete('treasury/delete', [
+        TreasuryController::class,
+        'destroy'
+    ]);
+
+    Route::put('/treasury/{id}/{column}', [
+        TreasuryController::class,
+        'toggle'
+    ]);
+
+    Route::delete('treasury/force-delete', [
+        TreasuryController::class,
+        'forceDelete'
+    ]);
+
     Route::apiResource('treasury', TreasuryController::class);
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Treasury / Bank Transfers
+    |--------------------------------------------------------------------------
+    */
+
+    Route::post('transfer', [
+        TransferController::class,
+        'transfer'
+    ]);
+
+    Route::post('/treasury-movement/index', [
+        TransferController::class,
+        'treasuryMovements'
+    ]);
+
+    Route::post('/bank-movement/index', [
+        TransferController::class,
+        'bankMovements'
+    ]);
 });
 
-//////////////////////////////////////// Treasury ////////////////////////////////
-//////////////////////////////////////// Treasury ////////////////////////////////
 
+/*
+|--------------------------------------------------------------------------
+| Accounts
+|--------------------------------------------------------------------------
+*/
 
-Route::post('transfer', [TransferController::class, 'transfer']);
-Route::post('/treasury-movement/index', [TransferController::class, 'treasuryMovements']);
-Route::post('/bank-movement/index', [TransferController::class, 'bankMovements']);
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->prefix('accounts')->group(function () {
 
-//////////////////////////////////////// Treasury ////////////////////////////////
-//////////////////////////////////////// Treasury ////////////////////////////////
+    Route::get('/', [
+        AccountController::class,
+        'index'
+    ])->name('accounts.index');
 
-
-
-//////////////////////////////////////// accounts ////////////////////////////////
-//////////////////////////////////////// accounts ////////////////////////////////
-
-Route::prefix('accounts')->group(function () {
-    Route::get('/', [AccountController::class, 'index'])
-        ->name('accounts.index');
-    Route::get('{code}', [AccountController::class, 'show'])
+    Route::get('{code}', [
+        AccountController::class,
+        'show'
+    ])
         ->name('accounts.show')
-        ->where('code', '[0-9]+'); // الكود يتكون من أرقام فقط
-    Route::get('/flat/tree', [AccountController::class, 'flatTree'])
-        ->name('accounts.flat.tree');
-    Route::get('/stats', [AccountController::class, 'treeStats'])
-        ->name('accounts.stats');
+        ->where('code', '[0-9]+');
+
+    Route::get('/flat/tree', [
+        AccountController::class,
+        'flatTree'
+    ])->name('accounts.flat.tree');
+
+    Route::get('/stats', [
+        AccountController::class,
+        'treeStats'
+    ])->name('accounts.stats');
 });
-Route::get('chart-of-accounts', [AccountController::class, 'index']);
-
-Route::post('/journal-entries', [JournalEntryController::class, 'store']);
-Route::patch('journal-entries/{journalEntry}/post', [JournalEntryController::class, 'post']);
-Route::get('journal-entries/{id}', [JournalEntryController::class, 'show']);
-Route::post('/journal-entries/index', [JournalEntryController::class, 'journalEntryIndex']);
-Route::get('/journal-entries/reports', [JournalEntryController::class, 'reports']);
-//////////////////////////////////////// accounts ////////////////////////////////
-//////////////////////////////////////// accounts ////////////////////////////////
 
 
-//////////////////////////////////////// logs ////////////////////////////////
-Route::get('activity-logs', [ActivityLogController::class, 'index']);
-//////////////////////////////////////// logs ////////////////////////////////
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->get('chart-of-accounts', [
+    AccountController::class,
+    'index'
+]);
 
-//////////////////////////////////////// clearAll ////////////////////////////////
-Route::delete('clear-all', [ActivityLogController::class, 'clearAll']);
-//////////////////////////////////////// clearAll ////////////////////////////////
+
+/*
+|--------------------------------------------------------------------------
+| Journal Entries
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->group(function () {
+
+    Route::post('/journal-entries', [
+        JournalEntryController::class,
+        'store'
+    ]);
+
+    Route::patch(
+        'journal-entries/{journalEntry}/post',
+        [JournalEntryController::class, 'post']
+    );
+
+    Route::get('journal-entries/{id}', [
+        JournalEntryController::class,
+        'show'
+    ]);
+
+    Route::post('/journal-entries/index', [
+        JournalEntryController::class,
+        'journalEntryIndex'
+    ]);
+
+    Route::get('/journal-entries/reports', [
+        JournalEntryController::class,
+        'reports'
+    ]);
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| Activity Logs
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->get('activity-logs', [
+    ActivityLogController::class,
+    'index'
+]);
+
+
+/*
+|--------------------------------------------------------------------------
+| Clear All
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->delete('clear-all', [
+    ActivityLogController::class,
+    'clearAll'
+]);

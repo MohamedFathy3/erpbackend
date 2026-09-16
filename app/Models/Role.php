@@ -20,4 +20,4 @@ class Role extends BaseModel
             ? $this->permissions->contains($column, $permission)
             : $this->permissions()->where($column, $permission)->exists();
     }
-}
+}   

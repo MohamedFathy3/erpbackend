@@ -25,7 +25,13 @@ class BranchScope
 
         foreach (['warehouse_id', 'from_warehouse_id', 'to_warehouse_id'] as $field) {
             $warehouseId = $request->input($field);
-            if ($warehouseId && !DB::table('warehouses')->where('id', $warehouseId)->where('branch_id', $branchId)->exists()) {
+            if ($warehouseId && !
+           DB::table('warehouses')
+    ->where('id', $warehouseId)
+    ->where('branch_id', $branchId)
+    ->where('tenant_id', $user->tenant_id)
+    ->exists())
+             {
                 return response()->json(['message' => 'Warehouse does not belong to your branch'], 403);
             }
         }
