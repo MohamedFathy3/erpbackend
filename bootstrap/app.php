@@ -4,6 +4,7 @@ use App\Http\Middleware\BranchScope;
 use App\Http\Middleware\CheckModuleEnabled;
 use App\Http\Middleware\CheckPermission;
 use App\Http\Middleware\EnforceRoutePermission;
+use App\Http\Middleware\ManageTenantAccess;
 use App\Http\Middleware\ForceJsonResponse;
 use App\Http\Middleware\EnsureTenantSubscriptionActive;
 use App\Http\Middleware\ResolveTenant;
@@ -40,6 +41,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'branch.scope' => BranchScope::class,
             'module.enabled' => CheckModuleEnabled::class,
             'permission' => CheckPermission::class,
+            'manage.tenant.access' => ManageTenantAccess::class,
             'resolve.tenant' => ResolveTenant::class,
             'subscription' => EnsureTenantSubscriptionActive::class,
         ]);

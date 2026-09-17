@@ -226,7 +226,7 @@ Route::middleware([
         'mePermissions'
     ]);
 
-    Route::middleware('permission:roles.manage')
+    Route::middleware('manage.tenant.access')
         ->prefix('access-control')
         ->group(function () {
 
