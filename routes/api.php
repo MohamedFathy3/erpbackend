@@ -1101,6 +1101,12 @@ Route::middleware([
             EmailController::class,
             'sendToCustomer'
         ])->middleware('permission:crm.send_email');
+
+        // Backward-compatible alias used by older CRM email composer builds.
+        Route::post('/email/customers/{customer}/send', [
+            EmailController::class,
+            'sendToCustomer'
+        ])->middleware('permission:crm.send_email');
     });
 });
 
