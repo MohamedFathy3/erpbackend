@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\BranchScope;
 use App\Http\Middleware\CheckModuleEnabled;
+use App\Http\Middleware\CheckPermission;
 use App\Http\Middleware\ForceJsonResponse;
 use App\Http\Middleware\EnsureTenantSubscriptionActive;
 use App\Http\Middleware\ResolveTenant;
@@ -23,8 +24,8 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->api(prepend: [
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
-           SnakeCaseMiddleware::class,
-           ForceJsonResponse::class,
+            SnakeCaseMiddleware::class,
+            ForceJsonResponse::class,
         ]);
         $middleware->api(append: [
             CheckModuleEnabled::class,
@@ -36,11 +37,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'api' => ForceJsonResponse::class,
             'branch.scope' => BranchScope::class,
             'module.enabled' => CheckModuleEnabled::class,
+            'permission' => CheckPermission::class,
             'resolve.tenant' => ResolveTenant::class,
             'subscription' => EnsureTenantSubscriptionActive::class,
         ]);
-
-        //
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //
