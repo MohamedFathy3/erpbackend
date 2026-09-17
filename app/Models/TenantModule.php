@@ -11,8 +11,8 @@ class TenantModule extends BaseModel
         return [
             'dashboard', 'pos', 'inventory', 'purchasing', 'sales', 'finance',
             'hr', 'crm', 'reports', 'settings', 'industries', 'manufacturing',
-            'projects', 'workflow', 'email', 'whatsapp', 'google_calendar',
-            'google_drive', 'tasks', 'manufacturing_setup', 'product_ledger',
+            'manufacturing_setup', 'product_ledger', 'projects', 'workflow',
+            'email', 'whatsapp', 'google_calendar', 'google_drive', 'tasks',
         ];
     }
 

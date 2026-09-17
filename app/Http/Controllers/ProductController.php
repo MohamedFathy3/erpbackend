@@ -324,6 +324,25 @@ public function update(ProductUpdateRequest $request, Product $product)
         return ProductResource::collection($products);
     }
 
+    public function warehouseStock(Request $request)
+    {
+        $data = $request->validate([
+            'filters.warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+            'filters.product_id_in' => ['nullable', 'array'],
+            'filters.product_id_in.*' => ['integer'],
+        ]);
+
+        $filters = $data['filters'];
+        $query = ProductWarehouse::query()
+            ->where('warehouse_id', (int) $filters['warehouse_id']);
+
+        if (!empty($filters['product_id_in'])) {
+            $query->whereIn('product_id', $filters['product_id_in']);
+        }
+
+        return JsonResponse::respondSuccess('Success', $query->get(['product_id', 'warehouse_id', 'stock']));
+    }
+
 
 
   public function getRevenueReport(Request $request)

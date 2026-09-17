@@ -794,6 +794,11 @@ Route::middleware([
         'getProductsByBranch'
     ]);
 
+    Route::post('/warehouse-stock/index', [
+        ProductController::class,
+        'warehouseStock'
+    ]);
+
     Route::apiResource('product', ProductController::class);
 
     Route::get('/reports/revenue', [

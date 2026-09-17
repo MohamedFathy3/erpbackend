@@ -55,6 +55,8 @@ class CheckModuleEnabled
             'reports' => ['reports'],
             'projects' => ['projects'],
             'workflow' => ['workflow'],
+            'industries' => ['industries'],
+            'product_ledger' => ['product-ledger'],
         ];
 
         foreach ($modules as $module => $prefixes) {

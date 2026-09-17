@@ -14,9 +14,10 @@ use Illuminate\Support\Str;
 class SuperAdminTenantController extends Controller
 {
     private const MODULES = [
-        'crm', 'email', 'whatsapp', 'google_calendar', 'google_drive', 'tasks',
-        'manufacturing', 'inventory', 'sales', 'purchasing', 'finance', 'hr',
-        'reports', 'projects', 'workflow',
+        'dashboard', 'pos', 'inventory', 'purchasing', 'sales', 'finance',
+        'hr', 'crm', 'reports', 'settings', 'industries', 'manufacturing',
+        'manufacturing_setup', 'product_ledger', 'projects', 'workflow',
+        'email', 'whatsapp', 'google_calendar', 'google_drive', 'tasks',
     ];
 
     public function index()
@@ -164,8 +165,13 @@ class SuperAdminTenantController extends Controller
         if ((bool) ($user->super_admin ?? false)) {
             return response()->json(['data' => self::MODULES]);
         }
+        $configured = TenantModule::query()
+            ->where('tenant_id', $user->tenant_id)
+            ->pluck('is_enabled', 'module_key');
         return response()->json([
-            'data' => TenantModule::query()->where('is_enabled', true)->pluck('module_key')->values(),
+            'data' => collect(self::MODULES)
+                ->filter(fn (string $key): bool => !array_key_exists($key, $configured->all()) || (bool) $configured[$key])
+                ->values(),
         ]);
     }
 }
