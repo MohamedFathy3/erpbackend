@@ -17,6 +17,7 @@ class SuperAdminTenantController extends Controller
         'dashboard', 'pos', 'inventory', 'purchasing', 'sales', 'finance',
         'hr', 'crm', 'reports', 'settings', 'industries', 'manufacturing',
         'manufacturing_setup', 'product_ledger', 'projects', 'workflow',
+        'access_control', 'ai_assistant',
         'email', 'whatsapp', 'google_calendar', 'google_drive', 'tasks',
     ];
 

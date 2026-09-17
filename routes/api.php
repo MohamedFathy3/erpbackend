@@ -81,6 +81,7 @@ Route::middleware(['auth:sanctum', 'resolve.tenant'])
 Route::middleware([
     'auth:sanctum',
     'resolve.tenant',
+    'module.enabled:ai_assistant',
 ])->prefix('ai')->group(function () {
 
     Route::post('/chat', [AIChatController::class, 'chat'])

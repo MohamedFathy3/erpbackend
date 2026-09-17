@@ -57,6 +57,8 @@ class CheckModuleEnabled
             'workflow' => ['workflow'],
             'industries' => ['industries'],
             'product_ledger' => ['product-ledger'],
+            'access_control' => ['access-control'],
+            'ai_assistant' => ['ai'],
         ];
 
         foreach ($modules as $module => $prefixes) {
