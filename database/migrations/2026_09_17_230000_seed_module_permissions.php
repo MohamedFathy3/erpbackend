@@ -27,14 +27,21 @@ return new class extends Migration
 
         $now = now();
         $hasKey = Schema::hasColumn('permissions', 'key');
+        $hasName = Schema::hasColumn('permissions', 'name');
+        $hasNameAr = Schema::hasColumn('permissions', 'name_ar');
+        $hasModule = Schema::hasColumn('permissions', 'module');
+        $hasCreatedAt = Schema::hasColumn('permissions', 'created_at');
+        $hasUpdatedAt = Schema::hasColumn('permissions', 'updated_at');
         foreach ($keys as [$key, $name, $module]) {
             $where = $hasKey ? ['key' => $key] : ['slug' => $key];
-            DB::table('permissions')->updateOrInsert(
-                $where,
-                $hasKey
-                    ? ['name' => $name, 'name_ar' => $name, 'module' => $module, 'created_at' => $now, 'updated_at' => $now]
-                    : ['name' => $name, 'slug' => $key, 'parent_id' => null, 'updated_at' => $now]
-            );
+            $values = [];
+            if ($hasName) $values['name'] = $name;
+            if (!$hasKey && Schema::hasColumn('permissions', 'slug')) $values['slug'] = $key;
+            if ($hasNameAr) $values['name_ar'] = $name;
+            if ($hasModule) $values['module'] = $module;
+            if ($hasCreatedAt) $values['created_at'] = $now;
+            if ($hasUpdatedAt) $values['updated_at'] = $now;
+            DB::table('permissions')->updateOrInsert($where, $values);
         }
     }
 
