@@ -57,6 +57,7 @@ class StoreSalesInvoiceRequest extends FormRequest
     {
         return [
             'due_date.after_or_equal' => 'تاريخ الاستحقاق يجب أن يكون بعد أو يساوي تاريخ الفاتورة.',
+            'items.*.unit_id.exists' => 'الوحدة المحددة غير موجودة. اترك الوحدة فارغة لاستخدام وحدة المنتج الأساسية.',
         ];
     }
 }

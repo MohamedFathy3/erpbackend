@@ -22,6 +22,7 @@ class RoleController extends BaseController
     {
         try {
             $query = Role::query()->with('permissions');
+            $query->whereRaw("lower(name) not in ('admin', 'administrator', 'super admin', 'super administrator')");
             if ($request->filled('search')) {
                 $query->where('name', 'like', '%' . $request->input('search') . '%');
             }

@@ -65,6 +65,7 @@ class PurchaseInvoiceRequest extends FormRequest
             'payment_method.in' => 'طريقة الدفع يجب أن تكون cash, credit, أو check',
             'items.*.discount.max' => 'نسبة الخصم لا تتجاوز 100%',
             'items.*.quantity.min' => 'الكمية يجب أن تكون 1 على الأقل',
+            'items.*.unit_id.exists' => 'الوحدة المحددة غير موجودة. اترك الوحدة فارغة لاستخدام وحدة المنتج الأساسية.',
         ];
     }
 }

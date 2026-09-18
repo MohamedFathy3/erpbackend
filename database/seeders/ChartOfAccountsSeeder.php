@@ -11,9 +11,17 @@ class ChartOfAccountsSeeder extends Seeder
     public function run(): void
     {
         // مسح الحسابات القديمة
-        DB::statement('SET FOREIGN_KEY_CHECKS=0');
+        if (DB::connection()->getDriverName() === 'mysql') {
+            DB::statement('SET FOREIGN_KEY_CHECKS=0');
+        } else {
+            DB::statement('PRAGMA foreign_keys = OFF');
+        }
         Account::truncate();
-        DB::statement('SET FOREIGN_KEY_CHECKS=1');
+        if (DB::connection()->getDriverName() === 'mysql') {
+            DB::statement('SET FOREIGN_KEY_CHECKS=1');
+        } else {
+            DB::statement('PRAGMA foreign_keys = ON');
+        }
 
         // مصفوفة جميع الحسابات من ملف Excel (بدون الأرصدة)
         $accounts = [

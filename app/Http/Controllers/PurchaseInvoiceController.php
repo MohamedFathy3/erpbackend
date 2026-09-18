@@ -89,6 +89,16 @@ class PurchaseInvoiceController extends Controller
                 $lineDiscount = $lineSubtotal * (($item['discount'] ?? 0) / 100);
                 $lineTax = $item['tax'] ?? 0;
                 $lineTotal = $lineSubtotal - $lineDiscount + $lineTax;
+                $productUnitId = null;
+                if (!empty($item['unit_id'])) {
+                    $productUnitId = DB::table('product_units')
+                        ->where('product_id', $item['product_id'])
+                        ->where('unit_id', $item['unit_id'])
+                        ->value('id');
+                    if (!$productUnitId) {
+                        throw new \RuntimeException('الوحدة المحددة غير مهيأة لهذا المنتج. اترك الوحدة فارغة أو أضفها من إعدادات المنتج.');
+                    }
+                }
     
                 PurchaseInvoiceItem::create([
                     'purchase_invoice_id' => $invoice->id,
@@ -96,7 +106,7 @@ class PurchaseInvoiceController extends Controller
                     'product_variant_id' => $item['product_variant_id'] ?? null,
                     'size_id' => $item['size_id'] ?? null,
                     'quantity' => $item['quantity'],
-                    'product_unit_id' => $item['unit_id'] ?? $item['product_unit_id'] ?? null,
+                    'product_unit_id' => $productUnitId,
                     'color_id' => $item['color_id'] ?? null,
                     'price' => $item['price'],
                     'discount' => $item['discount'] ?? 0,  // ✅ النسبة المئوية
