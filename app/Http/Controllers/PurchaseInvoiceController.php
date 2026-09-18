@@ -54,8 +54,14 @@ class PurchaseInvoiceController extends Controller
                 $taxTotal += $lineTax;
             }
     
-            $total = $subtotal - $discountTotal + $taxTotal;
-            $remaining = $total - ($request->paid_amount ?? 0);
+            // Compare and persist money at currency precision to avoid
+            // floating-point false positives for exact payments.
+            $subtotal = round($subtotal, 2);
+            $discountTotal = round($discountTotal, 2);
+            $taxTotal = round($taxTotal, 2);
+            $total = round($subtotal - $discountTotal + $taxTotal, 2);
+            $paidAmount = round((float) ($request->paid_amount ?? 0), 2);
+            $remaining = round($total - $paidAmount, 2);
     
             /*
             =============================
@@ -75,7 +81,7 @@ class PurchaseInvoiceController extends Controller
                 'due_date' => $request->due_date,
                 'payment_method' => $request->payment_method,
                 'note' => $request->note,
-                'paid_amount' => $request->paid_amount ?? 0,
+                'paid_amount' => $paidAmount,
                 'remaining_amount' => $remaining,
                 'subtotal' => $subtotal,
                 'discount_total' => $discountTotal,  // ✅ القيمة مش النسبة
@@ -153,18 +159,18 @@ class PurchaseInvoiceController extends Controller
                     throw new \Exception('رصيد الخزنة غير كافي');
                 }
     
-                if ($request->paid_amount > $total) {
+                if ($paidAmount > $total) {
                     throw new \Exception('المبلغ المدفوع أكبر من إجمالي الفاتورة');
                 }
     
-                $treasury->decrement('balance', $request->paid_amount);
+                $treasury->decrement('balance', $paidAmount);
     
                 TreasuryTransaction::create([
                     'treasury_id' => $request->treasury_id,
                     'reference_type' => PurchaseInvoice::class,
                     'reference_id' => $invoice->id,
                     'type' => 'out',
-                    'amount' => $request->paid_amount,
+                    'amount' => $paidAmount,
                     'description' => "دفعة لفاتورة مشتريات رقم {$invoice->invoice_number}",
                     'created_by' => auth()->user() instanceof User ? auth()->user()->id : null,
                 ]);
@@ -172,7 +178,7 @@ class PurchaseInvoiceController extends Controller
                 Transfer::create([
                     'type' => 'treasury_withdraw',
                     'from_treasury_id' => $request->treasury_id,
-                    'amount' => $request->paid_amount,
+                    'amount' => $paidAmount,
                     'notes' => "دفعة لفاتورة مشتريات رقم {$invoice->invoice_number}",
                     'created_by' => auth()->user() instanceof User ? auth()->user()->id : null,
                 ]);
