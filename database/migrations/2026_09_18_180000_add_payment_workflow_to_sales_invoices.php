@@ -18,6 +18,9 @@ return new class extends Migration
             if (!Schema::hasColumn('sales_invoices', 'payment_status')) {
                 $table->string('payment_status')->default('unpaid')->after('paid_amount')->index();
             }
+            if (!Schema::hasColumn('sales_invoices', 'tax_amount')) {
+                $table->decimal('tax_amount', 12, 2)->default(0)->after('payment_status');
+            }
         });
     }
 
@@ -28,7 +31,7 @@ return new class extends Migration
                 $table->dropForeign(['bank_id']);
                 $table->dropColumn('bank_id');
             }
-            foreach (['paid_amount', 'payment_status'] as $column) {
+            foreach (['paid_amount', 'payment_status', 'tax_amount'] as $column) {
                 if (Schema::hasColumn('sales_invoices', $column)) {
                     $table->dropColumn($column);
                 }

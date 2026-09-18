@@ -13,6 +13,7 @@ use App\Models\SalesInvoiceItem;
 use App\Models\Treasury;
 use App\Models\Bank;
 use App\Models\Transfer;
+use App\Models\Tax;
 use App\Services\WorkflowPostingService;
 use App\Models\TreasuryTransaction;
 use App\Services\InventoryMovementService;
@@ -84,7 +85,12 @@ class SalesInvoiceController extends Controller
             // خصم الفاتورة
             $discountPercentage = $request->discount_percentage ?? 0;
             $discountAmount = ($subtotal * $discountPercentage) / 100;
-            $netTotal = $subtotal - $discountAmount;
+            $taxAmount = (float) ($request->input('tax_amount') ?? 0);
+            if (!$request->has('tax_amount') && $request->tax_id) {
+                $taxRate = (float) (Tax::find($request->tax_id)?->rate ?? 0);
+                $taxAmount = (($subtotal - $discountAmount) * $taxRate) / 100;
+            }
+            $netTotal = $subtotal - $discountAmount + $taxAmount;
 
             // إنشاء الفاتورة
             $invoice = SalesInvoice::create([
@@ -105,6 +111,7 @@ class SalesInvoiceController extends Controller
                 'discount_percentage' => $discountPercentage,
                 'discount_amount' => $discountAmount,
                 'net_total' => $netTotal,
+                'tax_amount' => $taxAmount,
                 'paid_amount' => $request->payment_method === 'credit' ? 0 : $netTotal,
                 'payment_status' => $request->payment_method === 'credit' ? 'unpaid' : 'paid',
             ]);

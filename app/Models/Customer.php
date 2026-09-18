@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 class Customer extends BaseModel
 {
@@ -39,7 +40,7 @@ class Customer extends BaseModel
     public function getOutstandingBalanceAttribute(): float
     {
         return (float) $this->invoices()->sum('remaining_amount')
-            + (float) $this->salesInvoices()->sum('net_total')
+            + (float) $this->salesInvoices()->sum(DB::raw('net_total - paid_amount'))
             - (float) $this->salesReturns()->sum('sales_invoice_returns.total_amount');
     }
 
@@ -52,11 +53,6 @@ class Customer extends BaseModel
     // النقاط الحالية (اليدوية + المكتسبة)
     public function getLoyaltyPointsAttribute()
     {
-        $loyaltySetting = LoyaltySetting::first();
-        if (!$loyaltySetting || $loyaltySetting->point_value <= 0) return $this->point ?? 0;
-
-        $earnedPoints = floor($this->total_invoices_amount / $loyaltySetting->point_value);
-
-        return ($this->point ?? 0) + $earnedPoints;
+        return (int) ($this->point ?? 0);
     }
 }

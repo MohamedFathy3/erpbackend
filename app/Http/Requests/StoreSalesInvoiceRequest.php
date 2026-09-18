@@ -27,6 +27,7 @@ class StoreSalesInvoiceRequest extends FormRequest
             'due_date' => 'nullable|date|after_or_equal:invoice_date',
             'note' => 'nullable|string',
             'discount_percentage' => 'nullable|numeric|min:0|max:100',
+            'tax_amount' => 'nullable|numeric|min:0',
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.quantity' => 'required|integer|min:1',
