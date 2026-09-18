@@ -25,6 +25,8 @@ class SalesInvoiceResource extends JsonResource
 
             'treasury' => $this->treasury?->name,
             'treasury_id' => $this->treasury_id,
+            'bank' => $this->bank ? ['id' => $this->bank->id, 'name' => $this->bank->name, 'balance' => $this->bank->balance] : null,
+            'bank_id' => $this->bank_id,
             'branch' => $this->branch?->name,
             'warehouse' => $this->warehouse?->name,
 
@@ -33,6 +35,7 @@ class SalesInvoiceResource extends JsonResource
 
             'payment_method' => $this->payment_method,
             'payment_status' => $this->payment_status,
+            'paid_amount' => number_format($this->paid_amount ?? 0, 2, '.', ''),
             'workflow_status' => $this->workflow_status,
             'posting_journal_entry_id' => $this->posting_journal_entry_id,
             'invoice_date' => $this->invoice_date,

@@ -15,13 +15,14 @@ class StoreSalesInvoiceRequest extends FormRequest
     {
         return [
             'customer_id' => 'required|exists:customers,id',
-            'treasury_id' => 'required|exists:treasuries,id',
+            'treasury_id' => 'nullable|exists:treasuries,id',
+            'bank_id' => 'nullable|exists:banks,id',
             'sales_representative_id' => 'required|exists:sales_representatives,id',
             'branch_id' => 'required|exists:branches,id',
             'warehouse_id' => 'required|exists:warehouses,id',
             'currency_id' => 'required|exists:currencies,id',
             'tax_id' => 'nullable|exists:taxes,id',
-            'payment_method' => 'required|in:cash,card,check',
+            'payment_method' => 'required|in:cash,card,check,credit,bank_transfer,bank,credit_card',
             'invoice_date' => 'nullable|date',
             'due_date' => 'nullable|date|after_or_equal:invoice_date',
             'note' => 'nullable|string',
@@ -36,6 +37,22 @@ class StoreSalesInvoiceRequest extends FormRequest
             'items.*.product_unit_id' => 'nullable|integer',
             'items.*.color_id' => 'nullable|exists:colors,id',
         ];
+    }
+
+    protected function withValidator($validator): void
+    {
+        $validator->after(function ($validator): void {
+            $method = $this->input('payment_method');
+            if (in_array($method, ['cash', 'card', 'check', 'credit_card'], true) && !$this->filled('treasury_id')) {
+                $validator->errors()->add('treasury_id', 'الخزينة مطلوبة لهذه الطريقة.');
+            }
+            if (in_array($method, ['bank', 'bank_transfer'], true) && !$this->filled('bank_id')) {
+                $validator->errors()->add('bank_id', 'البنك مطلوب للتحويل البنكي.');
+            }
+            if ($method === 'credit' && $this->filled('treasury_id')) {
+                $validator->errors()->add('treasury_id', 'الفاتورة الآجلة لا تحرك رصيد الخزينة.');
+            }
+        });
     }
 
     public function messages(): array

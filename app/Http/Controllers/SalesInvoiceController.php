@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreSalesInvoiceRequest;
+use App\Http\Requests\CollectSalesInvoicePaymentRequest;
 use App\Http\Resources\SalesInvoiceResource;
 use App\Models\Customer;
 use App\Models\LoyaltySetting;
@@ -10,6 +11,8 @@ use App\Models\Product;
 use App\Models\SalesInvoice;
 use App\Models\SalesInvoiceItem;
 use App\Models\Treasury;
+use App\Models\Bank;
+use App\Models\Transfer;
 use App\Services\WorkflowPostingService;
 use App\Models\TreasuryTransaction;
 use App\Services\InventoryMovementService;
@@ -87,7 +90,8 @@ class SalesInvoiceController extends Controller
             $invoice = SalesInvoice::create([
                 'invoice_number' => $invoiceNumber,
                 'customer_id' => $request->customer_id,
-                'treasury_id' => $request->treasury_id,
+                'treasury_id' => in_array($request->payment_method, ['cash', 'card', 'check', 'credit_card'], true) ? $request->treasury_id : null,
+                'bank_id' => in_array($request->payment_method, ['bank', 'bank_transfer'], true) ? $request->bank_id : null,
                 'sales_representative_id' => $request->sales_representative_id,
                 'branch_id' => $request->branch_id,
                 'warehouse_id' => $request->warehouse_id,
@@ -101,6 +105,8 @@ class SalesInvoiceController extends Controller
                 'discount_percentage' => $discountPercentage,
                 'discount_amount' => $discountAmount,
                 'net_total' => $netTotal,
+                'paid_amount' => $request->payment_method === 'credit' ? 0 : $netTotal,
+                'payment_status' => $request->payment_method === 'credit' ? 'unpaid' : 'paid',
             ]);
 
             // إنشاء عناصر الفاتورة وتسجيل حركة المخزون في نفس المعاملة
@@ -126,8 +132,8 @@ class SalesInvoiceController extends Controller
 
             }
 
-            // إضافة الرصيد للخزنة
-            if ($request->treasury_id) {
+            // تحريك الرصيد فقط في طرق الدفع الفورية.
+            if (in_array($request->payment_method, ['cash', 'card', 'check', 'credit_card'], true) && $request->treasury_id) {
                 $treasury = Treasury::query()->lockForUpdate()->findOrFail($request->treasury_id);
                 $treasury->increment('balance', $netTotal);
 
@@ -142,10 +148,23 @@ class SalesInvoiceController extends Controller
                 ]);
             }
 
+            if (in_array($request->payment_method, ['bank', 'bank_transfer'], true)) {
+                $bank = Bank::query()->lockForUpdate()->findOrFail($request->bank_id);
+                $bank->increment('balance', $netTotal);
+                Transfer::create([
+                    'type' => 'bank_deposit',
+                    'to_bank_id' => $bank->id,
+                    'amount' => $netTotal,
+                    'currency' => $invoice->currency?->code ?? 'EGP',
+                    'notes' => "تحويل بنكي من فاتورة مبيعات {$invoice->invoice_number}",
+                    'created_by' => optional(auth()->user())->id,
+                ]);
+            }
+
             // ============================================================
             // ✅ ✅ ✅ إضافة نقاط الولاء
             // ============================================================
-            $this->updateLoyaltyPoints($request->customer_id, $netTotal);
+            $this->updateLoyaltyPoints($request->customer_id, $invoice->paid_amount);
 
             $journal = $posting->postSale($invoice->load('items.product'));
             $invoice->update(['posting_journal_entry_id' => $journal?->id, 'workflow_status' => $journal ? 'posted' : 'pending_finance']);
@@ -164,6 +183,7 @@ class SalesInvoiceController extends Controller
                     'warehouse',
                     'currency',
                     'tax'
+                    , 'bank'
                 )
             );
 
@@ -305,7 +325,8 @@ class SalesInvoiceController extends Controller
                 'warehouse',
                 'currency',
                 'tax',
-                'treasury'
+                'treasury',
+                'bank'
             ]);
 
             // =========================
@@ -426,6 +447,7 @@ class SalesInvoiceController extends Controller
                 'currency',
                 'tax',
                 'treasury',
+                'bank',
             ])->findOrFail($id);
 
             return response()->json([
@@ -451,6 +473,60 @@ class SalesInvoiceController extends Controller
         }
     }
 
+    public function collectPayment(CollectSalesInvoicePaymentRequest $request, $id, WorkflowPostingService $posting)
+    {
+        DB::beginTransaction();
+        try {
+            $invoice = SalesInvoice::lockForUpdate()->findOrFail($id);
+            $amount = (float) $request->amount;
+            $remaining = (float) $invoice->net_total - (float) ($invoice->paid_amount ?? 0);
+            if ($invoice->payment_status === 'paid' || $amount > $remaining + 0.0001) {
+                throw new \RuntimeException('مبلغ التحصيل أكبر من الرصيد المتبقي على الفاتورة.');
+            }
+
+            if ($request->payment_method === 'cash') {
+                $treasury = Treasury::query()->lockForUpdate()->findOrFail($request->treasury_id);
+                $treasury->increment('balance', $amount);
+                TreasuryTransaction::create([
+                    'treasury_id' => $treasury->id,
+                    'reference_type' => SalesInvoice::class,
+                    'reference_id' => $invoice->id,
+                    'type' => 'in',
+                    'amount' => $amount,
+                    'description' => "تحصيل آجل لفاتورة {$invoice->invoice_number}",
+                    'created_by' => optional(auth()->user())->id,
+                ]);
+            } else {
+                $bank = Bank::query()->lockForUpdate()->findOrFail($request->bank_id);
+                $bank->increment('balance', $amount);
+                Transfer::create([
+                    'type' => 'bank_deposit',
+                    'to_bank_id' => $bank->id,
+                    'amount' => $amount,
+                    'currency' => $invoice->currency?->code ?? 'EGP',
+                    'notes' => "تحصيل تحويل بنكي لفاتورة {$invoice->invoice_number}",
+                    'created_by' => optional(auth()->user())->id,
+                ]);
+            }
+
+            $journal = $posting->postCollection($invoice, $amount, $request->treasury_id);
+            $paid = (float) ($invoice->paid_amount ?? 0) + $amount;
+            $invoice->update([
+                'paid_amount' => $paid,
+                'payment_status' => $paid + 0.0001 >= (float) $invoice->net_total ? 'paid' : 'partial',
+                'workflow_status' => $journal ? 'posted' : $invoice->workflow_status,
+            ]);
+            $this->updateLoyaltyPoints($invoice->customer_id, $amount);
+            DB::commit();
+
+            return response()->json(['status' => true, 'message' => 'تم تحصيل الدفعة وتسجيل الحركة بنجاح', 'data' => new SalesInvoiceResource($invoice->fresh()->load('customer', 'bank', 'treasury', 'items.product'))]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('Sales invoice payment collection failed', ['invoice_id' => $id, 'error' => $e->getMessage()]);
+            return response()->json(['status' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
     public function cancel(Request $request, $id, WorkflowPostingService $posting)
     {
         DB::beginTransaction();
@@ -466,10 +542,21 @@ class SalesInvoiceController extends Controller
             }
 
             $posting->reverseInvoice($invoice, 'sale');
-            if ($invoice->treasury_id) {
-                Treasury::whereKey($invoice->treasury_id)->decrement('balance', $invoice->net_total);
+            if ($invoice->treasury_id && (float) ($invoice->paid_amount ?? 0) > 0) {
+                Treasury::whereKey($invoice->treasury_id)->decrement('balance', $invoice->paid_amount);
             }
-            $this->updateLoyaltyPoints($invoice->customer_id, -((float) $invoice->net_total));
+            if ($invoice->bank_id && (float) ($invoice->paid_amount ?? 0) > 0) {
+                Bank::whereKey($invoice->bank_id)->decrement('balance', $invoice->paid_amount);
+                Transfer::create([
+                    'type' => 'bank_withdraw',
+                    'from_bank_id' => $invoice->bank_id,
+                    'amount' => $invoice->paid_amount,
+                    'currency' => $invoice->currency?->code ?? 'EGP',
+                    'notes' => "عكس تحويل فاتورة المبيعات {$invoice->invoice_number}",
+                    'created_by' => optional(auth()->user())->id,
+                ]);
+            }
+            $this->updateLoyaltyPoints($invoice->customer_id, -((float) ($invoice->paid_amount ?? 0)));
             $invoice->update(['workflow_status' => 'cancelled']);
             DB::commit();
             return response()->json(['status' => true, 'message' => 'تم إلغاء الفاتورة وعكس أثرها المالي والمخزني', 'data' => new SalesInvoiceResource($invoice->fresh()->load('items.product'))]);

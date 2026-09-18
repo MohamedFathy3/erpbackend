@@ -1652,6 +1652,11 @@ Route::middleware([
         'cancel'
     ]);
 
+    Route::post('/sales-invoices/{id}/pay', [
+        SalesInvoiceController::class,
+        'collectPayment'
+    ]);
+
     Route::post('/sales-invoice-return/store', [
         SalesInvoiceReturnController::class,
         'storeReturn'

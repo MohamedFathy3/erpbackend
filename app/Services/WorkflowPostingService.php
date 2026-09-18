@@ -11,9 +11,41 @@ use Illuminate\Support\Facades\DB;
 
 class WorkflowPostingService
 {
+    public function postCollection(Model $invoice, float $amount, ?int $treasuryId = null): ?JournalEntry
+    {
+        if ($amount <= 0) return null;
+        $eventKey = 'financial-collection:' . strtolower(class_basename($invoice)) . ':' . $invoice->getKey() . ':' . number_format($amount, 2, '.', '');
+        if (WorkflowTransaction::where('event_key', $eventKey)->whereNotNull('journal_entry_id')->exists()) {
+            return WorkflowTransaction::where('event_key', $eventKey)->first()->journalEntry;
+        }
+
+        $cashAccount = $treasuryId
+            ? Account::whereHas('treasury', fn ($q) => $q->whereKey($treasuryId))->first()
+            : Account::active()->where('account_type', 'asset')->first();
+        $receivable = Account::active()->where('account_type', 'asset')->orderBy('id')->first();
+        if (!$cashAccount || !$receivable) return null;
+
+        return DB::transaction(function () use ($invoice, $amount, $cashAccount, $receivable, $eventKey) {
+            $journal = JournalEntry::create([
+                'entry_date' => now()->toDateString(),
+                'description_ar' => 'تحصيل فاتورة مبيعات #' . $invoice->getKey(),
+                'description_en' => 'Collection of sales invoice #' . $invoice->getKey(),
+                'status' => 'posted',
+            ]);
+            $journal->lines()->createMany([
+                ['account_id' => $cashAccount->id, 'debit' => $amount, 'credit' => 0, 'description' => 'تحصيل نقدي/بنكي'],
+                ['account_id' => $receivable->id, 'debit' => 0, 'credit' => $amount, 'description' => 'تسوية حساب العميل'],
+            ]);
+            Account::whereKey($cashAccount->id)->increment('debit', $amount);
+            Account::whereKey($receivable->id)->increment('credit', $amount);
+            WorkflowTransaction::capture($eventKey, $invoice, 'sale_payment_collected', ['amount' => $amount], $journal->id, null, 'completed');
+            return $journal;
+        });
+    }
+
     public function postSale(Model $invoice): ?JournalEntry
     {
-        return $this->postInvoice($invoice, 'sale', (float) ($invoice->net_total ?? $invoice->total_amount ?? 0), (int) ($invoice->treasury_id ?? 0));
+        return $this->postInvoice($invoice, 'sale', (float) ($invoice->net_total ?? $invoice->total_amount ?? 0), (int) ($invoice->treasury_id ?? 0), (string) ($invoice->payment_method ?? 'cash'));
     }
 
     public function postPurchase(Model $invoice): ?JournalEntry
@@ -49,7 +81,24 @@ class WorkflowPostingService
 
             $warehouseId = $source->warehouse_id ?? $source->invoice?->warehouse_id ?? $source->purchaseInvoice?->warehouse_id;
             $movementIds = [];
-            if ($warehouseId && method_exists($source, 'items')) {
+            if ($type === 'sale' && method_exists($source, 'items')) {
+                foreach ($source->items as $item) {
+                    $movement = app(InventoryMovementService::class)->apply([
+                        'product_id' => $item->product_id,
+                        'product_unit_id' => $item->product_unit_id ?? null,
+                        'size_id' => $item->size_id ?? null,
+                        'color_id' => $item->color_id ?? null,
+                        'branch_id' => $source->branch_id ?? null,
+                        'warehouse_id' => $warehouseId,
+                        'movement_type' => 'sale_cancelled',
+                        'quantity_delta' => (float) $item->quantity,
+                        'reference_type' => $source::class,
+                        'reference_id' => $source->getKey(),
+                        'notes' => 'عكس حركة مخزون فاتورة المبيعات',
+                    ]);
+                    $movementIds[] = $movement->id;
+                }
+            } elseif ($warehouseId && method_exists($source, 'items')) {
                 $movementType = in_array($type, ['sale', 'purchase_return'], true) ? 'receipt' : 'issue';
                 foreach ($source->items as $item) {
                     $product = Product::lockForUpdate()->find($item->product_id);
@@ -82,7 +131,7 @@ class WorkflowPostingService
         });
     }
 
-    private function postInvoice(Model $source, string $type, float $amount, int $treasuryId): ?JournalEntry
+    private function postInvoice(Model $source, string $type, float $amount, int $treasuryId, ?string $paymentMethod = null): ?JournalEntry
     {
         if ($amount <= 0) return null;
         $eventKey = 'financial-posting:' . strtolower(class_basename($source)) . ':' . $source->getKey() . ':' . $type;
@@ -90,7 +139,7 @@ class WorkflowPostingService
             return WorkflowTransaction::where('event_key', $eventKey)->first()->journalEntry;
         }
 
-        $accounts = $this->accountsFor($type, $treasuryId);
+        $accounts = $this->accountsFor($type, $treasuryId, $paymentMethod);
         if (!$accounts['debit'] || !$accounts['credit']) {
             WorkflowTransaction::capture($eventKey, $source, $type . '_pending_finance', ['amount' => $amount, 'reason' => 'لم يتم ضبط الحسابات الافتراضية'], null, null, 'pending_finance');
             return null;
@@ -105,32 +154,20 @@ class WorkflowPostingService
             Account::whereKey($accounts['debit']->id)->increment('debit', $amount);
             Account::whereKey($accounts['credit']->id)->increment('credit', $amount);
             $movementIds = [];
-            $warehouseId = $source->warehouse_id ?? $source->invoice?->warehouse_id;
-            if ($warehouseId && method_exists($source, 'items')) {
-                $movementType = in_array($type, ['sale', 'purchase_return'], true) ? 'issue' : 'receipt';
-                foreach ($source->items as $item) {
-                    $product = Product::find($item->product_id);
-                    if (!$product) continue;
-                    $quantity = (float) ($item->quantity ?? 0);
-                    $unitCost = (float) ($product->cost ?? $item->price ?? 0);
-                    $movement = InventoryMovement::create(['warehouse_id' => $warehouseId, 'product_id' => $product->id, 'reference_type' => $source::class, 'reference_id' => $source->getKey(), 'type' => $movementType, 'quantity' => $quantity, 'unit_cost' => $unitCost, 'total_cost' => $quantity * $unitCost, 'note' => $this->label($type)]);
-                    $movementIds[] = $movement->id;
-                }
-            }
             WorkflowTransaction::capture('financial-posting:' . strtolower(class_basename($source)) . ':' . $source->getKey() . ':' . $type, $source, $type . '_posted', ['amount' => $amount, 'inventory_movement_ids' => $movementIds], $journal->id, $movementIds[0] ?? null);
             return $journal;
         });
         return $journal;
     }
 
-    private function accountsFor(string $type, int $treasuryId): array
+    private function accountsFor(string $type, int $treasuryId, ?string $paymentMethod = null): array
     {
         $treasuryAccount = $treasuryId ? Account::whereHas('treasury', fn ($q) => $q->whereKey($treasuryId))->first() : Account::treasury()->active()->first();
         $asset = Account::active()->where('account_type', 'asset')->first();
         $revenue = Account::active()->where('account_type', 'revenue')->first();
         $expense = Account::active()->where('account_type', 'expense')->first();
         return match ($type) {
-            'sale' => ['debit' => $treasuryAccount ?: $asset, 'credit' => $revenue],
+            'sale' => ['debit' => (in_array($paymentMethod, ['credit', 'bank', 'bank_transfer'], true) ? $asset : ($treasuryAccount ?: $asset)), 'credit' => $revenue],
             'purchase' => ['debit' => $asset, 'credit' => $treasuryAccount ?: Account::active()->where('account_type', 'liability')->first()],
             'sales_return' => ['debit' => $revenue ?: $expense, 'credit' => $treasuryAccount ?: $asset],
             default => ['debit' => $treasuryAccount ?: $asset, 'credit' => $asset ?: $expense],
