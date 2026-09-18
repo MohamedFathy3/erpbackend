@@ -176,7 +176,7 @@ class SalesInvoiceController extends Controller
                     'amount' => $invoice->paid_amount,
                     'treasury_id' => $invoice->treasury_id,
                     'bank_id' => $invoice->bank_id,
-                    'created_by' => optional(auth()->user())->id,
+                    'created_by' => null,
                 ]);
             }
 
@@ -536,7 +536,7 @@ class SalesInvoiceController extends Controller
                 'amount' => $amount,
                 'treasury_id' => $treasuryId,
                 'bank_id' => $request->bank_id,
-                'created_by' => optional(auth()->user())->id,
+                'created_by' => null,
             ]);
             $paid = (float) ($invoice->paid_amount ?? 0) + $amount;
             $invoice->update([
