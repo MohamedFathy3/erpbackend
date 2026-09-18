@@ -36,6 +36,13 @@ class EnforceRoutePermission
         $path = preg_replace('#^api/#', '', trim($request->path(), '/')) ?? trim($request->path(), '/');
         $segments = explode('/', $path);
         $resource = $segments[0] ?? '';
+        if ($resource === 'inventory-transfer-requests') {
+            if (($segments[1] ?? '') === 'products') return 'inventory.transfer_requests.view';
+            if (($segments[2] ?? '') === 'approve' || ($segments[2] ?? '') === 'reject') return 'inventory.transfer_requests.approve';
+            return strtoupper($request->method()) === 'GET'
+                ? 'inventory.transfer_requests.view'
+                : 'inventory.transfer_requests.create';
+        }
         $module = [
             'admin' => 'users', 'user' => 'users', 'employee' => 'hr', 'employees' => 'hr',
             'product' => 'inventory', 'products' => 'inventory', 'warehouse' => 'inventory',

@@ -22,6 +22,7 @@ use App\Http\Controllers\DeleveryManController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\FinanceController;
 use App\Http\Controllers\InventoryLogController;
+use App\Http\Controllers\InventoryTransferRequestController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\JournalEntryController;
 use App\Http\Controllers\LoyaltySettingController;
@@ -626,6 +627,17 @@ Route::middleware([
         InventoryLogController::class,
         'indexProduct'
     ]);
+});
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+])->prefix('inventory-transfer-requests')->group(function () {
+    Route::post('/products', [InventoryTransferRequestController::class, 'products']);
+    Route::get('/', [InventoryTransferRequestController::class, 'index']);
+    Route::post('/', [InventoryTransferRequestController::class, 'store']);
+    Route::post('/{transferRequest}/approve', [InventoryTransferRequestController::class, 'approve']);
+    Route::post('/{transferRequest}/reject', [InventoryTransferRequestController::class, 'reject']);
 });
 
 

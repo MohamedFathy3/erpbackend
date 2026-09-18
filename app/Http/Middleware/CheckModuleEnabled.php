@@ -47,7 +47,7 @@ class CheckModuleEnabled
             'google_calendar' => ['calendar', 'google-integrations'],
             'tasks' => ['tasks'],
             'manufacturing' => ['manufacturing'],
-            'inventory' => ['inventory', 'inventor', 'warehouse', 'warehouses', 'product', 'products', 'category', 'color', 'unit', 'offer', 'product-ledger'],
+            'inventory' => ['inventory', 'inventor', 'warehouse', 'warehouses', 'product', 'products', 'category', 'color', 'unit', 'offer', 'product-ledger', 'inventory-transfer-requests'],
             'sales' => ['pos', 'sales', 'invoice', 'invoices', 'sales-invoice', 'sales-invoices', 'sales-return', 'return-invoice', 'sales-representative', 'delevery-man'],
             'purchasing' => ['supplier', 'suppliers', 'purchase', 'purchases'],
             'finance' => ['finance', 'bank', 'revenue', 'currency', 'tax', 'accounts', 'journal'],
