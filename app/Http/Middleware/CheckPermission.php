@@ -1,6 +1,7 @@
 <?php
 namespace App\Http\Middleware;
 
+use App\Models\Admin;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -11,7 +12,8 @@ class CheckPermission
     {
         $user = $request->user() ?: auth('sanctum')->user();
         $roleName = strtolower((string) ($user?->role?->name ?? ''));
-        $tenantAdmin = in_array($roleName, ['admin', 'tenant_admin', 'company_admin'], true);
+        $tenantAdmin = $user instanceof Admin
+            || in_array($roleName, ['admin', 'tenant_admin', 'company_admin'], true);
         $allowed = $user && ((bool) ($user->super_admin ?? false)
             || $user->hasPermission($permission)
             || ($tenantAdmin && $permission === 'crm.send_email'));

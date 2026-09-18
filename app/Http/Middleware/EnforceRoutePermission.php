@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Models\Permission;
+use App\Models\Admin;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -12,7 +13,10 @@ class EnforceRoutePermission
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user() ?: auth('sanctum')->user();
-        $isAdmin = $user && str_contains(strtolower((string) $user->role?->name), 'admin');
+        // Admin accounts are the tenant owners. AdminResource exposes role=admin,
+        // but the role relation may not be loaded (or may be null) on the token user.
+        $isAdmin = $user instanceof Admin
+            || ($user && str_contains(strtolower((string) $user->role?->name), 'admin'));
         if (!$user || (bool) ($user->super_admin ?? false) || $isAdmin || !$user->role_id) {
             return $next($request);
         }
