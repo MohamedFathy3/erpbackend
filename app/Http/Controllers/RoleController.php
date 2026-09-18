@@ -8,6 +8,7 @@ use App\Models\Role;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class RoleController extends BaseController
 {
@@ -35,7 +36,7 @@ class RoleController extends BaseController
     public function store(Request $request)
     {
         $data = $request->validate([
-            'name' => ['required', 'string', 'max:100', 'unique:roles,name'],
+            'name' => ['required', 'string', 'max:100', Rule::unique('roles', 'name')->where(fn ($query) => $query->where('tenant_id', auth()->user()?->tenant_id))],
             'permission_ids' => ['sometimes', 'array'],
             'permission_ids.*' => ['integer', 'exists:permissions,id'],
         ]);
@@ -60,7 +61,7 @@ class RoleController extends BaseController
     public function update(Request $request, Role $role)
     {
         $data = $request->validate([
-            'name' => ['sometimes', 'string', 'max:100', 'unique:roles,name,' . $role->id],
+            'name' => ['sometimes', 'string', 'max:100', Rule::unique('roles', 'name')->ignore($role->id)->where(fn ($query) => $query->where('tenant_id', auth()->user()?->tenant_id))],
             'permission_ids' => ['sometimes', 'array'],
             'permission_ids.*' => ['integer', 'exists:permissions,id'],
         ]);

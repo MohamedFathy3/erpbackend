@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class EmployeeRequest extends FormRequest
 {
@@ -20,7 +21,10 @@ class EmployeeRequest extends FormRequest
             'name'          => 'required|string|max:255',
             'position'      => 'nullable|string|max:255',
             'department'    => 'nullable|string|max:255',
-            'role_id'       => 'required|exists:roles,id',
+            'role_id'       => ['required', Rule::exists('roles', 'id')->where(function ($query): void {
+                $tenantId = auth()->user()?->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
+                if ($tenantId) $query->where('tenant_id', $tenantId);
+            })],
             'permissions'   => 'nullable|array',
             'permissions.*' => 'integer|exists:permissions,id',
             'branch_id'     => 'required|exists:branches,id', // ✅ إضافة
