@@ -270,55 +270,19 @@ public function store(Request $request)
         // ============================================================
         // ✅ ✅ ✅ تحديث نقاط الولاء (مع Logging)
         // ============================================================
-        \Log::info('⭐ ========== LOYALTY POINTS START ==========');
-        \Log::info('📊 Paid Amount: ' . $paid);
-        \Log::info('👤 Customer ID: ' . $request->customer_id);
-
         $loyaltySetting = LoyaltySetting::first();
-        \Log::info('📊 Loyalty Settings:', [
-            'exists' => $loyaltySetting ? 'Yes' : 'No',
-            'point_value' => $loyaltySetting?->point_value
-        ]);
-
-        if ($loyaltySetting && $loyaltySetting->point_value > 0) {
-            \Log::info('✅ Loyalty is active');
-            
+        $pointsPerCurrency = (float) ($loyaltySetting?->points ?? 0);
+        if ($loyaltySetting && $pointsPerCurrency > 0 && $request->customer_id) {
             $customer = Customer::find($request->customer_id);
-            \Log::info('👤 Customer found:', [
-                'exists' => $customer ? 'Yes' : 'No',
-                'name' => $customer?->name,
-                'current_points' => $customer?->point ?? 0
-            ]);
-            
             if ($customer) {
-                $earnedPoints = floor($paid * $loyaltySetting->point_value);
+                $earnedPoints = floor($paid / $pointsPerCurrency);
                 $oldPoints = $customer->point ?? 0;
                 $newPoints = $oldPoints + $earnedPoints;
-                
-                \Log::info('🧮 Points Calculation:', [
-                    'paid' => $paid,
-                    'point_value' => $loyaltySetting->point_value,
-                    'earned_points' => $earnedPoints,
-                    'old_points' => $oldPoints,
-                    'new_points' => $newPoints
-                ]);
-                
                 $customer->point = $newPoints;
                 $customer->last_paid_amount = $paid;
                 $customer->save();
-                
-                \Log::info('✅ Points saved successfully!', [
-                    'customer_id' => $customer->id,
-                    'new_points' => $customer->point
-                ]);
-            } else {
-                \Log::error('❌ Customer not found!');
             }
-        } else {
-            \Log::error('❌ Loyalty settings not found or point_value = 0');
         }
-
-        \Log::info('⭐ ========== LOYALTY POINTS END ==========');
 
         // ============================================================
         // ✅ تحديث مبيعات الوردية

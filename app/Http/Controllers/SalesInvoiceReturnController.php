@@ -547,8 +547,8 @@ class SalesInvoiceReturnController extends Controller
         try {
             $loyaltySetting = LoyaltySetting::first();
             
-            if (!$loyaltySetting || $loyaltySetting->point_value <= 0) {
-                Log::warning('⚠️ Loyalty settings not found or point_value = 0');
+            $pointsPerCurrency = (float) ($loyaltySetting?->points ?? 0);
+            if (!$loyaltySetting || $pointsPerCurrency <= 0) {
                 return;
             }
 
@@ -560,7 +560,7 @@ class SalesInvoiceReturnController extends Controller
             }
 
             $currentPoints = $customer->point ?? 0;
-            $deductedPoints = floor($returnAmount * $loyaltySetting->point_value);
+            $deductedPoints = floor(abs($returnAmount) / $pointsPerCurrency);
             $newPoints = max(0, $currentPoints - $deductedPoints);
 
             Log::info('🧮 Points Deduction:', [
