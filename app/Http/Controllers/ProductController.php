@@ -136,9 +136,13 @@ public function update(ProductUpdateRequest $request, Product $product)
         $data = $request->validated();
 
         $this->crudRepository->update(
-            collect($data)->except('units')->toArray(),
+            collect($data)->except(['units', 'image'])->toArray(),
             $product->id
         );
+
+        if ($request->has('image') && $request->input('image') !== null) {
+            $this->crudRepository->AddMediaCollection('image', $product);
+        }
 
         if (!empty($data['units']) && is_array($data['units'])) {
             // تنظيم الوحدات وإزالة الألوان المكررة

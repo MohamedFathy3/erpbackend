@@ -21,6 +21,7 @@ class ProductUpdateRequest extends FormRequest
             'name'            => 'nullable|string|max:255',
             'description'     => 'nullable|string',
             'image_url'       => 'nullable|string',
+            'image'           => 'nullable|integer|exists:media,id',
             'category_id'     => 'nullable|exists:categories,id',
             'sku' => [
                 'nullable',
