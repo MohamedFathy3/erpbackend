@@ -10,6 +10,7 @@ use App\Models\LoyaltySetting;
 use App\Models\Product;
 use App\Models\SalesInvoice;
 use App\Models\SalesInvoiceItem;
+use App\Models\SalesInvoicePayment;
 use App\Models\Treasury;
 use App\Models\Bank;
 use App\Models\Transfer;
@@ -96,7 +97,7 @@ class SalesInvoiceController extends Controller
             $invoice = SalesInvoice::create([
                 'invoice_number' => $invoiceNumber,
                 'customer_id' => $request->customer_id,
-                'treasury_id' => in_array($request->payment_method, ['cash', 'card', 'check', 'credit_card'], true) ? $request->treasury_id : null,
+                'treasury_id' => in_array($request->payment_method, ['cash', 'card', 'check', 'credit_card', 'credit'], true) ? $request->treasury_id : null,
                 'bank_id' => in_array($request->payment_method, ['bank', 'bank_transfer'], true) ? $request->bank_id : null,
                 'sales_representative_id' => $request->sales_representative_id,
                 'branch_id' => $request->branch_id,
@@ -164,6 +165,17 @@ class SalesInvoiceController extends Controller
                     'amount' => $netTotal,
                     'currency' => $invoice->currency?->code ?? 'EGP',
                     'notes' => "تحويل بنكي من فاتورة مبيعات {$invoice->invoice_number}",
+                    'created_by' => optional(auth()->user())->id,
+                ]);
+            }
+
+            if ((float) $invoice->paid_amount > 0) {
+                SalesInvoicePayment::create([
+                    'sales_invoice_id' => $invoice->id,
+                    'payment_method' => $request->payment_method,
+                    'amount' => $invoice->paid_amount,
+                    'treasury_id' => $invoice->treasury_id,
+                    'bank_id' => $invoice->bank_id,
                     'created_by' => optional(auth()->user())->id,
                 ]);
             }
@@ -516,7 +528,16 @@ class SalesInvoiceController extends Controller
                 ]);
             }
 
-            $journal = $posting->postCollection($invoice, $amount, $request->treasury_id);
+            $treasuryId = $request->treasury_id ?: $invoice->treasury_id;
+            $journal = $posting->postCollection($invoice, $amount, $treasuryId);
+            SalesInvoicePayment::create([
+                'sales_invoice_id' => $invoice->id,
+                'payment_method' => $request->payment_method,
+                'amount' => $amount,
+                'treasury_id' => $treasuryId,
+                'bank_id' => $request->bank_id,
+                'created_by' => optional(auth()->user())->id,
+            ]);
             $paid = (float) ($invoice->paid_amount ?? 0) + $amount;
             $invoice->update([
                 'paid_amount' => $paid,

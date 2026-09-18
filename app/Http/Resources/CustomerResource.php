@@ -27,10 +27,10 @@ class CustomerResource extends JsonResource
             'credit_limit' => (float) ($this->credit_limit ?? 0),
             'payment_terms' => $this->payment_terms,
             'notes' => $this->notes,
-            'point' => $this->point, // أي نقاط يدوية موجودة
+            'point' => (int) ($this->point ?? 0),
             'loyalty_points' => (int) ($this->point ?? 0),
             'active' => $this->active,
-            'last_paid_amount' => $this->last_paid_amount,
+            'last_paid_amount' => (float) ($this->last_paid_amount ?? 0),
             'total_purchases' => (float) $this->invoices()->sum('total_amount')
                 + (float) $this->salesInvoices()->sum('net_total')
                 - (float) $this->salesReturns()->sum('sales_invoice_returns.total_amount'),

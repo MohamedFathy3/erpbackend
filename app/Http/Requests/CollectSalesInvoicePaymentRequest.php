@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\SalesInvoice;
 use Illuminate\Foundation\Http\FormRequest;
 
 class CollectSalesInvoicePaymentRequest extends FormRequest
@@ -24,7 +25,8 @@ class CollectSalesInvoicePaymentRequest extends FormRequest
     protected function withValidator($validator): void
     {
         $validator->after(function ($validator): void {
-            if ($this->input('payment_method') === 'cash' && !$this->filled('treasury_id')) {
+            $invoice = SalesInvoice::find($this->route('id'));
+            if ($this->input('payment_method') === 'cash' && !$this->filled('treasury_id') && !$invoice?->treasury_id) {
                 $validator->errors()->add('treasury_id', 'الخزينة مطلوبة للتحصيل النقدي.');
             }
             if (in_array($this->input('payment_method'), ['bank', 'bank_transfer'], true) && !$this->filled('bank_id')) {

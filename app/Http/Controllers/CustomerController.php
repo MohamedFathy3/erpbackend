@@ -79,7 +79,7 @@ class CustomerController extends BaseController
                 ])->values(),
             ]);
 
-            $salesInvoices = $customer->salesInvoices()->latest('invoice_date')->get()->map(fn ($invoice) => [
+            $salesInvoices = $customer->salesInvoices()->with('payments')->latest('invoice_date')->get()->map(fn ($invoice) => [
                 'id' => $invoice->id,
                 'source' => 'sales',
                 'type' => 'sale',
@@ -89,7 +89,13 @@ class CustomerController extends BaseController
                 'paid' => (float) ($invoice->paid_amount ?? 0),
                 'due' => max(0, (float) ($invoice->net_total ?? $invoice->total_amount ?? 0) - (float) ($invoice->paid_amount ?? 0)),
                 'status' => $invoice->status ?? ((float) ($invoice->paid_amount ?? 0) > 0 ? 'partial' : 'unpaid'),
-                'payments' => [],
+                'payments' => $invoice->payments->map(fn ($payment) => [
+                    'method' => $payment->payment_method,
+                    'amount' => (float) $payment->amount,
+                    'treasury_id' => $payment->treasury_id,
+                    'bank_id' => $payment->bank_id,
+                    'date' => $payment->created_at?->toDateString(),
+                ])->values(),
             ]);
 
             $salesReturns = $customer->salesReturns()->latest('created_at')->get()->map(fn ($return) => [
