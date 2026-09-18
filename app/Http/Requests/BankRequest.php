@@ -28,6 +28,7 @@ class BankRequest extends FormRequest
             'swift_code' => 'nullable|string|max:50',
             'branch_id' => 'nullable|exists:branches,id',
             'currency' => 'required|string|max:10',
+            'balance' => 'nullable|numeric|min:0',
             'contact_person' => 'nullable|string|max:255',
             'phone' => 'nullable|string|max:50',
             'address' => 'nullable|string|max:255',

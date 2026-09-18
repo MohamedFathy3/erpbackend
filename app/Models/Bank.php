@@ -6,6 +6,10 @@ class Bank extends BaseModel
 {
     protected $guarded = ['id'];
 
+    protected $casts = [
+        'balance' => 'decimal:2',
+    ];
+
     public function branch()
     {
         return $this->belongsTo(Branch::class);

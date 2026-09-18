@@ -24,7 +24,7 @@ class BankResource extends JsonResource
             'branch_id' => $this->branch_id,
             'branch' => new BranchResource($this->branch) ?? null,
 
-            'balance' => $this->balance,
+            'balance' => (float) ($this->balance ?? 0),
             'currency' => $this->currency,
 
             'contact_person' => $this->contact_person,
