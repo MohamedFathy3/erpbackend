@@ -26,6 +26,14 @@ class ResolveTenant
             if ($user && !($user->super_admin ?? false) && (int)$user->tenant_id !== (int)$tenant->id) return response()->json(['message'=>'This account does not belong to the requested workspace.','code'=>'tenant_mismatch'],403);
             app()->instance('currentTenantId',(int)$tenant->id);
             app()->instance('currentTenant',$tenant);
+        } elseif ($user && !($user->super_admin ?? false) && $user->tenant_id) {
+            // Authenticated tenant users already carry their workspace in the
+            // account. Use it as a safe fallback for same-origin/API requests
+            // where the browser did not send the subdomain header.
+            $tenant=Tenant::withoutGlobalScopes()->find($user->tenant_id);
+            if (!$tenant) return response()->json(['message'=>'Tenant workspace was not found.','code'=>'tenant_not_found'],404);
+            app()->instance('currentTenantId',(int)$tenant->id);
+            app()->instance('currentTenant',$tenant);
         } elseif ($user && !($user->super_admin ?? false)) {
             return response()->json(['message'=>'Tenant subdomain is required for workspace requests.','code'=>'tenant_subdomain_required'],403);
         }
