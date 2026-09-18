@@ -183,7 +183,7 @@ class SalesInvoiceController extends Controller
             // ============================================================
             // ✅ ✅ ✅ إضافة نقاط الولاء
             // ============================================================
-            $this->updateLoyaltyPoints($request->customer_id, $invoice->paid_amount);
+            $this->updateLoyaltyPoints($request->customer_id, (float) $invoice->paid_amount);
 
             $journal = $posting->postSale($invoice->load('items.product'));
             $invoice->update(['posting_journal_entry_id' => $journal?->id, 'workflow_status' => $journal ? 'posted' : 'pending_finance']);
@@ -225,7 +225,7 @@ class SalesInvoiceController extends Controller
     // ============================================================
     // ✅ دالة تحديث نقاط الولاء
     // ============================================================
-    private function updateLoyaltyPoints($customerId, $paidAmount)
+    private function updateLoyaltyPoints($customerId, $paidAmount, $previousPaidAmount = 0)
     {
         Log::info('⭐ ========== LOYALTY POINTS START (Sales Invoice) ==========');
         Log::info('📊 Customer ID: ' . $customerId);
@@ -243,7 +243,8 @@ class SalesInvoiceController extends Controller
                 'platinum' => $loyaltySetting?->platinum
             ]);
 
-            if (!$loyaltySetting || $loyaltySetting->point_value <= 0) {
+            $pointsPerCurrency = (float) ($loyaltySetting?->points ?? 0);
+            if (!$loyaltySetting || $pointsPerCurrency <= 0) {
                 Log::warning('⚠️ Loyalty settings not found or point_value = 0');
                 return;
             }
@@ -262,14 +263,20 @@ class SalesInvoiceController extends Controller
                 'current_points' => $customer->point ?? 0
             ]);
 
-            // 3️⃣ حساب النقاط (ضرب المبلغ في قيمة النقطة)
-            $earnedPoints = floor($paidAmount * $loyaltySetting->point_value);
+            // 3️⃣ points is the spend threshold (for example 1000 currency = 1 point).
+            // point_value is the redemption discount percentage and must not multiply sales.
+            $earnedPoints = max(
+                0,
+                floor(($previousPaidAmount + $paidAmount) / $pointsPerCurrency)
+                    - floor($previousPaidAmount / $pointsPerCurrency)
+            );
             $oldPoints = $customer->point ?? 0;
             $newPoints = max(0, $oldPoints + $earnedPoints);
 
             Log::info('🧮 Points Calculation:', [
                 'paid_amount' => $paidAmount,
-                'point_value' => $loyaltySetting->point_value,
+                'points_per_currency' => $pointsPerCurrency,
+                'previous_paid_amount' => $previousPaidAmount,
                 'earned_points' => $earnedPoints,
                 'old_points' => $oldPoints,
                 'new_points' => $newPoints
@@ -529,6 +536,7 @@ class SalesInvoiceController extends Controller
             }
 
             $treasuryId = $request->treasury_id ?: $invoice->treasury_id;
+            $previousPaid = (float) ($invoice->paid_amount ?? 0);
             $journal = $posting->postCollection($invoice, $amount, $treasuryId);
             SalesInvoicePayment::create([
                 'sales_invoice_id' => $invoice->id,
@@ -544,7 +552,7 @@ class SalesInvoiceController extends Controller
                 'payment_status' => $paid + 0.0001 >= (float) $invoice->net_total ? 'paid' : 'partial',
                 'workflow_status' => $journal ? 'posted' : $invoice->workflow_status,
             ]);
-            $this->updateLoyaltyPoints($invoice->customer_id, $amount);
+            $this->updateLoyaltyPoints($invoice->customer_id, $amount, $previousPaid);
             DB::commit();
 
             return response()->json(['status' => true, 'message' => 'تم تحصيل الدفعة وتسجيل الحركة بنجاح', 'data' => new SalesInvoiceResource($invoice->fresh()->load('customer', 'bank', 'treasury', 'items.product'))]);
