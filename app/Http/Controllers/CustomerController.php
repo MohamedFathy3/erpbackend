@@ -88,7 +88,7 @@ class CustomerController extends BaseController
                 'total' => (float) ($invoice->net_total ?? $invoice->total_amount ?? 0),
                 'paid' => (float) ($invoice->paid_amount ?? 0),
                 'due' => max(0, (float) ($invoice->net_total ?? $invoice->total_amount ?? 0) - (float) ($invoice->paid_amount ?? 0)),
-                'status' => $invoice->status ?? ((float) ($invoice->paid_amount ?? 0) > 0 ? 'partial' : 'unpaid'),
+                'status' => $invoice->payment_status ?? ((float) ($invoice->paid_amount ?? 0) >= (float) ($invoice->net_total ?? $invoice->total_amount ?? 0) ? 'paid' : ((float) ($invoice->paid_amount ?? 0) > 0 ? 'partial' : 'unpaid')),
                 'payments' => $invoice->payments->map(fn ($payment) => [
                     'method' => $payment->payment_method,
                     'amount' => (float) $payment->amount,
