@@ -8,10 +8,11 @@ use Illuminate\Auth\Authenticatable as AuthenticatableTrait;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use App\Traits\HasAdvancedPermissions;
 
 class Employee extends BaseModel implements Authenticatable
 {
-    use AuthenticatableTrait, HasApiTokens, HasFactory, Notifiable;
+    use AuthenticatableTrait, HasApiTokens, HasFactory, Notifiable, HasAdvancedPermissions;
 
     protected $guarded = ['id'];
 
@@ -41,9 +42,4 @@ class Employee extends BaseModel implements Authenticatable
         return $this->belongsToMany(Permission::class, 'employee_permissions')->withTimestamps();
     }
 
-    public function hasPermission(string $permission): bool
-    {
-        if ($this->permissions()->where(Permission::identifierColumn(), $permission)->exists()) return true;
-        return $this->role?->hasPermission($permission) ?? false;
-    }
 }
