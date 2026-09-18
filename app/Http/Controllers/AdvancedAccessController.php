@@ -18,7 +18,7 @@ class AdvancedAccessController extends Controller
         $user = $request->user();
         $role = strtolower((string) ($user?->role?->name ?? ''));
         return (bool) $user?->super_admin
-            || in_array($role, ['admin', 'manager', 'tenant_admin', 'company_admin'], true)
-            || (bool) $user?->hasPermission('roles.manage');
+            || $user instanceof \App\Models\Admin
+            || $role === 'admin';
     }
 }

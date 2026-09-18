@@ -14,10 +14,10 @@ class ManageTenantAccess
         $user = $request->user() ?: auth('sanctum')->user();
         $roleName = strtolower((string) ($user?->role?->name ?? ''));
         $isTenantAdmin = $user instanceof Admin
-            || in_array($roleName, ['admin', 'tenant_admin', 'company_admin'], true);
+            || $roleName === 'admin';
 
         abort_unless(
-            $user && ((bool) ($user->super_admin ?? false) || $isTenantAdmin || $user->hasPermission('roles.manage')),
+            $user && ((bool) ($user->super_admin ?? false) || $isTenantAdmin),
             403,
             'You do not have permission to manage company access.'
         );
