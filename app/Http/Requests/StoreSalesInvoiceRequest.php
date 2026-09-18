@@ -49,9 +49,6 @@ class StoreSalesInvoiceRequest extends FormRequest
             if (in_array($method, ['bank', 'bank_transfer'], true) && !$this->filled('bank_id')) {
                 $validator->errors()->add('bank_id', 'البنك مطلوب للتحويل البنكي.');
             }
-            if ($method === 'credit' && $this->filled('treasury_id')) {
-                $validator->errors()->add('treasury_id', 'الفاتورة الآجلة لا تحرك رصيد الخزينة.');
-            }
         });
     }
 
