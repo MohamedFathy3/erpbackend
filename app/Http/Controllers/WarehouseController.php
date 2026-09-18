@@ -204,13 +204,19 @@ class WarehouseController extends BaseController
 
     public function inventoryStore(Request $request)
     {
-        DB::beginTransaction();
-
         try {
+            $validated = $request->validate([
+                'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+                'products' => ['required', 'array', 'min:1'],
+                'products.*.product_id' => ['required', 'integer'],
+                'products.*.counted_stock' => ['required', 'numeric', 'min:0'],
+                'note' => ['nullable', 'string', 'max:1000'],
+            ]);
+            DB::beginTransaction();
 
-            $warehouse = Warehouse::findOrFail($request->warehouse_id);
+            $warehouse = Warehouse::findOrFail($validated['warehouse_id']);
 
-            foreach ($request->products as $item) {
+            foreach ($validated['products'] as $item) {
 
                 $productId     = $item['product_id'];
                 $countedStock  = $item['counted_stock'];
@@ -222,7 +228,7 @@ class WarehouseController extends BaseController
                     ->first();
 
                 if (!$product) {
-                    continue; // أو throw لو تحب
+                    throw new \RuntimeException("المنتج رقم {$productId} غير موجود في المخزن المحدد");
                 }
 
                 $systemStock = $product->pivot->stock;
@@ -243,38 +249,45 @@ class WarehouseController extends BaseController
                     'system_stock'   => $systemStock,
                     'counted_stock'  => $countedStock,
                     'difference'     => $difference,
-                    'note'           => $request->note,
+                    'note'           => $validated['note'] ?? null,
                 ]);
             }
 
             DB::commit();
 
-            return response()->json([
-                'message' => 'تم تنفيذ الجرد بنجاح'
-            ]);
+            return response()->json(['result' => 'Success', 'message' => 'تم تنفيذ الجرد وتحديث المخزون بنجاح']);
 
         } catch (\Exception $e) {
-            DB::rollBack();
+            if (DB::transactionLevel() > 0) DB::rollBack();
 
             return response()->json([
-                'error' => $e->getMessage()
+                'result' => 'Error',
+                'message' => app()->isProduction() ? 'تعذر تنفيذ الجرد. لم يتم تعديل المخزون.' : $e->getMessage(),
+                'errors' => app()->isProduction() ? [] : ['inventory' => [$e->getMessage()]],
             ], 422);
         }
     }
 
     public function updateCountedStock(Request $request, InventoryLog $inventoryLog)
     {
-        $request->validate([
-            'counted_stock' => 'required|integer|min:0',
-            'note' => 'nullable|string',
+        $validated = $request->validate([
+            'counted_stock' => 'required|numeric|min:0',
+            'note' => 'nullable|string|max:1000',
         ]);
-
-        // تحديث counted_stock و note
-        $inventoryLog->update([
-            'counted_stock' => $request->counted_stock,
-            'note' => $request->note,
-            'difference' => $request->counted_stock - $inventoryLog->system_stock, // تحديث الفرق
-        ]);
+        DB::transaction(function () use ($validated, $inventoryLog): void {
+            $warehouse = Warehouse::findOrFail($inventoryLog->warehouse_id);
+            if (!$warehouse->products()->whereKey($inventoryLog->product_id)->exists()) {
+                throw new \RuntimeException('المنتج غير موجود في المخزن المرتبط بسجل الجرد');
+            }
+            $warehouse->products()->updateExistingPivot($inventoryLog->product_id, [
+                'stock' => $validated['counted_stock'],
+            ]);
+            $inventoryLog->update([
+                'counted_stock' => $validated['counted_stock'],
+                'note' => $validated['note'] ?? null,
+                'difference' => $validated['counted_stock'] - $inventoryLog->system_stock,
+            ]);
+        });
 
         return response()->json([
             'result' => 'Success',

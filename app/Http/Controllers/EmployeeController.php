@@ -23,7 +23,7 @@ class EmployeeController extends BaseController
   public function index()
 {
     try {
-        $employees = Employee::with(['role', 'branch', 'treasury'])->get();
+        $employees = Employee::with(['role', 'branch', 'treasury', 'permissions'])->get();
         $employee = EmployeeResource::collection($employees);
         return $employee->additional(JsonResponse::success());
     } catch (Exception $e) {
@@ -34,6 +34,8 @@ class EmployeeController extends BaseController
     {
         try {
             $data = $request->validated();
+            $permissions = $data['permissions'] ?? [];
+            unset($data['permissions']);
 
             // تشفير كلمة المرور قبل الحفظ
             if ($request->filled('password')) {
@@ -41,9 +43,10 @@ class EmployeeController extends BaseController
             }
 
             $employee = $this->crudRepository->create($data);
+            $employee->permissions()->sync($permissions);
             
             // تحميل العلاقات
-            $employee->load(['role', 'branch', 'treasury']);
+            $employee->load(['role', 'branch', 'treasury', 'permissions']);
 
             return new EmployeeResource($employee);
         } catch (Exception $e) {
@@ -55,7 +58,7 @@ class EmployeeController extends BaseController
     {
         try {
             // تحميل العلاقات
-            $employee->load(['role', 'branch', 'treasury']);
+            $employee->load(['role', 'branch', 'treasury', 'permissions']);
             
             return JsonResponse::respondSuccess('Item Fetched Successfully', new EmployeeResource($employee));
         } catch (Exception $e) {
@@ -67,6 +70,8 @@ class EmployeeController extends BaseController
     {
         try {
             $data = $request->validated();
+            $permissions = $data['permissions'] ?? null;
+            unset($data['permissions']);
 
             // تشفير كلمة المرور إذا موجودة
             if ($request->filled('password')) {
@@ -75,6 +80,7 @@ class EmployeeController extends BaseController
 
             // تحديث الموظف
             $this->crudRepository->update($data, $employee->id);
+            if ($permissions !== null) $employee->permissions()->sync($permissions);
 
             // تسجيل النشاط
             activity()->performedOn($employee)->withProperties(['attributes' => $employee])->log('update');

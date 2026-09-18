@@ -37,7 +37,8 @@ class EmployeeResource extends JsonResource
             'salary'        => $this->salary,
             'is_active'     => $this->is_active,
             'created_at'    => $this->created_at?->format('Y-m-d H:i:s'),
-            'role' => $this->role?->name ,
+            'role' => $this->role?->name,
+            'permission_ids' => $this->whenLoaded('permissions', fn () => $this->permissions->pluck('id')->values()),
         ];
     }
 }

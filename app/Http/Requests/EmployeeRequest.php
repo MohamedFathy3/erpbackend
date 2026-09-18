@@ -21,6 +21,8 @@ class EmployeeRequest extends FormRequest
             'position'      => 'nullable|string|max:255',
             'department'    => 'nullable|string|max:255',
             'role_id'       => 'required|exists:roles,id',
+            'permissions'   => 'nullable|array',
+            'permissions.*' => 'integer|exists:permissions,id',
             'branch_id'     => 'required|exists:branches,id', // ✅ إضافة
             'treasury_id'   => 'required|exists:treasuries,id', // ✅ إضافة
             'phone'         => 'nullable|string|max:20',
