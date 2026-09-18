@@ -162,7 +162,9 @@ class WorkflowPostingService
 
     private function accountsFor(string $type, int $treasuryId, ?string $paymentMethod = null): array
     {
-        $treasuryAccount = $treasuryId ? Account::whereHas('treasury', fn ($q) => $q->whereKey($treasuryId))->first() : Account::treasury()->active()->first();
+        $treasuryAccount = $treasuryId
+            ? Account::whereHas('treasury', fn ($q) => $q->whereKey($treasuryId))->first()
+            : Account::active()->where('account_type', 'treasury')->first();
         $asset = Account::active()->where('account_type', 'asset')->first();
         $revenue = Account::active()->where('account_type', 'revenue')->first();
         $expense = Account::active()->where('account_type', 'expense')->first();
