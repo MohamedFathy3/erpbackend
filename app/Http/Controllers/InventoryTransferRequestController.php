@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Employee;
+use App\Models\Admin;
 use App\Models\InventoryTransferRequest;
 use App\Models\Product;
 use App\Models\Warehouse;
@@ -17,7 +18,7 @@ class InventoryTransferRequestController extends Controller
 {
     public function products(Request $request)
     {
-        $user = $this->employee($request);
+        $user = $this->actor($request);
         $data = $request->validate([
             'source_branch_id' => ['required', 'integer', 'exists:branches,id'],
             'search' => ['nullable', 'string', 'max:100'],
@@ -67,7 +68,7 @@ class InventoryTransferRequestController extends Controller
 
     public function index(Request $request)
     {
-        $user = $this->employee($request);
+        $user = $this->actor($request);
         $this->requirePermission($user, 'inventory.transfer_requests.view');
 
         $requests = InventoryTransferRequest::query()
@@ -83,21 +84,24 @@ class InventoryTransferRequestController extends Controller
 
     public function store(Request $request)
     {
-        $user = $this->employee($request);
+        $user = $this->actor($request);
         $this->requirePermission($user, 'inventory.transfer_requests.create');
         $data = $request->validate([
             'product_id' => ['required', 'integer', 'exists:products,id'],
             'from_branch_id' => ['required', 'integer', 'exists:branches,id'],
             'from_warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
             'to_warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
+            'to_branch_id' => ['nullable', 'integer', 'exists:branches,id'],
             'quantity' => ['required', 'numeric', 'gt:0'],
             'note' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        abort_unless((int) $data['from_branch_id'] !== (int) $user->branch_id, Response::HTTP_UNPROCESSABLE_ENTITY, 'اختر فرعاً مختلفاً عن فرعك لطلب النقل.');
+        $destinationBranchId = $user instanceof Employee ? (int) $user->branch_id : (int) ($data['to_branch_id'] ?? 0);
+        abort_unless($destinationBranchId > 0, Response::HTTP_UNPROCESSABLE_ENTITY, 'يجب تحديد الفرع المستلم.');
+        abort_unless((int) $data['from_branch_id'] !== $destinationBranchId, Response::HTTP_UNPROCESSABLE_ENTITY, 'اختر فرعاً مختلفاً عن فرعك لطلب النقل.');
         $destinationWarehouse = isset($data['to_warehouse_id'])
-            ? Warehouse::query()->whereKey($data['to_warehouse_id'])->where('branch_id', $user->branch_id)->first()
-            : Warehouse::query()->where('branch_id', $user->branch_id)->where('active', true)->orderByDesc('main_branch')->first();
+            ? Warehouse::query()->whereKey($data['to_warehouse_id'])->where('branch_id', $destinationBranchId)->first()
+            : Warehouse::query()->where('branch_id', $destinationBranchId)->where('active', true)->orderByDesc('main_branch')->first();
         abort_unless($destinationWarehouse, Response::HTTP_UNPROCESSABLE_ENTITY, 'لا يوجد مخزن نشط مرتبط بفرعك.');
 
         $sourceWarehouse = Warehouse::query()->whereKey($data['from_warehouse_id'])->where('branch_id', $data['from_branch_id'])->first();
@@ -110,15 +114,15 @@ class InventoryTransferRequestController extends Controller
             'product_id' => $data['product_id'],
             'from_branch_id' => $data['from_branch_id'],
             'from_warehouse_id' => $sourceWarehouse->id,
-            'to_branch_id' => $user->branch_id,
+            'to_branch_id' => $destinationBranchId,
             'to_warehouse_id' => $destinationWarehouse->id,
             'quantity' => $data['quantity'],
-            'requested_by' => $user->id,
+            'requested_by' => $user instanceof Employee ? $user->id : null,
             'note' => $data['note'] ?? null,
             'status' => 'pending',
         ]);
 
-        Employee::query()->where('tenant_id', $user->tenant_id)->where('branch_id', $user->branch_id)->where('is_active', true)->get()->each(function (Employee $employee) use ($transfer): void {
+        Employee::query()->where('tenant_id', $user->tenant_id)->where('branch_id', $destinationBranchId)->where('is_active', true)->get()->each(function (Employee $employee) use ($transfer): void {
             $role = strtolower((string) $employee->role?->name);
             if ($this->isManager($employee) || str_contains($role, 'cashier')) $employee->notify(new InventoryTransferRequestNotification($transfer));
         });
@@ -128,9 +132,9 @@ class InventoryTransferRequestController extends Controller
 
     public function approve(Request $request, InventoryTransferRequest $transferRequest)
     {
-        $user = $this->employee($request);
+        $user = $this->actor($request);
         $this->requirePermission($user, 'inventory.transfer_requests.approve');
-        abort_unless($transferRequest->to_branch_id === $user->branch_id || $this->isManager($user), Response::HTTP_FORBIDDEN, 'لا يمكنك اعتماد طلب هذا الفرع.');
+        abort_unless(($user instanceof Employee && $transferRequest->to_branch_id === $user->branch_id) || $this->isManager($user), Response::HTTP_FORBIDDEN, 'لا يمكنك اعتماد طلب هذا الفرع.');
         $data = $request->validate(['note' => ['nullable', 'string', 'max:1000']]);
 
         $transfer = DB::transaction(function () use ($transferRequest, $user, $data): InventoryTransferRequest {
@@ -156,7 +160,7 @@ class InventoryTransferRequestController extends Controller
                 'reference_id' => $transfer->id,
                 'notes' => 'استلام مخزون من فرع آخر',
             ]);
-            $transfer->update(['status' => 'approved', 'approved_by' => $user->id, 'approved_at' => now(), 'note' => $data['note'] ?? $transfer->note]);
+            $transfer->update(['status' => 'approved', 'approved_by' => $user instanceof Employee ? $user->id : null, 'approved_at' => now(), 'note' => $data['note'] ?? $transfer->note]);
             return $transfer;
         });
 
@@ -167,35 +171,35 @@ class InventoryTransferRequestController extends Controller
 
     public function reject(Request $request, InventoryTransferRequest $transferRequest)
     {
-        $user = $this->employee($request);
+        $user = $this->actor($request);
         $this->requirePermission($user, 'inventory.transfer_requests.approve');
-        abort_unless($transferRequest->to_branch_id === $user->branch_id || $this->isManager($user), Response::HTTP_FORBIDDEN, 'لا يمكنك معالجة طلب هذا الفرع.');
+        abort_unless(($user instanceof Employee && $transferRequest->to_branch_id === $user->branch_id) || $this->isManager($user), Response::HTTP_FORBIDDEN, 'لا يمكنك معالجة طلب هذا الفرع.');
         $data = $request->validate(['rejection_reason' => ['required', 'string', 'max:1000']]);
         abort_unless($transferRequest->status === 'pending', Response::HTTP_UNPROCESSABLE_ENTITY, 'هذا الطلب تمت معالجته مسبقاً.');
-        $transferRequest->update(['status' => 'rejected', 'approved_by' => $user->id, 'approved_at' => now(), 'rejection_reason' => $data['rejection_reason']]);
+        $transferRequest->update(['status' => 'rejected', 'approved_by' => $user instanceof Employee ? $user->id : null, 'approved_at' => now(), 'rejection_reason' => $data['rejection_reason']]);
         $transferRequest->load(['product', 'fromBranch', 'toBranch']);
         if ($transferRequest->requester) $transferRequest->requester->notify(new InventoryTransferRequestNotification($transferRequest, 'rejected'));
         return response()->json(['data' => $transferRequest]);
     }
 
-    private function employee(Request $request): Employee
+    private function actor(Request $request): Employee|Admin
     {
         $user = $request->user();
-        abort_unless($user instanceof Employee, Response::HTTP_FORBIDDEN, 'Employee account required.');
+        abort_unless($user instanceof Employee || $user instanceof Admin, Response::HTTP_FORBIDDEN, 'Employee or Admin account required.');
         return $user;
     }
 
-    private function requirePermission(Employee $employee, string $permission): void
+    private function requirePermission(Employee|Admin $employee, string $permission): void
     {
         abort_unless((bool) $employee->super_admin || $this->isAdmin($employee) || $employee->hasPermission($permission), Response::HTTP_FORBIDDEN, 'ليس لديك صلاحية لهذا الإجراء.');
     }
 
-    private function isAdmin(Employee $employee): bool
+    private function isAdmin(Employee|Admin $employee): bool
     {
         return str_contains(strtolower((string) $employee->role?->name), 'admin');
     }
 
-    private function isManager(Employee $employee): bool
+    private function isManager(Employee|Admin $employee): bool
     {
         $role = strtolower((string) $employee->role?->name);
         return str_contains($role, 'manager') || str_contains($role, 'admin') || (bool) $employee->super_admin;

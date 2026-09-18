@@ -12,7 +12,8 @@ class EnforceRoutePermission
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user() ?: auth('sanctum')->user();
-        if (!$user || (bool) ($user->super_admin ?? false) || !$user->role_id) {
+        $isAdmin = $user && str_contains(strtolower((string) $user->role?->name), 'admin');
+        if (!$user || (bool) ($user->super_admin ?? false) || $isAdmin || !$user->role_id) {
             return $next($request);
         }
 
