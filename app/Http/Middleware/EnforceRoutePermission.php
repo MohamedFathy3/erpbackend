@@ -27,12 +27,27 @@ class EnforceRoutePermission
         }
 
         $identifier = Permission::identifierColumn();
-        $exists = Permission::query()->where($identifier, $permission)->exists();
+        $candidatePermissions = [$permission];
+        // Keep existing finance roles working while allowing the new
+        // tax/treasury/currency/bank permissions to be assigned separately.
+        if (in_array($permission, [
+            'tax.view', 'tax.create', 'tax.update', 'tax.delete',
+            'treasury.view', 'treasury.create', 'treasury.update', 'treasury.delete',
+            'currency.view', 'currency.create', 'currency.update', 'currency.delete',
+            'bank.view', 'bank.create', 'bank.update', 'bank.delete',
+        ], true)) {
+            $candidatePermissions[] = 'finance.' . substr($permission, strpos($permission, '.') + 1);
+        }
+        $exists = Permission::query()->whereIn($identifier, $candidatePermissions)->exists();
         if (!$exists) {
             return $next($request);
         }
 
-        abort_unless($user->hasPermission($permission), 403, 'You do not have permission to perform this action.');
+        abort_unless(
+            collect($candidatePermissions)->contains(fn (string $candidate): bool => $user->hasPermission($candidate)),
+            403,
+            'You do not have permission to perform this action.'
+        );
         return $next($request);
     }
 
@@ -55,7 +70,7 @@ class EnforceRoutePermission
             'customer' => 'crm', 'customers' => 'crm', 'supplier' => 'purchasing',
             'purchase' => 'purchasing', 'purchases' => 'purchasing',
             'invoice' => 'sales', 'invoices' => 'sales', 'sales' => 'sales', 'pos' => 'sales',
-            'currency' => 'finance', 'tax' => 'finance', 'bank' => 'finance', 'treasury' => 'finance',
+            'currency' => 'currency', 'tax' => 'tax', 'bank' => 'bank', 'treasury' => 'treasury',
             'reports' => 'reports', 'project' => 'projects', 'projects' => 'projects',
             'manufacturing' => 'manufacturing', 'access-control' => 'access_control',
             'ai' => 'ai_assistant', 'notifications' => 'notifications',
@@ -63,6 +78,12 @@ class EnforceRoutePermission
 
         if (!$module || in_array($resource, ['login', 'auth', 'get-admin'], true)) {
             return null;
+        }
+
+        // These endpoints use POST to fetch a paginated list; they still
+        // require the read permission, not create permission.
+        if (($segments[1] ?? '') === 'index') {
+            return "{$module}.view";
         }
 
         $action = match (strtoupper($request->method())) {
