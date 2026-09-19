@@ -102,6 +102,9 @@ class InventoryTransferRequestController extends Controller
         ]);
 
         $destinationBranchId = $user instanceof Employee ? (int) $user->branch_id : (int) ($data['to_branch_id'] ?? 0);
+        if (!$destinationBranchId && !empty($data['to_warehouse_id'])) {
+            $destinationBranchId = (int) Warehouse::query()->whereKey($data['to_warehouse_id'])->value('branch_id');
+        }
         abort_unless($destinationBranchId > 0, Response::HTTP_UNPROCESSABLE_ENTITY, 'يجب تحديد الفرع المستلم.');
         abort_unless((int) $data['from_branch_id'] !== $destinationBranchId, Response::HTTP_UNPROCESSABLE_ENTITY, 'اختر فرعاً مختلفاً عن فرعك لطلب النقل.');
         $destinationWarehouse = isset($data['to_warehouse_id'])
