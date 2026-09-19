@@ -53,6 +53,7 @@ return new class extends Migration
             $table->text('purpose')->nullable();
             $table->text('outcome')->nullable();
             $table->timestamps();
+            $table->softDeletes();
         });
 
         Schema::table('automotive_service_orders', function (Blueprint $table): void {
