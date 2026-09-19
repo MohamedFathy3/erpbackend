@@ -6,6 +6,7 @@ use App\Traits\HasMedia;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class AutomotiveServiceOrder extends BaseModel
 {
@@ -30,6 +31,7 @@ class AutomotiveServiceOrder extends BaseModel
     public function warehouse(): BelongsTo { return $this->belongsTo(Warehouse::class); }
     public function advisor(): BelongsTo { return $this->belongsTo(Employee::class, 'advisor_id'); }
     public function items(): HasMany { return $this->hasMany(AutomotiveServiceOrderItem::class, 'service_order_id'); }
+    public function warranty(): HasOne { return $this->hasOne(AutomotiveWarranty::class, 'service_order_id'); }
     public function technicianAssignments(): HasMany { return $this->hasMany(AutomotiveServiceOrderTechnician::class, 'service_order_id'); }
     public function technicians(): BelongsToMany
     {

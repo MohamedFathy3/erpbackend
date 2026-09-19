@@ -4,7 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\AutomotiveService;
 use App\Models\AutomotiveServiceOrder;
+use App\Models\AutomotiveServiceOrderItem;
 use App\Models\AutomotiveVehicle;
+use App\Models\Admin;
+use App\Models\AutomotiveWarranty;
 use App\Models\Employee;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -109,6 +112,7 @@ class AutomotiveController extends BaseController
             'branch_id' => ['nullable', 'integer', 'exists:branches,id'], 'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'], 'advisor_id' => ['nullable', 'integer', 'exists:employees,id'],
             'priority' => ['nullable', Rule::in(['low', 'normal', 'high', 'urgent'])], 'odometer' => ['nullable', 'numeric', 'min:0'],
             'customer_request' => ['nullable', 'string'], 'internal_notes' => ['nullable', 'string'], 'promised_at' => ['nullable', 'date'],
+            'warranty' => ['nullable', 'array'], 'warranty.policy_name' => ['required_with:warranty', 'string', 'max:255'], 'warranty.starts_at' => ['required_with:warranty', 'date'], 'warranty.ends_at' => ['nullable', 'date', 'after_or_equal:warranty.starts_at'], 'warranty.mileage_limit' => ['nullable', 'numeric', 'min:0'],
             'items' => ['required', 'array', 'min:1'], 'items.*.service_id' => ['nullable', 'integer', 'exists:automotive_services,id'],
             'items.*.product_id' => ['nullable', 'integer', 'exists:products,id'], 'items.*.description' => ['required', 'string'],
             'items.*.quantity' => ['required', 'numeric', 'min:0.001'], 'items.*.unit_price' => ['required', 'numeric', 'min:0'],
@@ -121,8 +125,8 @@ class AutomotiveController extends BaseController
         }
 
         $order = DB::transaction(function () use ($data) {
-            $items = $data['items']; $technicians = $data['technician_ids'] ?? [];
-            unset($data['items'], $data['technician_ids']);
+            $items = $data['items']; $technicians = $data['technician_ids'] ?? []; $warranty = $data['warranty'] ?? null;
+            unset($data['items'], $data['technician_ids'], $data['warranty']);
             $data['order_number'] = 'AUTO-' . now()->format('YmdHis') . '-' . random_int(100, 999);
             $data['status'] = 'checked_in';
             $data['subtotal'] = collect($items)->sum(fn ($item) => ((float) $item['quantity'] * (float) $item['unit_price']) - (float) ($item['discount_amount'] ?? 0));
@@ -136,6 +140,7 @@ class AutomotiveController extends BaseController
                     'assigned_at' => now(),
                 ]);
             }
+            if ($warranty) $order->warranty()->create(array_merge($warranty, ['customer_id' => $order->customer_id, 'vehicle_id' => $order->vehicle_id]));
             return $order;
         });
 
@@ -152,6 +157,26 @@ class AutomotiveController extends BaseController
         $data = $request->validate(['status' => ['required', Rule::in(['draft', 'checked_in', 'diagnosis', 'awaiting_approval', 'approved', 'in_progress', 'quality_check', 'ready_for_delivery', 'delivered', 'on_hold', 'cancelled', 'reopened_under_warranty'])], 'internal_notes' => ['nullable', 'string']]);
         $order->update($data);
         return response()->json(['status' => true, 'data' => $order->fresh()->load(['customer', 'vehicle', 'technicians'])]);
+    }
+
+    public function updateItemStatus(Request $request, AutomotiveServiceOrder $order, AutomotiveServiceOrderItem $item)
+    {
+        abort_unless((int) $item->service_order_id === (int) $order->id, 404);
+        $data = $request->validate(['status' => ['required', Rule::in(['pending', 'in_progress', 'done', 'cancelled'])]]);
+        $item->update($data);
+        return response()->json(['status' => true, 'data' => $item->fresh()->load('service')]);
+    }
+
+    public function technicianPerformanceReport(Request $request)
+    {
+        $user = $request->user();
+        abort_unless($user instanceof Admin || (bool) ($user?->super_admin ?? false) || strtolower((string) $user?->role?->name) === 'admin', 403, 'Admin access required.');
+        $orders = AutomotiveServiceOrder::with(['vehicle', 'items.service', 'technicians'])->whereNotIn('status', ['cancelled'])->get();
+        $rows = Employee::query()->whereHas('role', fn ($q) => $q->whereRaw('LOWER(name) = ?', ['technician']))->get()->map(function (Employee $technician) use ($orders): array {
+            $techOrders = $orders->filter(fn ($order) => $order->technicians->contains('id', $technician->id));
+            return ['technician_id' => $technician->id, 'technician' => $technician->name, 'orders' => $techOrders->count(), 'vehicles' => $techOrders->map(fn ($o) => ['id' => $o->vehicle_id, 'name' => trim(($o->vehicle?->make ?? '') . ' ' . ($o->vehicle?->model ?? ''))])->unique('id')->values(), 'services' => $techOrders->flatMap->items->map(fn ($i) => ['id' => $i->service_id, 'name' => $i->service?->name ?? $i->description, 'status' => $i->status])->values(), 'done_services' => $techOrders->flatMap->items->where('status', 'done')->count(), 'revenue' => round($techOrders->sum('total_amount'), 2)];
+        })->values();
+        return response()->json(['status' => true, 'data' => $rows]);
     }
 
     public function assignTechnicians(Request $request, AutomotiveServiceOrder $order)

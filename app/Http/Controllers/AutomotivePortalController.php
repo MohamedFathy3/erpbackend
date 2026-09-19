@@ -48,18 +48,22 @@ class AutomotivePortalController extends BaseController
         $account = $request->user();
         abort_unless($account instanceof AutomotiveCustomerAccount, 403, 'Customer portal authentication required.');
         $customer = $account->customer;
+        $serviceOrders = $customer->automotiveServiceOrders()->with('items.service')->latest()->get();
         return response()->json([
             'status' => true,
             'data' => [
                 'customer' => $customer,
                 'vehicles' => $customer->automotiveVehicles()->withCount('serviceOrders')->get(),
-                'orders' => $customer->automotiveServiceOrders()->with(['vehicle', 'technicians', 'items', 'media'])->latest()->get(),
+                'orders' => $serviceOrders->load(['vehicle', 'technicians', 'items', 'media']),
                 'warranties' => AutomotiveWarranty::where('customer_id', $customer->id)->with('vehicle')->latest()->get(),
                 'visits' => AutomotiveVisit::where('customer_id', $customer->id)->with(['vehicle', 'serviceOrder'])->latest()->get(),
                 'invoices' => $customer->salesInvoices()->latest()->get()->map(fn ($invoice) => [
                     'id' => $invoice->id, 'number' => $invoice->invoice_number, 'total' => (float) ($invoice->net_total ?? $invoice->total_amount ?? 0),
                     'paid' => (float) ($invoice->paid_amount ?? 0), 'status' => $invoice->payment_status ?? 'unpaid', 'date' => $invoice->created_at?->toDateString(),
-                ]),
+                ])->concat($serviceOrders->map(fn ($order) => [
+                    'id' => 'service-' . $order->id, 'number' => $order->order_number, 'total' => (float) $order->total_amount,
+                    'paid' => 0, 'status' => 'service_' . $order->status, 'date' => $order->created_at?->toDateString(),
+                ]))->values(),
             ],
         ]);
     }
@@ -102,6 +106,22 @@ class AutomotivePortalController extends BaseController
         return response()->json(['status' => true, 'data' => $orders]);
     }
 
+    public function technicianVisits(Request $request)
+    {
+        $employee = $this->technician($request);
+        $vehicleIds = $employee->automotiveAssignments()->with('order')->get()->pluck('order.vehicle_id')->filter()->unique();
+        return response()->json(['status' => true, 'data' => AutomotiveVisit::whereIn('vehicle_id', $vehicleIds)->with(['customer', 'vehicle', 'serviceOrder'])->latest()->get()]);
+    }
+
+    public function technicianUpdateVisit(Request $request, AutomotiveVisit $visit)
+    {
+        $employee = $this->technician($request);
+        abort_unless($employee->automotiveAssignments()->whereHas('order', fn ($q) => $q->where('vehicle_id', $visit->vehicle_id))->exists(), 403, 'This visit is not assigned to you.');
+        $data = $request->validate(['status' => ['required', Rule::in(['scheduled', 'accepted', 'reschedule_requested', 'checked_in', 'completed', 'cancelled'])], 'scheduled_at' => ['nullable', 'date', 'after:now'], 'advisor_id' => ['nullable', 'integer', 'exists:employees,id']]);
+        $visit->update(array_filter($data, fn ($value) => $value !== null));
+        return response()->json(['status' => true, 'data' => $visit->fresh()->load(['customer', 'vehicle', 'serviceOrder'])]);
+    }
+
     public function technicianUpdateStatus(Request $request, AutomotiveServiceOrder $order)
     {
         $employee = $this->technician($request);
@@ -121,6 +141,15 @@ class AutomotivePortalController extends BaseController
             $order->update($data);
         });
         return response()->json(['status' => true, 'data' => $order->fresh()->load(['customer', 'vehicle', 'items', 'technicians'])]);
+    }
+
+    public function technicianUpdateItemStatus(Request $request, AutomotiveServiceOrder $order, \App\Models\AutomotiveServiceOrderItem $item)
+    {
+        $employee = $this->technician($request);
+        abort_unless((int) $item->service_order_id === (int) $order->id && $order->technicians()->whereKey($employee->id)->exists(), 403, 'This service is not assigned to you.');
+        $data = $request->validate(['status' => ['required', Rule::in(['pending', 'in_progress', 'done', 'cancelled'])]]);
+        $item->update($data);
+        return response()->json(['status' => true, 'data' => $order->fresh()->load(['customer', 'vehicle', 'items.service', 'technicians'])]);
     }
 
     public function technicianUploadPhoto(Request $request, AutomotiveServiceOrder $order)

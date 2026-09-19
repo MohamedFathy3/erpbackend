@@ -85,6 +85,7 @@ return new class extends Migration
             $table->decimal('discount_amount', 14, 2)->default(0);
             $table->boolean('requires_approval')->default(false);
             $table->boolean('approved')->default(true);
+            $table->string('status')->default('pending');
             $table->timestamps();
             $table->softDeletes();
         });

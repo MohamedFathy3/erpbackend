@@ -451,7 +451,10 @@ Route::middleware(['auth:sanctum', 'resolve.tenant', 'module.enabled:automotive_
     Route::get('/customer-portal/dashboard', [AutomotivePortalController::class, 'customerDashboard']);
     Route::post('/customer-portal/visits', [AutomotivePortalController::class, 'requestVisit']);
     Route::get('/technician-portal/orders', [AutomotivePortalController::class, 'technicianOrders']);
+    Route::get('/technician-portal/visits', [AutomotivePortalController::class, 'technicianVisits']);
+    Route::patch('/technician-portal/visits/{visit}', [AutomotivePortalController::class, 'technicianUpdateVisit']);
     Route::patch('/technician-portal/orders/{order}/status', [AutomotivePortalController::class, 'technicianUpdateStatus']);
+    Route::patch('/technician-portal/orders/{order}/items/{item}/status', [AutomotivePortalController::class, 'technicianUpdateItemStatus']);
     Route::post('/technician-portal/orders/{order}/photos', [AutomotivePortalController::class, 'technicianUploadPhoto']);
     Route::post('/automotive/customer-accounts', [AutomotivePortalController::class, 'createCustomerAccount']);
 });
@@ -1424,8 +1427,10 @@ Route::middleware(['auth:sanctum', 'resolve.tenant'])->group(function () {
     Route::post('/automotive/service-orders', [AutomotiveController::class, 'storeOrder']);
     Route::get('/automotive/service-orders/{order}', [AutomotiveController::class, 'showOrder']);
     Route::patch('/automotive/service-orders/{order}/status', [AutomotiveController::class, 'updateOrderStatus']);
+    Route::patch('/automotive/service-orders/{order}/items/{item}/status', [AutomotiveController::class, 'updateItemStatus']);
     Route::put('/automotive/service-orders/{order}/technicians', [AutomotiveController::class, 'assignTechnicians']);
     Route::get('/automotive/reports/profitability', [AutomotiveController::class, 'profitabilityReport']);
+    Route::get('/automotive/reports/technician-performance', [AutomotiveController::class, 'technicianPerformanceReport']);
 });
 
 /*

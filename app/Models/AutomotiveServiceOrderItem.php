@@ -17,6 +17,7 @@ class AutomotiveServiceOrderItem extends BaseModel
         'discount_amount' => 'decimal:2',
         'requires_approval' => 'boolean',
         'approved' => 'boolean',
+        'status' => 'string',
     ];
 
     public function order(): BelongsTo { return $this->belongsTo(AutomotiveServiceOrder::class, 'service_order_id'); }
