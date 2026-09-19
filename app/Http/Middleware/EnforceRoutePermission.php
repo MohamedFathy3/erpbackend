@@ -17,7 +17,9 @@ class EnforceRoutePermission
         // but the role relation may not be loaded (or may be null) on the token user.
         $isAdmin = $user instanceof Admin
             || ($user && str_contains(strtolower((string) $user->role?->name), 'admin'));
-        if (!$user || (bool) ($user->super_admin ?? false) || $isAdmin || !$user->role_id) {
+        // A user may have only direct permissions and no role. Do not bypass
+        // authorization in that case; hasPermission() checks both sources.
+        if (!$user || (bool) ($user->super_admin ?? false) || $isAdmin) {
             return $next($request);
         }
 
