@@ -17,6 +17,7 @@ return new class extends Migration
             $table->boolean('active')->default(true);
             $table->timestamp('last_login_at')->nullable();
             $table->timestamps();
+            $table->softDeletes();
             $table->unique(['tenant_id', 'email']);
             $table->unique(['tenant_id', 'customer_id']);
         });
