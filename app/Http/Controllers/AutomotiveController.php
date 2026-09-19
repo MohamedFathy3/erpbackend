@@ -129,7 +129,13 @@ class AutomotiveController extends BaseController
             $data['total_amount'] = $data['subtotal'];
             $order = AutomotiveServiceOrder::create($data);
             foreach ($items as $item) $order->items()->create($item);
-            foreach (array_values(array_unique($technicians)) as $index => $employeeId) $order->technicians()->attach($employeeId, ['is_primary' => $index === 0, 'assigned_at' => now()]);
+            foreach (array_values(array_unique($technicians)) as $index => $employeeId) {
+                $order->technicians()->attach($employeeId, [
+                    'tenant_id' => $order->tenant_id,
+                    'is_primary' => $index === 0,
+                    'assigned_at' => now(),
+                ]);
+            }
             return $order;
         });
 
@@ -154,7 +160,11 @@ class AutomotiveController extends BaseController
         if (Employee::whereIn('id', $data['technician_ids'])->whereHas('role', fn ($query) => $query->whereRaw('LOWER(name) = ?', ['technician']))->count() !== count(array_unique($data['technician_ids']))) {
             abort(422, 'يمكن إسناد أمر الخدمة إلى موظفي Role الفني فقط.');
         }
-        $order->technicians()->sync(collect($data['technician_ids'])->values()->mapWithKeys(fn ($id, $index) => [$id => ['is_primary' => $index === 0, 'assigned_at' => now()]])->all());
+        $order->technicians()->sync(collect($data['technician_ids'])->values()->mapWithKeys(fn ($id, $index) => [$id => [
+            'tenant_id' => $order->tenant_id,
+            'is_primary' => $index === 0,
+            'assigned_at' => now(),
+        ]])->all());
         return response()->json(['status' => true, 'data' => $order->fresh()->load('technicians')]);
     }
 
