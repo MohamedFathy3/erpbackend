@@ -1422,6 +1422,7 @@ Route::middleware(['auth:sanctum', 'resolve.tenant'])->group(function () {
     Route::get('/automotive/service-orders/{order}', [AutomotiveController::class, 'showOrder']);
     Route::patch('/automotive/service-orders/{order}/status', [AutomotiveController::class, 'updateOrderStatus']);
     Route::put('/automotive/service-orders/{order}/technicians', [AutomotiveController::class, 'assignTechnicians']);
+    Route::get('/automotive/reports/profitability', [AutomotiveController::class, 'profitabilityReport']);
 });
 
 /*

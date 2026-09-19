@@ -149,4 +149,24 @@ class AutomotiveController extends BaseController
         $order->technicians()->sync(collect($data['technician_ids'])->values()->mapWithKeys(fn ($id, $index) => [$id => ['is_primary' => $index === 0, 'assigned_at' => now()]])->all());
         return response()->json(['status' => true, 'data' => $order->fresh()->load('technicians')]);
     }
+
+    public function profitabilityReport(Request $request)
+    {
+        $from = $request->date('from')?->startOfDay() ?? now()->subDays(30)->startOfDay();
+        $to = $request->date('to')?->endOfDay() ?? now()->endOfDay();
+        $orders = AutomotiveServiceOrder::with(['items.service', 'technicians'])
+            ->whereBetween('created_at', [$from, $to])->whereNotIn('status', ['cancelled'])->get();
+        $serviceRows = $orders->flatMap(fn ($order) => $order->items)->groupBy('service_id')->map(function ($items, $serviceId) {
+            $revenue = $items->sum(fn ($i) => (float) $i->quantity * (float) $i->unit_price - (float) $i->discount_amount);
+            $cost = $items->sum(fn ($i) => (float) $i->quantity * (float) $i->unit_cost);
+            return ['service_id' => $serviceId, 'service' => $items->first()->service?->name ?? 'قطع غيار / أخرى', 'orders' => $items->pluck('service_order_id')->unique()->count(), 'revenue' => round($revenue, 2), 'cost' => round($cost, 2), 'profit' => round($revenue - $cost, 2)];
+        })->values();
+        $technicianRows = $orders->flatMap(function ($order) {
+            $count = max(1, $order->technicians->count());
+            $revenue = (float) $order->total_amount / $count;
+            $cost = (float) $order->items->sum(fn ($i) => (float) $i->quantity * (float) $i->unit_cost) / $count;
+            return $order->technicians->map(fn ($tech) => ['technician_id' => $tech->id, 'technician' => $tech->name, 'orders' => 1, 'revenue' => $revenue, 'cost' => $cost, 'profit' => $revenue - $cost]);
+        })->groupBy('technician_id')->map(fn ($rows) => ['technician_id' => $rows->first()['technician_id'], 'technician' => $rows->first()['technician'], 'orders' => $rows->sum('orders'), 'revenue' => round($rows->sum('revenue'), 2), 'cost' => round($rows->sum('cost'), 2), 'profit' => round($rows->sum('profit'), 2)])->values();
+        return response()->json(['status' => true, 'data' => ['from' => $from->toDateString(), 'to' => $to->toDateString(), 'summary' => ['orders' => $orders->count(), 'revenue' => round($orders->sum('total_amount'), 2), 'cost' => round($orders->sum(fn ($o) => $o->items->sum(fn ($i) => (float) $i->quantity * (float) $i->unit_cost)), 2), 'profit' => round($orders->sum('total_amount') - $orders->sum(fn ($o) => $o->items->sum(fn ($i) => (float) $i->quantity * (float) $i->unit_cost)), 2)], 'services' => $serviceRows, 'technicians' => $technicianRows]]);
+    }
 }

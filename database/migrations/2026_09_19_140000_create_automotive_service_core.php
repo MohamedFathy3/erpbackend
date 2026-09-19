@@ -97,7 +97,7 @@ return new class extends Migration
             $table->timestamp('assigned_at')->nullable();
             $table->timestamp('completed_at')->nullable();
             $table->timestamps();
-            $table->unique(['service_order_id', 'employee_id']);
+            $table->unique(['service_order_id', 'employee_id'], 'auto_order_tech_unique');
         });
     }
 
