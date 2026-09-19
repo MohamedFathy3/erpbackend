@@ -8,7 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('automotive_vehicles', function (Blueprint $table): void {
+        if (!Schema::hasTable('automotive_vehicles')) Schema::create('automotive_vehicles', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('tenant_id')->constrained()->cascadeOnDelete();
             $table->foreignId('customer_id')->constrained()->cascadeOnDelete();
@@ -28,7 +28,7 @@ return new class extends Migration
             $table->index(['tenant_id', 'vin']);
         });
 
-        Schema::create('automotive_services', function (Blueprint $table): void {
+        if (!Schema::hasTable('automotive_services')) Schema::create('automotive_services', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('tenant_id')->constrained()->cascadeOnDelete();
             $table->string('code');
@@ -45,7 +45,7 @@ return new class extends Migration
             $table->unique(['tenant_id', 'code']);
         });
 
-        Schema::create('automotive_service_orders', function (Blueprint $table): void {
+        if (!Schema::hasTable('automotive_service_orders')) Schema::create('automotive_service_orders', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('tenant_id')->constrained()->cascadeOnDelete();
             $table->string('order_number');
@@ -72,7 +72,7 @@ return new class extends Migration
             $table->index(['tenant_id', 'vehicle_id']);
         });
 
-        Schema::create('automotive_service_order_items', function (Blueprint $table): void {
+        if (!Schema::hasTable('automotive_service_order_items')) Schema::create('automotive_service_order_items', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('tenant_id')->constrained()->cascadeOnDelete();
             $table->foreignId('service_order_id')->constrained('automotive_service_orders')->cascadeOnDelete();
@@ -88,7 +88,7 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        Schema::create('automotive_service_order_technicians', function (Blueprint $table): void {
+        if (!Schema::hasTable('automotive_service_order_technicians')) Schema::create('automotive_service_order_technicians', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('tenant_id')->constrained()->cascadeOnDelete();
             $table->foreignId('service_order_id')->constrained('automotive_service_orders')->cascadeOnDelete();
