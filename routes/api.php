@@ -455,6 +455,7 @@ Route::middleware(['auth:sanctum', 'resolve.tenant', 'module.enabled:automotive_
     Route::patch('/technician-portal/visits/{visit}', [AutomotivePortalController::class, 'technicianUpdateVisit']);
     Route::patch('/technician-portal/orders/{order}/status', [AutomotivePortalController::class, 'technicianUpdateStatus']);
     Route::patch('/technician-portal/orders/{order}/items/{item}/status', [AutomotivePortalController::class, 'technicianUpdateItemStatus']);
+    Route::post('/technician-portal/orders/{order}/warranty', [AutomotivePortalController::class, 'technicianCreateWarranty']);
     Route::post('/technician-portal/orders/{order}/photos', [AutomotivePortalController::class, 'technicianUploadPhoto']);
     Route::post('/automotive/customer-accounts', [AutomotivePortalController::class, 'createCustomerAccount']);
 });

@@ -152,6 +152,24 @@ class AutomotivePortalController extends BaseController
         return response()->json(['status' => true, 'data' => $order->fresh()->load(['customer', 'vehicle', 'items.service', 'technicians'])]);
     }
 
+    public function technicianCreateWarranty(Request $request, AutomotiveServiceOrder $order)
+    {
+        $employee = $this->technician($request);
+        abort_unless($order->technicians()->whereKey($employee->id)->exists(), 403, 'This service order is not assigned to you.');
+        $data = $request->validate([
+            'policy_name' => ['required', 'string', 'max:255'],
+            'starts_at' => ['required', 'date'],
+            'ends_at' => ['nullable', 'date', 'after_or_equal:starts_at'],
+            'mileage_limit' => ['nullable', 'numeric', 'min:0'],
+            'terms' => ['nullable', 'string', 'max:2000'],
+        ]);
+        $warranty = AutomotiveWarranty::updateOrCreate(
+            ['service_order_id' => $order->id, 'tenant_id' => $order->tenant_id],
+            array_merge($data, ['customer_id' => $order->customer_id, 'vehicle_id' => $order->vehicle_id, 'status' => 'active'])
+        );
+        return response()->json(['status' => true, 'data' => $warranty->load('vehicle')], 201);
+    }
+
     public function technicianUploadPhoto(Request $request, AutomotiveServiceOrder $order)
     {
         $employee = $this->technician($request);
