@@ -105,7 +105,7 @@ class AutomotiveController extends BaseController
     {
         $data = $request->validate([
             'customer_id' => ['required', 'integer', 'exists:customers,id'], 'vehicle_id' => ['required', 'integer', 'exists:automotive_vehicles,id'],
-            'branch_id' => ['nullable', 'integer', 'exists:branches,id'], 'advisor_id' => ['nullable', 'integer', 'exists:employees,id'],
+            'branch_id' => ['nullable', 'integer', 'exists:branches,id'], 'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'], 'advisor_id' => ['nullable', 'integer', 'exists:employees,id'],
             'priority' => ['nullable', Rule::in(['low', 'normal', 'high', 'urgent'])], 'odometer' => ['nullable', 'numeric', 'min:0'],
             'customer_request' => ['nullable', 'string'], 'internal_notes' => ['nullable', 'string'], 'promised_at' => ['nullable', 'date'],
             'items' => ['required', 'array', 'min:1'], 'items.*.service_id' => ['nullable', 'integer', 'exists:automotive_services,id'],

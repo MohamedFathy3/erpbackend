@@ -4,6 +4,7 @@ use App\Http\Controllers\AccountController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AutomotiveController;
+use App\Http\Controllers\AutomotivePortalController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\BankController;
 use App\Http\Controllers\BranchController;
@@ -441,6 +442,16 @@ Route::post('/admin/login', [
     AdminController::class,
     'login'
 ]);
+
+Route::post('/customer-portal/login', [AutomotivePortalController::class, 'customerLogin']);
+Route::post('/technician-portal/login', [AutomotivePortalController::class, 'technicianLogin']);
+Route::middleware(['auth:sanctum', 'resolve.tenant', 'module.enabled:automotive_service'])->group(function () {
+    Route::get('/customer-portal/dashboard', [AutomotivePortalController::class, 'customerDashboard']);
+    Route::get('/technician-portal/orders', [AutomotivePortalController::class, 'technicianOrders']);
+    Route::patch('/technician-portal/orders/{order}/status', [AutomotivePortalController::class, 'technicianUpdateStatus']);
+    Route::post('/technician-portal/orders/{order}/photos', [AutomotivePortalController::class, 'technicianUploadPhoto']);
+    Route::post('/automotive/customer-accounts', [AutomotivePortalController::class, 'createCustomerAccount']);
+});
 
 Route::post('/sales-representative/login', [
     SalesRepresentativeController::class,

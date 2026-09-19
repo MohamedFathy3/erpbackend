@@ -59,7 +59,7 @@ class CheckModuleEnabled
             'product_ledger' => ['product-ledger'],
             'access_control' => ['access-control'],
             'ai_assistant' => ['ai'],
-            'automotive_service' => ['automotive', 'automotive-service', 'vehicles', 'service-orders'],
+            'automotive_service' => ['automotive', 'automotive-service', 'vehicles', 'service-orders', 'customer-portal', 'technician-portal'],
         ];
 
         foreach ($modules as $module => $prefixes) {

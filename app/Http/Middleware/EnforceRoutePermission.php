@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\Permission;
 use App\Models\Admin;
+use App\Models\AutomotiveCustomerAccount;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -19,7 +20,7 @@ class EnforceRoutePermission
             || ($user && str_contains(strtolower((string) $user->role?->name), 'admin'));
         // A user may have only direct permissions and no role. Do not bypass
         // authorization in that case; hasPermission() checks both sources.
-        if (!$user || (bool) ($user->super_admin ?? false) || $isAdmin) {
+        if (!$user || $user instanceof AutomotiveCustomerAccount || (bool) ($user->super_admin ?? false) || $isAdmin) {
             return $next($request);
         }
 
@@ -89,7 +90,7 @@ class EnforceRoutePermission
             'reports' => 'reports', 'project' => 'projects', 'projects' => 'projects',
             'manufacturing' => 'manufacturing', 'boms' => 'manufacturing', 'work-centers' => 'manufacturing',
             'operations' => 'manufacturing', 'access-control' => 'access_control',
-            'automotive' => 'automotive', 'automotive-service' => 'automotive', 'vehicles' => 'automotive', 'service-orders' => 'automotive',
+            'automotive' => 'automotive', 'automotive-service' => 'automotive', 'vehicles' => 'automotive', 'service-orders' => 'automotive', 'customer-portal' => 'automotive', 'technician-portal' => 'automotive',
             'ai' => 'ai_assistant', 'notifications' => 'notifications', 'workflow' => 'workflow',
             'whatsapp' => 'whatsapp', 'calendar' => 'google_calendar', 'google-integrations' => 'google_calendar',
             'tasks' => 'tasks', 'events' => 'tasks', 'industries' => 'industries', 'product-ledger' => 'product_ledger',
