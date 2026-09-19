@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AutomotiveService;
 use App\Models\AutomotiveServiceOrder;
 use App\Models\AutomotiveVehicle;
+use App\Models\Employee;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -114,6 +115,10 @@ class AutomotiveController extends BaseController
             'items.*.unit_cost' => ['nullable', 'numeric', 'min:0'], 'items.*.requires_approval' => ['boolean'],
             'technician_ids' => ['nullable', 'array'], 'technician_ids.*' => ['integer', 'exists:employees,id'],
         ]);
+        $technicianIds = array_values(array_unique($data['technician_ids'] ?? []));
+        if ($technicianIds && Employee::whereIn('id', $technicianIds)->whereHas('role', fn ($query) => $query->whereRaw('LOWER(name) = ?', ['technician']))->count() !== count($technicianIds)) {
+            abort(422, 'يمكن إسناد أمر الخدمة إلى موظفي Role الفني فقط.');
+        }
 
         $order = DB::transaction(function () use ($data) {
             $items = $data['items']; $technicians = $data['technician_ids'] ?? [];
@@ -146,6 +151,9 @@ class AutomotiveController extends BaseController
     public function assignTechnicians(Request $request, AutomotiveServiceOrder $order)
     {
         $data = $request->validate(['technician_ids' => ['required', 'array', 'min:1'], 'technician_ids.*' => ['integer', 'exists:employees,id']]);
+        if (Employee::whereIn('id', $data['technician_ids'])->whereHas('role', fn ($query) => $query->whereRaw('LOWER(name) = ?', ['technician']))->count() !== count(array_unique($data['technician_ids']))) {
+            abort(422, 'يمكن إسناد أمر الخدمة إلى موظفي Role الفني فقط.');
+        }
         $order->technicians()->sync(collect($data['technician_ids'])->values()->mapWithKeys(fn ($id, $index) => [$id => ['is_primary' => $index === 0, 'assigned_at' => now()]])->all());
         return response()->json(['status' => true, 'data' => $order->fresh()->load('technicians')]);
     }
