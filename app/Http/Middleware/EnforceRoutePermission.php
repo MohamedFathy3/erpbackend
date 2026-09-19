@@ -68,7 +68,7 @@ class EnforceRoutePermission
         $module = [
             'admin' => 'users', 'user' => 'users', 'role' => 'users', 'roles' => 'users', 'permissions' => 'users',
             'employee' => 'hr', 'employees' => 'hr', 'attendance' => 'hr',
-            'product' => 'inventory', 'products' => 'inventory', 'warehouse' => 'inventory', 'warehouses' => 'inventory',
+            'inventory' => 'inventory', 'product' => 'inventory', 'products' => 'inventory', 'warehouse' => 'inventory', 'warehouses' => 'inventory',
             'warehouse-stock' => 'inventory', 'offer' => 'inventory', 'category' => 'inventory', 'branch' => 'inventory',
             'color' => 'inventory', 'unit' => 'inventory', 'inventory-logs' => 'inventory', 'transfer' => 'inventory',
             'customer' => 'crm', 'customers' => 'crm', 'leads' => 'crm', 'deals' => 'crm', 'chat' => 'crm',
@@ -85,15 +85,18 @@ class EnforceRoutePermission
             'sales-representative' => 'representative', 'delevery-man' => 'representative', 'shifts' => 'sales',
             'currency' => 'currency', 'tax' => 'tax', 'bank' => 'bank', 'treasury' => 'treasury',
             'bank-movement' => 'bank', 'treasury-movement' => 'treasury', 'finance' => 'finance',
-            'revenue' => 'finance', 'journal-entries' => 'finance',
+            'revenue' => 'finance', 'journal-entries' => 'finance', 'trials' => 'finance', 'index-sub-account' => 'finance',
             'reports' => 'reports', 'project' => 'projects', 'projects' => 'projects',
             'manufacturing' => 'manufacturing', 'boms' => 'manufacturing', 'work-centers' => 'manufacturing',
             'operations' => 'manufacturing', 'access-control' => 'access_control',
             'ai' => 'ai_assistant', 'notifications' => 'notifications', 'workflow' => 'workflow',
             'whatsapp' => 'whatsapp', 'calendar' => 'google_calendar', 'google-integrations' => 'google_calendar',
-            'tasks' => 'tasks', 'industries' => 'industries', 'product-ledger' => 'product_ledger',
-            'integrations' => 'integrations', 'representative' => 'representative',
-            'dashboard' => 'dashboard', 'stats' => 'dashboard', 'overview' => 'dashboard',
+            'tasks' => 'tasks', 'events' => 'tasks', 'industries' => 'industries', 'product-ledger' => 'product_ledger',
+            'integrations' => 'integrations', 'email' => 'integrations', 'disconnect' => 'integrations',
+            'media' => 'integrations', 'media-array' => 'integrations', 'media-upload-many' => 'integrations',
+            'representative' => 'representative', 'dashboard' => 'dashboard', 'stats' => 'dashboard', 'overview' => 'dashboard', 'status' => 'dashboard',
+            'activities' => 'reports', 'log' => 'reports', 'user-total-count-country' => 'reports', 'flat' => 'projects',
+            'loyalty-points' => 'sales', 'admin-select' => 'users', 'tenants' => 'users',
         ][$resource] ?? null;
 
         if (!$module || in_array($resource, ['login', 'auth', 'get-admin'], true)) {
