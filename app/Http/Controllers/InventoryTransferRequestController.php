@@ -37,7 +37,12 @@ class InventoryTransferRequestController extends Controller
                 });
             })
             ->whereHas('warehouses', function ($q) use ($data): void {
-                $q->where('branch_id', $data['source_branch_id'])->where('active', true)->wherePivot('stock', '>', 0);
+                // whereHas receives a normal query builder, not the
+                // BelongsToMany relation, so wherePivot() becomes a dynamic
+                // column named "pivot" and generates invalid SQL.
+                $q->where('branch_id', $data['source_branch_id'])
+                    ->where('active', true)
+                    ->where('product_warehouse.stock', '>', 0);
             })
             ->with(['warehouses' => function ($q) use ($data): void {
                 $q->where('branch_id', $data['source_branch_id'])
