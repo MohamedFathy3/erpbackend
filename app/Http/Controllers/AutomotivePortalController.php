@@ -64,6 +64,29 @@ class AutomotivePortalController extends BaseController
         ]);
     }
 
+    public function requestVisit(Request $request)
+    {
+        $account = $request->user();
+        abort_unless($account instanceof AutomotiveCustomerAccount, 403, 'Customer portal authentication required.');
+        $customer = $account->customer;
+        $data = $request->validate([
+            'vehicle_id' => ['required', 'integer', 'exists:automotive_vehicles,id'],
+            'scheduled_at' => ['required', 'date', 'after:now'],
+            'type' => ['required', 'string', 'max:40'],
+            'purpose' => ['nullable', 'string', 'max:2000'],
+        ]);
+        $vehicle = $customer->automotiveVehicles()->whereKey($data['vehicle_id'])->firstOrFail();
+        $visit = AutomotiveVisit::create([
+            'customer_id' => $customer->id,
+            'vehicle_id' => $vehicle->id,
+            'type' => $data['type'],
+            'status' => 'requested',
+            'scheduled_at' => $data['scheduled_at'],
+            'purpose' => $data['purpose'] ?? null,
+        ]);
+        return response()->json(['status' => true, 'data' => $visit->load(['vehicle', 'serviceOrder'])], 201);
+    }
+
     public function technicianLogin(Request $request)
     {
         $data = $request->validate(['email' => ['required', 'email'], 'password' => ['required', 'string']]);

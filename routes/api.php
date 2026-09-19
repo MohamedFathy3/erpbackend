@@ -449,6 +449,7 @@ Route::middleware('resolve.tenant')->group(function () {
 });
 Route::middleware(['auth:sanctum', 'resolve.tenant', 'module.enabled:automotive_service'])->group(function () {
     Route::get('/customer-portal/dashboard', [AutomotivePortalController::class, 'customerDashboard']);
+    Route::post('/customer-portal/visits', [AutomotivePortalController::class, 'requestVisit']);
     Route::get('/technician-portal/orders', [AutomotivePortalController::class, 'technicianOrders']);
     Route::patch('/technician-portal/orders/{order}/status', [AutomotivePortalController::class, 'technicianUpdateStatus']);
     Route::post('/technician-portal/orders/{order}/photos', [AutomotivePortalController::class, 'technicianUploadPhoto']);
