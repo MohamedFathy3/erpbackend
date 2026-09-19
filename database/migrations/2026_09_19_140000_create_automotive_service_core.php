@@ -86,6 +86,7 @@ return new class extends Migration
             $table->boolean('requires_approval')->default(false);
             $table->boolean('approved')->default(true);
             $table->timestamps();
+            $table->softDeletes();
         });
 
         if (!Schema::hasTable('automotive_service_order_technicians')) Schema::create('automotive_service_order_technicians', function (Blueprint $table): void {
