@@ -11,6 +11,7 @@ return new class extends Migration
         if (!Schema::hasTable('permissions')) return;
 
         $groups = [
+            'automotive',
             'automotive.dashboard', 'automotive.customers', 'automotive.vehicles',
             'automotive.services', 'automotive.orders', 'automotive.work_logs',
             'automotive.photos', 'automotive.warranties', 'automotive.visits',
