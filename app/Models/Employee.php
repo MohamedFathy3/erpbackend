@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Auth\Authenticatable as AuthenticatableTrait;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -40,6 +41,11 @@ class Employee extends BaseModel implements Authenticatable
     public function permissions(): BelongsToMany
     {
         return $this->belongsToMany(Permission::class, 'employee_permissions')->withTimestamps();
+    }
+
+    public function automotiveAssignments(): HasMany
+    {
+        return $this->hasMany(AutomotiveServiceOrderTechnician::class, 'employee_id');
     }
 
 }

@@ -13,7 +13,7 @@ class TenantModule extends BaseModel
             'hr', 'crm', 'reports', 'settings', 'industries', 'manufacturing',
             'manufacturing_setup', 'product_ledger', 'projects', 'workflow',
             'email', 'whatsapp', 'google_calendar', 'google_drive', 'tasks',
-            'access_control', 'ai_assistant',
+            'access_control', 'ai_assistant', 'automotive_service',
         ];
     }
 

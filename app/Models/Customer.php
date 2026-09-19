@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\DB;
 
 class Customer extends BaseModel
@@ -18,6 +19,16 @@ class Customer extends BaseModel
     public function invoices()
     {
         return $this->hasMany(Invoice::class);
+    }
+
+    public function automotiveVehicles(): HasMany
+    {
+        return $this->hasMany(AutomotiveVehicle::class);
+    }
+
+    public function automotiveServiceOrders(): HasMany
+    {
+        return $this->hasMany(AutomotiveServiceOrder::class);
     }
 
     public function salesInvoices()

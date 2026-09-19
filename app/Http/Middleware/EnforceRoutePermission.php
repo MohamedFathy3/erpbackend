@@ -89,6 +89,7 @@ class EnforceRoutePermission
             'reports' => 'reports', 'project' => 'projects', 'projects' => 'projects',
             'manufacturing' => 'manufacturing', 'boms' => 'manufacturing', 'work-centers' => 'manufacturing',
             'operations' => 'manufacturing', 'access-control' => 'access_control',
+            'automotive' => 'automotive', 'automotive-service' => 'automotive', 'vehicles' => 'automotive', 'service-orders' => 'automotive',
             'ai' => 'ai_assistant', 'notifications' => 'notifications', 'workflow' => 'workflow',
             'whatsapp' => 'whatsapp', 'calendar' => 'google_calendar', 'google-integrations' => 'google_calendar',
             'tasks' => 'tasks', 'events' => 'tasks', 'industries' => 'industries', 'product-ledger' => 'product_ledger',
