@@ -117,15 +117,16 @@ class WarehouseController extends BaseController
 
     public function transfer(Request $request)
     {
+        $request->validate([
+            'from_warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+            'to_warehouse_id' => ['required', 'integer', 'different:from_warehouse_id', 'exists:warehouses,id'],
+            'products' => ['required', 'array', 'min:1'],
+            'products.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'products.*.quantity' => ['required', 'numeric', 'min:0.001'],
+        ]);
         DB::beginTransaction();
 
         try {
-
-            if ($request->from_warehouse_id == $request->to_warehouse_id) {
-                return response()->json([
-                    'error' => 'لا يمكن التحويل لنفس المخزن'
-                ], 422);
-            }
 
             $fromWarehouse = Warehouse::findOrFail($request->from_warehouse_id);
             $toWarehouse   = Warehouse::findOrFail($request->to_warehouse_id);
@@ -139,6 +140,7 @@ class WarehouseController extends BaseController
                 $productInFromWarehouse = $fromWarehouse->products()
                     ->where('products.id', $productId)
                     ->withPivot('stock')
+                    ->lockForUpdate()
                     ->first();
 
                 if (!$productInFromWarehouse) {
@@ -164,6 +166,7 @@ class WarehouseController extends BaseController
                 $productInToWarehouse = $toWarehouse->products()
                     ->where('products.id', $productId)
                     ->withPivot('stock')
+                    ->lockForUpdate()
                     ->first();
 
                 if ($productInToWarehouse) {
