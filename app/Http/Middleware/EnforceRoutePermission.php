@@ -66,11 +66,13 @@ class EnforceRoutePermission
                 : 'inventory.transfer_requests.create';
         }
         $module = [
-            'admin' => 'users', 'user' => 'users', 'employee' => 'hr', 'employees' => 'hr', 'attendance' => 'hr',
+            'admin' => 'users', 'user' => 'users', 'role' => 'users', 'roles' => 'users', 'permissions' => 'users',
+            'employee' => 'hr', 'employees' => 'hr', 'attendance' => 'hr',
             'product' => 'inventory', 'products' => 'inventory', 'warehouse' => 'inventory', 'warehouses' => 'inventory',
             'warehouse-stock' => 'inventory', 'offer' => 'inventory', 'category' => 'inventory', 'branch' => 'inventory',
-            'color' => 'inventory', 'unit' => 'inventory',
-            'customer' => 'crm', 'customers' => 'crm', 'leads' => 'crm', 'deals' => 'crm',
+            'color' => 'inventory', 'unit' => 'inventory', 'inventory-logs' => 'inventory', 'transfer' => 'inventory',
+            'customer' => 'crm', 'customers' => 'crm', 'leads' => 'crm', 'deals' => 'crm', 'chat' => 'crm',
+            'claims' => 'crm', 'pipeline-stages' => 'crm', 'application-form' => 'crm',
             'supplier' => 'purchasing', 'suppliers' => 'purchasing',
             'purchase' => 'purchasing', 'purchases' => 'purchasing',
             'purchases-orders' => 'purchasing', 'purchase-orders' => 'purchasing',
@@ -79,12 +81,19 @@ class EnforceRoutePermission
             'invoice' => 'sales', 'invoices' => 'sales', 'sales' => 'sales', 'pos' => 'sales',
             'sales-invoice' => 'sales', 'sales-invoices' => 'sales', 'sales-return' => 'sales',
             'sales-returns' => 'sales', 'invoice-return' => 'sales', 'invoice-returns' => 'sales',
+            'return-invoices' => 'sales', 'sales-invoice-return' => 'sales', 'orders' => 'sales',
+            'sales-representative' => 'representative', 'delevery-man' => 'representative', 'shifts' => 'sales',
             'currency' => 'currency', 'tax' => 'tax', 'bank' => 'bank', 'treasury' => 'treasury',
             'bank-movement' => 'bank', 'treasury-movement' => 'treasury', 'finance' => 'finance',
             'revenue' => 'finance', 'journal-entries' => 'finance',
             'reports' => 'reports', 'project' => 'projects', 'projects' => 'projects',
-            'manufacturing' => 'manufacturing', 'access-control' => 'access_control',
-            'ai' => 'ai_assistant', 'notifications' => 'notifications',
+            'manufacturing' => 'manufacturing', 'boms' => 'manufacturing', 'work-centers' => 'manufacturing',
+            'operations' => 'manufacturing', 'access-control' => 'access_control',
+            'ai' => 'ai_assistant', 'notifications' => 'notifications', 'workflow' => 'workflow',
+            'whatsapp' => 'whatsapp', 'calendar' => 'google_calendar', 'google-integrations' => 'google_calendar',
+            'tasks' => 'tasks', 'industries' => 'industries', 'product-ledger' => 'product_ledger',
+            'integrations' => 'integrations', 'representative' => 'representative',
+            'dashboard' => 'dashboard', 'stats' => 'dashboard', 'overview' => 'dashboard',
         ][$resource] ?? null;
 
         if (!$module || in_array($resource, ['login', 'auth', 'get-admin'], true)) {
