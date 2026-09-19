@@ -11,6 +11,10 @@ class CheckModuleEnabled
 {
     public function handle(Request $request, Closure $next, ?string $module = null): Response
     {
+        $path = trim($request->path(), '/');
+        if (in_array($path, ['api/customer-portal/login', 'api/technician-portal/login', 'customer-portal/login', 'technician-portal/login'], true)) {
+            return $next($request);
+        }
         $module ??= $this->moduleForPath($request->path());
         if (!$module) {
             return $next($request);
