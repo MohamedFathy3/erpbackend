@@ -33,9 +33,13 @@ class AutomotivePortalController extends BaseController
             'customer_id' => ['required', 'integer', 'exists:customers,id'],
             'email' => ['required', 'email'], 'password' => ['required', 'string', 'min:8'], 'active' => ['boolean'],
         ]);
-        $account = AutomotiveCustomerAccount::create([
-            'customer_id' => $data['customer_id'], 'email' => $data['email'], 'password' => Hash::make($data['password']), 'active' => $data['active'] ?? true,
-        ]);
+        $account = AutomotiveCustomerAccount::withTrashed()->where('customer_id', $data['customer_id'])->first();
+        if ($account?->trashed()) $account->restore();
+        if (!$account) $account = new AutomotiveCustomerAccount(['customer_id' => $data['customer_id']]);
+        $account->email = $data['email'];
+        $account->password = Hash::make($data['password']);
+        $account->active = $data['active'] ?? true;
+        $account->save();
         return response()->json(['status' => true, 'data' => $account->load('customer')], 201);
     }
 

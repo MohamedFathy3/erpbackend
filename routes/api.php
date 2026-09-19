@@ -443,8 +443,10 @@ Route::post('/admin/login', [
     'login'
 ]);
 
-Route::post('/customer-portal/login', [AutomotivePortalController::class, 'customerLogin']);
-Route::post('/technician-portal/login', [AutomotivePortalController::class, 'technicianLogin']);
+Route::middleware('resolve.tenant')->group(function () {
+    Route::post('/customer-portal/login', [AutomotivePortalController::class, 'customerLogin']);
+    Route::post('/technician-portal/login', [AutomotivePortalController::class, 'technicianLogin']);
+});
 Route::middleware(['auth:sanctum', 'resolve.tenant', 'module.enabled:automotive_service'])->group(function () {
     Route::get('/customer-portal/dashboard', [AutomotivePortalController::class, 'customerDashboard']);
     Route::get('/technician-portal/orders', [AutomotivePortalController::class, 'technicianOrders']);
