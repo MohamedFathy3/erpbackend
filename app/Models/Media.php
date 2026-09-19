@@ -49,6 +49,7 @@ use Illuminate\Support\Facades\Storage;
 class Media extends Model
 {
     protected $guarded = [];
+    protected $appends = ['full_url', 'url', 'preview_url'];
 
     protected static array $types = [
         'image' => [
