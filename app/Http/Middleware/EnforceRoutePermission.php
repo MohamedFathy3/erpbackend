@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Models\Permission;
 use App\Models\Admin;
 use App\Models\AutomotiveCustomerAccount;
+use App\Models\Employee;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -21,6 +22,9 @@ class EnforceRoutePermission
         // A user may have only direct permissions and no role. Do not bypass
         // authorization in that case; hasPermission() checks both sources.
         if (!$user || $user instanceof AutomotiveCustomerAccount || (bool) ($user->super_admin ?? false) || $isAdmin) {
+            return $next($request);
+        }
+        if ($user instanceof Employee && str_starts_with(trim($request->path(), '/'), 'api/technician-portal/') && $user->hasPermission('automotive.portal.technician_login')) {
             return $next($request);
         }
 
