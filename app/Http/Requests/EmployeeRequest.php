@@ -21,7 +21,9 @@ class EmployeeRequest extends FormRequest
             'name'          => 'required|string|max:255',
             'position'      => 'nullable|string|max:255',
             'department'    => 'nullable|string|max:255',
-            'role_id'       => ['required', Rule::exists('roles', 'id')->where(function ($query): void {
+            // A user may intentionally have no role and receive only direct
+            // permissions. Keep the tenant restriction when a role is given.
+            'role_id'       => ['nullable', Rule::exists('roles', 'id')->where(function ($query): void {
                 $tenantId = auth()->user()?->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
                 if ($tenantId) $query->where('tenant_id', $tenantId);
             })],
@@ -41,7 +43,6 @@ class EmployeeRequest extends FormRequest
         return [
             'employee_code.required' => 'كود الموظف مطلوب',
             'employee_code.unique'   => 'كود الموظف مستخدم بالفعل',
-            'role_id.required'       => 'الصلاحية مطلوبة',
             'role_id.exists'         => 'الصلاحية غير موجودة',
             'branch_id.exists'       => 'الفرع غير موجود', // ✅ إضافة
             'treasury_id.exists'     => 'الخزينة غير موجودة', // ✅ إضافة
