@@ -154,7 +154,7 @@ class AutomotiveController extends BaseController
     {
         $from = $request->date('from')?->startOfDay() ?? now()->subDays(30)->startOfDay();
         $to = $request->date('to')?->endOfDay() ?? now()->endOfDay();
-        $orders = AutomotiveServiceOrder::with(['items.service', 'technicians'])
+        $orders = AutomotiveServiceOrder::with(['customer', 'items.service', 'technicians'])
             ->whereBetween('created_at', [$from, $to])->whereNotIn('status', ['cancelled'])->get();
         $serviceRows = $orders->flatMap(fn ($order) => $order->items)->groupBy('service_id')->map(function ($items, $serviceId) {
             $revenue = $items->sum(fn ($i) => (float) $i->quantity * (float) $i->unit_price - (float) $i->discount_amount);
@@ -167,6 +167,13 @@ class AutomotiveController extends BaseController
             $cost = (float) $order->items->sum(fn ($i) => (float) $i->quantity * (float) $i->unit_cost) / $count;
             return $order->technicians->map(fn ($tech) => ['technician_id' => $tech->id, 'technician' => $tech->name, 'orders' => 1, 'revenue' => $revenue, 'cost' => $cost, 'profit' => $revenue - $cost]);
         })->groupBy('technician_id')->map(fn ($rows) => ['technician_id' => $rows->first()['technician_id'], 'technician' => $rows->first()['technician'], 'orders' => $rows->sum('orders'), 'revenue' => round($rows->sum('revenue'), 2), 'cost' => round($rows->sum('cost'), 2), 'profit' => round($rows->sum('profit'), 2)])->values();
-        return response()->json(['status' => true, 'data' => ['from' => $from->toDateString(), 'to' => $to->toDateString(), 'summary' => ['orders' => $orders->count(), 'revenue' => round($orders->sum('total_amount'), 2), 'cost' => round($orders->sum(fn ($o) => $o->items->sum(fn ($i) => (float) $i->quantity * (float) $i->unit_cost)), 2), 'profit' => round($orders->sum('total_amount') - $orders->sum(fn ($o) => $o->items->sum(fn ($i) => (float) $i->quantity * (float) $i->unit_cost)), 2)], 'services' => $serviceRows, 'technicians' => $technicianRows]]);
+        $customerRows = $orders->groupBy('customer_id')->map(function ($customerOrders) {
+            $revenue = $customerOrders->sum('total_amount');
+            $cost = $customerOrders->sum(fn ($o) => $o->items->sum(fn ($i) => (float) $i->quantity * (float) $i->unit_cost));
+            return ['customer_id' => $customerOrders->first()->customer_id, 'customer' => $customerOrders->first()->customer?->name ?? 'عميل غير معروف', 'orders' => $customerOrders->count(), 'revenue' => round($revenue, 2), 'cost' => round($cost, 2), 'profit' => round($revenue - $cost, 2)];
+        })->values();
+        $totalCost = $orders->sum(fn ($o) => $o->items->sum(fn ($i) => (float) $i->quantity * (float) $i->unit_cost));
+        $totalRevenue = $orders->sum('total_amount');
+        return response()->json(['status' => true, 'data' => ['from' => $from->toDateString(), 'to' => $to->toDateString(), 'summary' => ['orders' => $orders->count(), 'revenue' => round($totalRevenue, 2), 'cost' => round($totalCost, 2), 'profit' => round($totalRevenue - $totalCost, 2)], 'services' => $serviceRows, 'technicians' => $technicianRows, 'customers' => $customerRows]]);
     }
 }
