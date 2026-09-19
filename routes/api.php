@@ -3,6 +3,7 @@
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\AdminController;
+use App\Http\Controllers\AutomotiveController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\BankController;
 use App\Http\Controllers\BranchController;
@@ -1396,6 +1397,21 @@ Route::middleware([
     Route::apiResource('employee', EmployeeController::class);
 });
 
+/* Automotive Service — phase one */
+Route::middleware(['auth:sanctum', 'resolve.tenant'])->group(function () {
+    Route::get('/automotive/vehicles', [AutomotiveController::class, 'vehicles']);
+    Route::post('/automotive/vehicles', [AutomotiveController::class, 'storeVehicle']);
+    Route::get('/automotive/vehicles/{vehicle}', [AutomotiveController::class, 'showVehicle']);
+    Route::patch('/automotive/vehicles/{vehicle}', [AutomotiveController::class, 'updateVehicle']);
+    Route::get('/automotive/services', [AutomotiveController::class, 'services']);
+    Route::post('/automotive/services', [AutomotiveController::class, 'storeService']);
+    Route::patch('/automotive/services/{service}', [AutomotiveController::class, 'updateService']);
+    Route::get('/automotive/service-orders', [AutomotiveController::class, 'orders']);
+    Route::post('/automotive/service-orders', [AutomotiveController::class, 'storeOrder']);
+    Route::get('/automotive/service-orders/{order}', [AutomotiveController::class, 'showOrder']);
+    Route::patch('/automotive/service-orders/{order}/status', [AutomotiveController::class, 'updateOrderStatus']);
+    Route::put('/automotive/service-orders/{order}/technicians', [AutomotiveController::class, 'assignTechnicians']);
+});
 
 /*
 |--------------------------------------------------------------------------
