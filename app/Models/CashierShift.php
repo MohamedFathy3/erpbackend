@@ -25,4 +25,6 @@ class CashierShift extends Model
     {
         return $this->hasMany(Invoice::class, 'cashier_shift_id');
     }
+    
+
 }

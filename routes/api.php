@@ -1928,6 +1928,12 @@ Route::middleware([
         'getCurrentShift'
     ]);
 
+
+Route::get('shifts/{shift}/report', [
+    CashierShiftController::class,
+    'report'
+]);
+
     Route::get('shifts/{shift}', [
         CashierShiftController::class,
         'show'
