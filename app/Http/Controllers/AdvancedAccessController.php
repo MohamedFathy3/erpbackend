@@ -8,8 +8,60 @@ use Illuminate\Support\Facades\Schema;
 
 class AdvancedAccessController extends Controller
 {
-    public function permissions(Request $request) { abort_unless($this->canManage($request), 403); $column = Permission::identifierColumn(); $query = Permission::query()->orderBy($column); if (Schema::hasColumn('permissions', 'module')) $query->orderBy('module'); return response()->json(['data'=>$query->get()]); }
-    public function roles(Request $request) { abort_unless($this->canManage($request), 403); return response()->json(['data'=>Role::with(['permissions', 'tenant'])->whereRaw("lower(name) not in ('admin', 'administrator', 'super admin', 'super administrator')")->orderBy('tenant_id')->orderBy('name')->get()]); }
+   
+public function permissions(Request $request) { abort_unless($this->canManage($request), 403); $column = Permission::identifierColumn(); $query = Permission::query()->orderBy($column); if (Schema::hasColumn('permissions', 'module')) $query->orderBy('module'); return response()->json(['data'=>$query->get()]); }
+   
+// public function roles(Request $request) { abort_unless($this->canManage($request), 403); return response()->json(['data'=>Role::with(['permissions', 'tenant'])->whereRaw("lower(name) not in ('admin', 'administrator', 'super admin', 'super administrator')")->orderBy('tenant_id')->orderBy('name')->get()]); }
+   
+public function roles(Request $request)
+{
+    abort_unless($this->canManage($request), 403);
+
+    $user = $request->user();
+
+    $query = Role::withoutGlobalScopes()
+        ->with(['permissions', 'tenant'])
+        ->whereRaw("LOWER(name) NOT IN (
+            'admin',
+            'administrator',
+            'super admin',
+            'super administrator'
+        )");
+
+    /*
+    |--------------------------------------------------------------------------
+    | Super Admin
+    |--------------------------------------------------------------------------
+    | Super Admin يستطيع رؤية Roles الخاصة بكل الـ Tenants.
+    */
+    if (!($user->super_admin ?? false)) {
+
+        /*
+        |--------------------------------------------------------------------------
+        | Normal Admin
+        |--------------------------------------------------------------------------
+        | Admin يرى Roles الخاصة بالـ Tenant الخاص به فقط.
+        |--------------------------------------------------------------------------
+        */
+        $tenantId = $user->tenant_id;
+
+        abort_unless($tenantId, 403);
+
+        $query->where('tenant_id', $tenantId);
+    }
+
+    $roles = $query
+        ->orderBy('tenant_id')
+        ->orderBy('name')
+        ->get();
+
+    return response()->json([
+        'data' => $roles,
+    ]);
+}
+
+
+
     public function updateRole(Request $request, Role $role) { abort_unless($this->canManage($request), 403); $data=$request->validate(['name'=>'required|string|max:100','permissions'=>'array','permissions.*'=>'integer|exists:permissions,id']); $role->update(['name'=>$data['name']]); $role->permissions()->sync($data['permissions'] ?? []); return response()->json(['data'=>$role->fresh('permissions')]); }
     public function mePermissions(Request $request) { $user=$request->user(); abort_unless($user, 401); return response()->json(['data'=>['is_super_admin'=>(bool)($user->super_admin ?? false),'permissions'=>$user->permissionKeys()]]); }
 

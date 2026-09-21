@@ -71,17 +71,21 @@ class SuperAdminTenantController extends Controller
                 ]);
             }
 
-            $admin = null;
-            if (!empty($data['admin_email'])) {
-                $admin = Admin::withoutGlobalScopes()->create([
-                    'tenant_id' => $tenant->id,
-                    'name' => $data['admin_name'] ?? $data['admin_email'],
-                    'email' => $data['admin_email'],
-                    'password' => Hash::make($data['admin_password']),
-                    'active' => true,
-                    'super_admin' => false,
-                ]);
-            }
+          $roles = $this->createDefaultRolesForTenant($tenant);
+
+$admin = null;
+
+if (!empty($data['admin_email'])) {
+    $admin = Admin::withoutGlobalScopes()->create([
+        'tenant_id' => $tenant->id,
+        'role_id' => $roles['Admin']->id,
+        'name' => $data['admin_name'] ?? $data['admin_email'],
+        'email' => $data['admin_email'],
+        'password' => Hash::make($data['admin_password']),
+        'active' => true,
+        'super_admin' => false,
+    ]);
+}
 
             return [$tenant, $admin];
         });
@@ -175,4 +179,31 @@ class SuperAdminTenantController extends Controller
                 ->values(),
         ]);
     }
+
+    private function createDefaultRolesForTenant(Tenant $tenant): array
+{
+    $roleNames = [
+        'Admin',
+        'Manager',
+        'Sales',
+        'Purchasing',
+        'Accountant',
+        'Cashier',
+        'Warehouse',
+        'HR',
+        'Customer Support',
+        'Viewer',
+    ];
+
+    $roles = [];
+
+    foreach ($roleNames as $name) {
+        $roles[$name] = \App\Models\Role::withoutGlobalScopes()->create([
+            'tenant_id' => $tenant->id,
+            'name' => $name,
+        ]);
+    }
+
+    return $roles;
+}
 }

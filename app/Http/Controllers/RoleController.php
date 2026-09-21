@@ -33,20 +33,37 @@ class RoleController extends BaseController
         }
     }
 
-    public function store(Request $request)
-    {
-        $data = $request->validate([
-            'name' => ['required', 'string', 'max:100', Rule::unique('roles', 'name')->where(fn ($query) => $query->where('tenant_id', auth()->user()?->tenant_id))],
-            'permission_ids' => ['sometimes', 'array'],
-            'permission_ids.*' => ['integer', 'exists:permissions,id'],
+   public function store(Request $request)
+{
+    $data = $request->validate([
+        'name' => [
+            'required',
+            'string',
+            'max:100',
+            Rule::unique('roles', 'name')
+                ->where(fn ($query) =>
+                    $query->where('tenant_id', auth()->user()?->tenant_id)
+                ),
+        ],
+        'permission_ids' => ['sometimes', 'array'],
+        'permission_ids.*' => ['integer', 'exists:permissions,id'],
+    ]);
+
+    return DB::transaction(function () use ($data) {
+
+        $role = Role::create([
+            'name' => $data['name'],
+            'tenant_id' => auth()->user()->tenant_id,
         ]);
 
-        return DB::transaction(function () use ($data) {
-            $role = Role::create(['name' => $data['name']]);
-            $role->permissions()->sync($data['permission_ids'] ?? []);
-            return JsonResponse::respondSuccess('Role created successfully', $role->load('permissions'));
-        });
-    }
+        $role->permissions()->sync($data['permission_ids'] ?? []);
+
+        return JsonResponse::respondSuccess(
+            'Role created successfully',
+            $role->load('permissions')
+        );
+    });
+}
 
     public function permissions()
     {
