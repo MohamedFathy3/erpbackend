@@ -1,28 +1,30 @@
-    <?php
+<?php
 
-    namespace App\Http\Controllers;
+namespace App\Http\Controllers;
 
-    use App\Http\Requests\StoreSalesInvoiceReturnRequest;
-    use App\Http\Resources\SalesInvoiceReturnResource;
-    use App\Models\Product;
-    use App\Models\SalesInvoice;
-    use App\Models\SalesInvoiceReturn;
-    use App\Models\SalesInvoiceReturnItem;
-    use App\Models\CashierShift;
-    use App\Models\Treasury;
-    use App\Models\TreasuryTransaction;
-    use App\Models\LoyaltySetting;
-    use App\Models\Customer;
-    use App\Models\Employee;
-    use App\Models\Admin;
-    use App\Models\User;
-    use App\Services\WorkflowPostingService;
-    use Illuminate\Http\Request;
-    use Illuminate\Support\Facades\DB;
-    use Illuminate\Support\Facades\Log;
-    use App\Services\InventoryMovementService;
-    class SalesInvoiceReturnController extends Controller
-    {
+use App\Http\Requests\StoreSalesInvoiceReturnRequest;
+use App\Http\Resources\SalesInvoiceReturnResource;
+use App\Models\Product;
+use App\Models\SalesInvoice;
+use App\Models\SalesInvoiceReturn;
+use App\Models\SalesInvoiceReturnItem;
+use App\Models\CashierShift;
+use App\Models\Treasury;
+use App\Models\TreasuryTransaction;
+use App\Models\LoyaltySetting;
+use App\Models\Customer;
+use App\Models\Employee;
+use App\Models\Admin;
+use App\Models\User;
+use App\Services\WorkflowPostingService;
+use App\Services\InventoryMovementService;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+
+class SalesInvoiceReturnController extends Controller
+{
+
         // ============================================================
         // ✅ INDEX - جلب جميع المرتجعات
         // ============================================================
