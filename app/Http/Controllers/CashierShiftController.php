@@ -17,19 +17,27 @@ class CashierShiftController extends Controller
 public function report($shiftId)
 {
     try {
+
+        /*
+        |--------------------------------------------------------------------------
+        | بيانات الوردية
+        |--------------------------------------------------------------------------
+        */
+
         $shift = CashierShift::with([
             'employee',
             'admin',
         ])->findOrFail($shiftId);
 
+
         /*
         |--------------------------------------------------------------------------
-        | فواتير الـ POS الخاصة بالوردية
+        | فواتير الوردية
         |--------------------------------------------------------------------------
         */
 
         $invoices = Invoice::with([
-            'items',
+            'items.product',
             'payments',
             'customer',
             'cashier',
@@ -39,9 +47,10 @@ public function report($shiftId)
             ->orderBy('created_at', 'asc')
             ->get();
 
+
         /*
         |--------------------------------------------------------------------------
-        | إجماليات المبيعات
+        | إجماليات الوردية
         |--------------------------------------------------------------------------
         */
 
@@ -49,11 +58,32 @@ public function report($shiftId)
         $totalCost = 0;
         $totalProfit = 0;
 
+        $totalQuantity = 0;
+
         $cashTotal = 0;
         $cardTotal = 0;
         $walletTotal = 0;
 
         $sales = [];
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | تقرير المنتجات
+        |--------------------------------------------------------------------------
+        |
+        | هنا سنجمع كل المنتجات المباعة في الوردية.
+        |
+        */
+
+        $productsReport = [];
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | الفواتير
+        |--------------------------------------------------------------------------
+        */
 
         foreach ($invoices as $invoice) {
 
@@ -61,58 +91,210 @@ public function report($shiftId)
             $invoiceCost = 0;
             $invoiceProfit = 0;
 
+            $invoiceQuantity = 0;
+
             $items = [];
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | بنود الفاتورة
+            |--------------------------------------------------------------------------
+            */
 
             foreach ($invoice->items as $item) {
 
-                $sellingTotal = (float) ($item->total ?? (
-                    (float) $item->price * (float) $item->quantity
-                ));
+                $quantity = (float) ($item->quantity ?? 0);
 
                 /*
-                 * في حالة وجود total_cost نستخدمه.
-                 * وإذا لم يكن موجوداً نحسبه من unit_cost.
-                 */
-                $itemCost = null;
+                |--------------------------------------------------------------------------
+                | سعر البيع
+                |--------------------------------------------------------------------------
+                */
 
-                if (isset($item->total_cost)) {
-                    $itemCost = (float) $item->total_cost;
-                } elseif (isset($item->unit_cost)) {
-                    $itemCost = (float) $item->unit_cost * (float) $item->quantity;
-                }
+                $sellingPrice = (float) ($item->price ?? 0);
+
+                $sellingTotal = $item->total !== null
+                    ? (float) $item->total
+                    : ($sellingPrice * $quantity);
+
 
                 /*
-                 * مؤقتاً لو التكلفة غير موجودة
-                 * لن نخمن قيمة التكلفة.
-                 */
-                if ($itemCost === null) {
-                    $itemCost = 0;
+                |--------------------------------------------------------------------------
+                | تكلفة المنتج
+                |--------------------------------------------------------------------------
+                |
+                | التكلفة الأساسية تأتي من:
+                |
+                | products.cost
+                |
+                | لأن جدول products عندك يحتوي:
+                |
+                | price
+                | cost
+                |
+                */
+
+                $unitCost = 0;
+
+                if ($item->product) {
+
+                    $unitCost = (float) ($item->product->cost ?? 0);
+
                 }
 
-                $itemProfit = $sellingTotal - $itemCost;
+
+                /*
+                |--------------------------------------------------------------------------
+                | لو كان invoice_item يحتوي على تكلفة محفوظة
+                |
+                | يمكن استخدامها أولاً إذا أردت تثبيت تكلفة وقت البيع.
+                |--------------------------------------------------------------------------
+                */
+
+                if (
+                    isset($item->unit_cost)
+                    && $item->unit_cost !== null
+                    && (float) $item->unit_cost > 0
+                ) {
+
+                    $unitCost = (float) $item->unit_cost;
+
+                }
+
+
+                /*
+                |--------------------------------------------------------------------------
+                | إجمالي تكلفة هذا المنتج
+                |--------------------------------------------------------------------------
+                */
+
+                $itemTotalCost = $unitCost * $quantity;
+
+
+                /*
+                |--------------------------------------------------------------------------
+                | الربح
+                |--------------------------------------------------------------------------
+                */
+
+                $itemProfit = $sellingTotal - $itemTotalCost;
+
+
+                /*
+                |--------------------------------------------------------------------------
+                | إجماليات الفاتورة
+                |--------------------------------------------------------------------------
+                */
 
                 $invoiceSales += $sellingTotal;
-                $invoiceCost += $itemCost;
+
+                $invoiceCost += $itemTotalCost;
+
                 $invoiceProfit += $itemProfit;
 
-                $items[] = [
-                    'product_id' => $item->product_id,
-                    'product_name' => $item->product_name,
-                    'color' => $item->color,
-                    'size' => $item->size,
-                    'quantity' => (float) $item->quantity,
+                $invoiceQuantity += $quantity;
 
-                    'selling_price' => (float) $item->price,
+
+                /*
+                |--------------------------------------------------------------------------
+                | إجماليات الوردية
+                |--------------------------------------------------------------------------
+                */
+
+                $totalSales += $sellingTotal;
+
+                $totalCost += $itemTotalCost;
+
+                $totalProfit += $itemProfit;
+
+                $totalQuantity += $quantity;
+
+
+                /*
+                |--------------------------------------------------------------------------
+                | تقرير المنتج داخل الفاتورة
+                |--------------------------------------------------------------------------
+                */
+
+                $items[] = [
+
+                    'product_id' => $item->product_id,
+
+                    'product_name' => $item->product_name
+                        ?? $item->product?->name,
+
+                    'color' => $item->color,
+
+                    'size' => $item->size,
+
+                    'quantity' => $quantity,
+
+
+                    /*
+                    | البيع
+                    */
+
+                    'selling_price' => $sellingPrice,
+
                     'selling_total' => $sellingTotal,
 
-                    'unit_cost' => isset($item->unit_cost)
-                        ? (float) $item->unit_cost
-                        : 0,
 
-                    'total_cost' => $itemCost,
+                    /*
+                    | التكلفة
+                    */
+
+                    'unit_cost' => $unitCost,
+
+                    'total_cost' => $itemTotalCost,
+
+
+                    /*
+                    | الربح
+                    */
+
                     'profit' => $itemProfit,
                 ];
+
+
+                /*
+                |--------------------------------------------------------------------------
+                | تجميع المنتجات
+                |--------------------------------------------------------------------------
+                */
+
+                $productId = $item->product_id;
+
+                if (!isset($productsReport[$productId])) {
+
+                    $productsReport[$productId] = [
+
+                        'product_id' => $productId,
+
+                        'product_name' => $item->product_name
+                            ?? $item->product?->name,
+
+                        'quantity' => 0,
+
+                        'selling_total' => 0,
+
+                        'total_cost' => 0,
+
+                        'profit' => 0,
+
+                    ];
+                }
+
+
+                $productsReport[$productId]['quantity'] += $quantity;
+
+                $productsReport[$productId]['selling_total'] += $sellingTotal;
+
+                $productsReport[$productId]['total_cost'] += $itemTotalCost;
+
+                $productsReport[$productId]['profit'] += $itemProfit;
             }
+
 
             /*
             |--------------------------------------------------------------------------
@@ -124,65 +306,135 @@ public function report($shiftId)
 
             foreach ($invoice->payments as $payment) {
 
-                $amount = (float) $payment->amount;
+                $amount = (float) ($payment->amount ?? 0);
 
                 $payments[] = [
+
                     'method' => $payment->method,
+
                     'amount' => $amount,
                 ];
 
+
                 switch ($payment->method) {
+
                     case 'cash':
+
                         $cashTotal += $amount;
+
                         break;
 
                     case 'card':
+
                         $cardTotal += $amount;
+
                         break;
 
                     case 'wallet':
+
                         $walletTotal += $amount;
+
                         break;
                 }
             }
 
-            $totalSales += $invoiceSales;
-            $totalCost += $invoiceCost;
-            $totalProfit += $invoiceProfit;
+
+            /*
+            |--------------------------------------------------------------------------
+            | بيانات الفاتورة
+            |--------------------------------------------------------------------------
+            */
 
             $sales[] = [
+
                 'id' => $invoice->id,
+
                 'invoice_number' => $invoice->invoice_number,
 
-                'time' => optional($invoice->created_at)->format('H:i:s'),
-                'date' => optional($invoice->created_at)->format('Y-m-d H:i:s'),
+                'time' => optional($invoice->created_at)
+                    ->format('H:i:s'),
+
+                'date' => optional($invoice->created_at)
+                    ->format('Y-m-d H:i:s'),
 
                 'customer' => $invoice->customer?->name,
 
+                'items_count' => count($items),
+
+                'total_quantity' => $invoiceQuantity,
+
+                /*
+                | تفاصيل المنتجات
+                */
+
                 'items' => $items,
 
+                /*
+                | إجماليات الفاتورة
+                */
+
                 'total_sales' => $invoiceSales,
+
                 'total_cost' => $invoiceCost,
+
                 'profit' => $invoiceProfit,
 
+                /*
+                | الدفع
+                */
+
                 'payments' => $payments,
+
+                'payment_total' => array_sum(
+                    array_column($payments, 'amount')
+                ),
 
                 'status' => $invoice->status,
             ];
         }
 
+
+        /*
+        |--------------------------------------------------------------------------
+        | تحويل تقرير المنتجات إلى Array
+        |--------------------------------------------------------------------------
+        */
+
+        $productsReport = array_values($productsReport);
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | إجمالي المنتجات
+        |--------------------------------------------------------------------------
+        */
+
+        $productsTotal = [
+
+            'products_count' => count($productsReport),
+
+            'total_quantity' => $totalQuantity,
+
+            'total_sales' => $totalSales,
+
+            'total_cost' => $totalCost,
+
+            'total_profit' => $totalProfit,
+        ];
+
+
         /*
         |--------------------------------------------------------------------------
         | المرتجعات
         |--------------------------------------------------------------------------
-        |
-        | هنكملها بعد ما نربط جدول المرتجعات الفعلي بالوردية.
-        |
         */
 
         $returnsCount = 0;
+
         $returnsAmount = 0;
+
         $returnsCost = 0;
+
 
         /*
         |--------------------------------------------------------------------------
@@ -191,46 +443,56 @@ public function report($shiftId)
         */
 
         $netSales = $totalSales - $returnsAmount;
+
         $netCost = $totalCost - $returnsCost;
+
         $netProfit = $netSales - $netCost;
+
 
         /*
         |--------------------------------------------------------------------------
-        | التسوية
+        | التسوية النقدية
         |--------------------------------------------------------------------------
-        |
-        | النقد المتوقع فقط، وليس Cash + Card + Wallet.
-        |
         */
 
-        $openingBalance = (float) ($shift->opening_balance ?? 0);
+        $openingBalance = (float) (
+            $shift->opening_balance ?? 0
+        );
+
 
         $expectedCash =
             $openingBalance
             + $cashTotal
             - $returnsAmount;
 
+
         $actualAmount = $shift->actual_amount !== null
             ? (float) $shift->actual_amount
             : null;
+
 
         $difference = $actualAmount !== null
             ? $actualAmount - $expectedCash
             : null;
 
+
         /*
         |--------------------------------------------------------------------------
-        | بيانات الكاشير
+        | اسم الكاشير
         |--------------------------------------------------------------------------
         */
 
         $cashierName = null;
 
         if ($shift->employee) {
+
             $cashierName = $shift->employee->name;
+
         } elseif ($shift->admin) {
+
             $cashierName = $shift->admin->name;
         }
+
 
         /*
         |--------------------------------------------------------------------------
@@ -239,11 +501,19 @@ public function report($shiftId)
         */
 
         return response()->json([
+
             'status' => true,
 
             'data' => [
 
+                /*
+                |--------------------------------------------------------------------------
+                | الوردية
+                |--------------------------------------------------------------------------
+                */
+
                 'shift' => [
+
                     'id' => $shift->id,
 
                     'cashier' => $cashierName,
@@ -251,6 +521,7 @@ public function report($shiftId)
                     'branch_id' => $shift->employee?->branch_id,
 
                     'opened_at' => $shift->opened_at,
+
                     'closed_at' => $shift->closed_at,
 
                     'opening_balance' => $openingBalance,
@@ -264,6 +535,7 @@ public function report($shiftId)
                     'status' => $shift->status,
                 ],
 
+
                 /*
                 |--------------------------------------------------------------------------
                 | المبيعات
@@ -271,6 +543,7 @@ public function report($shiftId)
                 */
 
                 'sales' => [
+
                     'invoices_count' => $invoices->count(),
 
                     'total_sales' => $totalSales,
@@ -279,8 +552,28 @@ public function report($shiftId)
 
                     'total_profit' => $totalProfit,
 
+                    'total_quantity' => $totalQuantity,
+
                     'invoices' => $sales,
                 ],
+
+
+                /*
+                |--------------------------------------------------------------------------
+                | تقرير المنتجات
+                |--------------------------------------------------------------------------
+                |
+                | كل المنتجات التي تم بيعها في الوردية.
+                |
+                */
+
+                'products' => [
+
+                    'items' => $productsReport,
+
+                    'totals' => $productsTotal,
+                ],
+
 
                 /*
                 |--------------------------------------------------------------------------
@@ -289,11 +582,19 @@ public function report($shiftId)
                 */
 
                 'collections' => [
+
                     'cash' => $cashTotal,
+
                     'card' => $cardTotal,
+
                     'wallet' => $walletTotal,
-                    'total' => $cashTotal + $cardTotal + $walletTotal,
+
+                    'total' =>
+                        $cashTotal
+                        + $cardTotal
+                        + $walletTotal,
                 ],
+
 
                 /*
                 |--------------------------------------------------------------------------
@@ -302,10 +603,14 @@ public function report($shiftId)
                 */
 
                 'returns' => [
+
                     'count' => $returnsCount,
+
                     'total_amount' => $returnsAmount,
+
                     'total_cost' => $returnsCost,
                 ],
+
 
                 /*
                 |--------------------------------------------------------------------------
@@ -314,10 +619,14 @@ public function report($shiftId)
                 */
 
                 'net' => [
+
                     'sales' => $netSales,
+
                     'cost' => $netCost,
+
                     'profit' => $netProfit,
                 ],
+
 
                 /*
                 |--------------------------------------------------------------------------
@@ -326,6 +635,7 @@ public function report($shiftId)
                 */
 
                 'reconciliation' => [
+
                     'opening_balance' => $openingBalance,
 
                     'cash_sales' => $cashTotal,
@@ -344,12 +654,17 @@ public function report($shiftId)
     } catch (\Exception $e) {
 
         return response()->json([
+
             'status' => false,
+
             'message' => 'حدث خطأ أثناء إنشاء تقرير الوردية',
+
             'error' => $e->getMessage(),
+
         ], 500);
     }
 }
+
 
       public function openShift(Request $request)
     {
