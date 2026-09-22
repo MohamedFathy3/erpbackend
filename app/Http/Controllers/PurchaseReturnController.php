@@ -149,150 +149,407 @@ class PurchaseReturnController extends Controller
         }
     }
 
-   public function store(StoreReturnRequest $request, WorkflowPostingService $posting)
-{
+public function store(
+    StoreReturnRequest $request,
+    WorkflowPostingService $posting
+) {
     DB::beginTransaction();
 
     try {
-        $invoice = PurchaseInvoice::with('items')->find($request->purchase_invoices_id);
+
+        // ============================================================
+        // جلب فاتورة المشتريات
+        // ============================================================
+
+        $invoice = PurchaseInvoice::with('items')
+            ->lockForUpdate()
+            ->find($request->purchase_invoices_id);
 
         if (!$invoice) {
             throw new \Exception('Invoice not found');
         }
 
+        // ============================================================
+        // التأكد أن الفاتورة مدفوعة
+        // ============================================================
+
         if ($invoice->paid_amount <= 0) {
-            throw new \Exception('لا يمكن عمل مرتجع لفاتورة غير مدفوعة');
+            throw new \Exception(
+                'لا يمكن عمل مرتجع لفاتورة غير مدفوعة'
+            );
         }
+
+        // ============================================================
+        // حساب إجمالي المرتجع
+        // ============================================================
 
         $total = collect($request->items)
-            ->sum(fn($i) => $i['quantity'] * $i['unit_price']);
+            ->sum(function ($item) {
+                return
+                    (float) $item['quantity'] *
+                    (float) $item['unit_price'];
+            });
 
-        if ($total > $invoice->paid_amount) {
-            throw new \Exception('قيمة المرتجع (' . $total . ') أكبر من المبلغ المدفوع (' . $invoice->paid_amount . ')');
+        if ($total > (float) $invoice->paid_amount) {
+            throw new \Exception(
+                'قيمة المرتجع (' .
+                $total .
+                ') أكبر من المبلغ المدفوع (' .
+                $invoice->paid_amount .
+                ')'
+            );
         }
 
-        // ✅ التحقق من الكميات
+        // ============================================================
+        // التحقق من الكميات
+        // ============================================================
+
         foreach ($request->items as $item) {
+
+            $productId = $item['product_id'];
+            $colorId = $item['color_id'] ?? null;
+            $quantity = (float) $item['quantity'];
+
+            // ========================================================
+            // 1️⃣ التحقق أن المنتج موجود في الفاتورة الأصلية
+            // ========================================================
+
             $invoiceItem = $invoice->items()
-                ->where('product_id', $item['product_id'])
-                ->where('color_id', $item['color_id'] ?? null)
+                ->where('product_id', $productId)
+                ->where('color_id', $colorId)
                 ->first();
 
             if (!$invoiceItem) {
-                throw new \Exception('المنتج غير موجود في الفاتورة الأصلية');
+                throw new \Exception(
+                    'المنتج رقم ' .
+                    $productId .
+                    ' غير موجود في الفاتورة الأصلية'
+                );
             }
 
-            $returnedQuantity = PurchaseReturnItem::whereHas('purchaseReturn', function($q) use ($invoice) {
-                $q->where('purchase_invoices_id', $invoice->id);
-            })
-            ->where('product_id', $item['product_id'])
-            ->where('color_id', $item['color_id'] ?? null)
+            // ========================================================
+            // 2️⃣ حساب الكمية التي تم إرجاعها سابقًا من نفس الفاتورة
+            // ========================================================
+
+            $returnedQuantity = PurchaseReturnItem::whereHas(
+                'purchaseReturn',
+                function ($q) use ($invoice) {
+                    $q->where(
+                        'purchase_invoices_id',
+                        $invoice->id
+                    );
+                }
+            )
+            ->where('product_id', $productId)
+            ->where('color_id', $colorId)
             ->sum('quantity');
 
-            $availableQuantity = $invoiceItem->quantity - $returnedQuantity;
+            // ========================================================
+            // 3️⃣ الكمية المتبقية من الفاتورة
+            // ========================================================
 
-            if ($item['quantity'] > $availableQuantity) {
-                throw new \Exception('الكمية المرتجعة (' . $item['quantity'] . ') أكبر من الكمية المتاحة (' . $availableQuantity . ') للمنتج');
+            $availableInvoiceQuantity =
+                (float) $invoiceItem->quantity
+                - (float) $returnedQuantity;
+
+            if ($quantity > $availableInvoiceQuantity) {
+
+                throw new \Exception(
+                    'الكمية المرتجعة (' .
+                    $quantity .
+                    ') أكبر من الكمية المتاحة من الفاتورة (' .
+                    $availableInvoiceQuantity .
+                    ') للمنتج رقم ' .
+                    $productId
+                );
             }
+
+            // ========================================================
+            // 4️⃣ التحقق من وجود المنتج في المخزن
+            // ========================================================
+
+           $warehouseStock = DB::table('product_warehouse')
+            ->where('product_id', $productId) 
+            ->where('warehouse_id', $invoice->warehouse_id)
+             ->lockForUpdate() ->first(); if (!$warehouseStock)
+              { throw new \Exception( 'لا يمكن تنفيذ المرتجع للمنتج رقم ' 
+              . $productId . '. المنتج غير موجود في المخزن رقم ' . $invoice->warehouse_id . 
+              '. الكمية المطلوبة للمرتجع: ' . $quantity . '. الكمية الموجودة في المخزن: 0' );
+               }
+
+            // ========================================================
+            // 5️⃣ قراءة المخزون الحالي
+            // ========================================================
+
+            $currentWarehouseStock =
+                (float) $warehouseStock->stock;
+
+            // ========================================================
+            // 6️⃣ التأكد أن المخزون يكفي للمرتجع
+            // ========================================================
+
+        if ($quantity > $currentWarehouseStock)
+             { throw new \Exception( 'لا يمكن تنفيذ المرتجع للمنتج رقم '
+        . $productId . '. ' . 'الكمية المطلوبة للمرتجع: ' . $quantity . '.
+         ' . 'الكمية الموجودة حاليًا في المخزن: ' . $currentWarehouseStock 
+         . '. ' . 'الكمية الناقصة: ' . ($quantity - $currentWarehouseStock) ); 
+         }
         }
 
+        // ============================================================
         // إنشاء المرتجع
+        // ============================================================
+
         $return = PurchaseReturn::create([
-            'purchase_invoices_id' => $request->purchase_invoices_id,
-            'return_number' => 'PR-' . now()->format('Ymd') . '-' . rand(1000, 9999),
-            'total_amount' => $total,
-            'paid_amount' => $total,
-            'payment_method' => $invoice->payment_method,
-            'return_date' => $request->return_date ?? now()->format('Y-m-d'),
-            'reason' => $request->reason,
-            'treasury_id' => $invoice->treasury_id,
-            'currency_id' => $invoice->currency_id,
-            'warehouse_id' => $invoice->warehouse_id,
+            'purchase_invoices_id' =>
+                $request->purchase_invoices_id,
+
+            'return_number' =>
+                'PR-' .
+                now()->format('Ymd') .
+                '-' .
+                rand(1000, 9999),
+
+            'total_amount' =>
+                $total,
+
+            'paid_amount' =>
+                $total,
+
+            'payment_method' =>
+                $invoice->payment_method,
+
+            'return_date' =>
+                $request->return_date
+                ?? now()->format('Y-m-d'),
+
+            'reason' =>
+                $request->reason,
+
+            'treasury_id' =>
+                $invoice->treasury_id,
+
+            'currency_id' =>
+                $invoice->currency_id,
+
+            'warehouse_id' =>
+                $invoice->warehouse_id,
         ]);
 
+        // ============================================================
+        // المنتجات وتحديث المخزون
+        // ============================================================
+
         foreach ($request->items as $item) {
-            $lineTotal = $item['quantity'] * $item['unit_price'];
+
+            $quantity =
+                (float) $item['quantity'];
+
+            $lineTotal =
+                $quantity *
+                (float) $item['unit_price'];
+
+            // ========================================================
+            // إنشاء بند المرتجع
+            // ========================================================
 
             PurchaseReturnItem::create([
-                'purchase_return_id' => $return->id,
-                'product_id' => $item['product_id'],
-                'product_unit_id' => $item['product_unit_id'] ?? null,
-                'color_id' => $item['color_id'] ?? null,
-                'quantity' => $item['quantity'],
-                'unit_price' => $item['unit_price'],
-                'total_price' => $lineTotal,
+                'purchase_return_id' =>
+                    $return->id,
+
+                'product_id' =>
+                    $item['product_id'],
+
+                'product_unit_id' =>
+                    $item['product_unit_id'] ?? null,
+
+                'color_id' =>
+                    $item['color_id'] ?? null,
+
+                'quantity' =>
+                    $quantity,
+
+                'unit_price' =>
+                    $item['unit_price'],
+
+                'total_price' =>
+                    $lineTotal,
             ]);
 
+            // ========================================================
             // تحديث المخزون العام
-            $product = Product::find($item['product_id']);
+            // ========================================================
+
+            $product = Product::lockForUpdate()
+                ->find($item['product_id']);
+
             if ($product) {
-                $product->decrement('stock', $item['quantity']);
+
+                $product->decrement(
+                    'stock',
+                    $quantity
+                );
             }
 
+            // ========================================================
             // تحديث product_unit_colors
-            if (!empty($item['product_unit_id']) && !empty($item['color_id'])) {
+            // ========================================================
+
+            if (
+                !empty($item['product_unit_id']) &&
+                !empty($item['color_id'])
+            ) {
+
                 $productUnit = DB::table('product_units')
-                    ->where('product_id', $item['product_id'])
-                    ->where('unit_id', $item['product_unit_id'])
+                    ->where(
+                        'product_id',
+                        $item['product_id']
+                    )
+                    ->where(
+                        'unit_id',
+                        $item['product_unit_id']
+                    )
                     ->first();
 
                 if ($productUnit) {
+
                     DB::table('product_unit_colors')
-                        ->where('product_unit_id', $productUnit->id)
-                        ->where('color_id', $item['color_id'])
-                        ->decrement('stock', $item['quantity']);
+                        ->where(
+                            'product_unit_id',
+                            $productUnit->id
+                        )
+                        ->where(
+                            'color_id',
+                            $item['color_id']
+                        )
+                        ->decrement(
+                            'stock',
+                            $quantity
+                        );
                 }
             }
 
-            // تحديث product_warehouse
-            $pivot = DB::table('product_warehouse')
-                ->where('product_id', $item['product_id'])
-                ->where('warehouse_id', $invoice->warehouse_id)
-                ->first();
+            // ========================================================
+            // تحديث مخزون المخزن
+            // ========================================================
 
-            if ($pivot) {
-                DB::table('product_warehouse')
-                    ->where('product_id', $item['product_id'])
-                    ->where('warehouse_id', $invoice->warehouse_id)
-                    ->decrement('stock', $item['quantity']);
-            }
+            DB::table('product_warehouse')
+                ->where(
+                    'product_id',
+                    $item['product_id']
+                )
+                ->where(
+                    'warehouse_id',
+                    $invoice->warehouse_id
+                )
+                ->decrement(
+                    'stock',
+                    $quantity
+                );
         }
 
+        // ============================================================
         // معالجة الخزينة
-        if ($invoice->payment_method === 'cash' && $invoice->treasury_id && $total > 0) {
-            $treasury = Treasury::lockForUpdate()->find($invoice->treasury_id);
+        // ============================================================
+
+        if (
+            $invoice->payment_method === 'cash' &&
+            $invoice->treasury_id &&
+            $total > 0
+        ) {
+
+            $treasury = Treasury::lockForUpdate()
+                ->find($invoice->treasury_id);
 
             if (!$treasury) {
-                throw new \Exception('الخزنة غير موجودة');
+                throw new \Exception(
+                    'الخزنة غير موجودة'
+                );
             }
 
-            $treasury->increment('balance', $total);
+            // زيادة رصيد الخزينة
+            $treasury->increment(
+                'balance',
+                $total
+            );
 
             Transfer::create([
-                'type' => 'treasury_deposit',
-                'treasury_id' => $invoice->treasury_id,
-                'purchase_invoice_id' => $invoice->id,
-                'amount' => $total,
-                'notes' => "مرتجع لفاتورة مشتريات رقم {$invoice->invoice_number}",
+                'type' =>
+                    'treasury_deposit',
+
+                'treasury_id' =>
+                    $invoice->treasury_id,
+
+                'purchase_invoice_id' =>
+                    $invoice->id,
+
+                'amount' =>
+                    $total,
+
+                'notes' =>
+                    "مرتجع لفاتورة مشتريات رقم {$invoice->invoice_number}",
             ]);
 
             TreasuryTransaction::create([
-                'treasury_id' => $invoice->treasury_id,
-                'reference_type' => PurchaseReturn::class,
-                'reference_id' => $return->id,
-                'type' => 'in',
-                'amount' => $total,
-                'description' => "مرتجع فاتورة مشتريات رقم {$invoice->invoice_number}",
-                'created_at' => now(),
+                'treasury_id' =>
+                    $invoice->treasury_id,
+
+                'reference_type' =>
+                    PurchaseReturn::class,
+
+                'reference_id' =>
+                    $return->id,
+
+                'type' =>
+                    'in',
+
+                'amount' =>
+                    $total,
+
+                'description' =>
+                    "مرتجع فاتورة مشتريات رقم {$invoice->invoice_number}",
+
+                'created_at' =>
+                    now(),
             ]);
 
-            // ✅ بس كده من غير remaining_amount
-            $invoice->decrement('paid_amount', $total);
+            // تخفيض المبلغ المدفوع من الفاتورة
+            $invoice->decrement(
+                'paid_amount',
+                $total
+            );
         }
 
-        $journal = $posting->postReturn($return, 'purchase_return', $total, $invoice->treasury_id);
-        $return->update(['posting_journal_entry_id' => $journal?->id, 'workflow_status' => $journal ? 'posted' : 'pending_finance']);
+        // ============================================================
+        // القيد المحاسبي
+        // ============================================================
+
+        $journal = $posting->postReturn(
+            $return,
+            'purchase_return',
+            $total,
+            $invoice->treasury_id
+        );
+
+        $return->update([
+            'posting_journal_entry_id' =>
+                $journal?->id,
+
+            'workflow_status' =>
+                $journal
+                    ? 'posted'
+                    : 'pending_finance',
+        ]);
+
+        // ============================================================
+        // Commit
+        // ============================================================
+
         DB::commit();
+
+        // ============================================================
+        // تحميل العلاقات
+        // ============================================================
 
         $return->load([
             'items.product',
@@ -301,33 +558,60 @@ class PurchaseReturnController extends Controller
             'purchaseInvoice',
             'treasury',
             'currency',
-            'warehouse'
+            'warehouse',
         ]);
 
         return response()->json([
-            'data' => new PurchaseReturnResource($return),
-            'result' => 'Success',
-            'message' => 'Purchase return created successfully',
-            'status' => 200,
+            'data' =>
+                new PurchaseReturnResource($return),
+
+            'result' =>
+                'Success',
+
+            'message' =>
+                'Purchase return created successfully',
+
+            'status' =>
+                200,
         ]);
 
     } catch (\Exception $e) {
+
         DB::rollBack();
 
-        Log::error('Purchase return creation failed', [
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString(),
-            'request' => $request->all()
-        ]);
+        Log::error(
+            'Purchase return creation failed',
+            [
+                'error' =>
+                    $e->getMessage(),
+
+                'trace' =>
+                    $e->getTraceAsString(),
+
+                'request' =>
+                    $request->all(),
+            ]
+        );
 
         return response()->json([
-            'result' => 'Error',
-            'message' => 'Failed to create purchase return',
-            'error' => config('app.debug') ? $e->getMessage() : null,
-            'status' => 500,
+            'result' =>
+                'Error',
+
+            'message' =>
+                'Failed to create purchase return',
+
+            'error' =>
+                config('app.debug')
+                    ? $e->getMessage()
+                    : null,
+
+            'status' =>
+                500,
+
         ], 500);
     }
 }
+
 
     public function show($id)
     {
