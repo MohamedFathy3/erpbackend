@@ -22,7 +22,21 @@ class RoleController extends BaseController
 public function index(Request $request)
 {
     try {
-        $query = Role::query()->with('permissions');
+        $user = $request->user();
+
+        if (!$user) {
+            return JsonResponse::respondError('Unauthenticated');
+        }
+
+        $tenantId = $user->tenant_id;
+
+        if (!$tenantId) {
+            return JsonResponse::respondError('Tenant is required');
+        }
+
+        $query = Role::withoutGlobalScopes()
+            ->where('tenant_id', $tenantId)
+            ->with('permissions');
 
         if ($request->filled('search')) {
             $query->where(
@@ -32,16 +46,19 @@ public function index(Request $request)
             );
         }
 
+        $roles = $query
+            ->latest('id')
+            ->get();
+
         return JsonResponse::respondSuccess(
             'Items Fetched Successfully',
-            $query->latest('id')->get()
+            $roles
         );
 
     } catch (Exception $e) {
         return JsonResponse::respondError($e->getMessage());
     }
 }
-
    public function store(Request $request)
 {
     $data = $request->validate([
