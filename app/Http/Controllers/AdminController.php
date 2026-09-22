@@ -67,14 +67,49 @@ class AdminController extends BaseController
                         'trial_ends_at' => now()->addDays(15),
                         'subscription_status' => 'trial',
                     ]);
-                    foreach (TenantModule::available() as $moduleKey) {
-                        TenantModule::withoutGlobalScopes()->create([
-                            'tenant_id' => $tenant->id,
-                            'module_key' => $moduleKey,
-                            'is_enabled' => true,
-                        ]);
-                    }
-                    return $tenant;
+                   foreach (TenantModule::available() as $moduleKey) {
+    TenantModule::withoutGlobalScopes()->create([
+        'tenant_id' => $tenant->id,
+        'module_key' => $moduleKey,
+        'is_enabled' => true,
+    ]);
+}
+
+/*
+|--------------------------------------------------------------------------
+| Create Default Roles
+|--------------------------------------------------------------------------
+*/
+
+$roleNames = [
+    'Admin',
+    'Manager',
+    'Sales',
+    'Purchasing',
+    'Accountant',
+    'Cashier',
+    'Warehouse',
+    'HR',
+    'Customer Support',
+    'Viewer',
+];
+
+$permissions = \App\Models\Permission::query()->pluck('id');
+
+foreach ($roleNames as $roleName) {
+
+    $role = \App\Models\Role::withoutGlobalScopes()->create([
+        'tenant_id' => $tenant->id,
+        'name' => $roleName,
+    ]);
+
+    // Admin gets ALL permissions
+    if ($roleName === 'Admin') {
+        $role->permissions()->sync($permissions);
+    }
+}
+
+return $tenant;
                 });
                 $data['tenant_id'] = $tenant->id;
                 $data['super_admin'] = false;

@@ -19,19 +19,28 @@ class RoleController extends BaseController
         $this->crudRepository = $pattern;
     }
 
-    public function index(Request $request)
-    {
-        try {
-            $query = Role::query()->with('permissions');
-            $query->whereRaw("lower(name) not in ('admin', 'administrator', 'super admin', 'super administrator')");
-            if ($request->filled('search')) {
-                $query->where('name', 'like', '%' . $request->input('search') . '%');
-            }
-            return JsonResponse::respondSuccess('Items Fetched Successfully', $query->latest('id')->get());
-        } catch (Exception $e) {
-            return JsonResponse::respondError($e->getMessage());
+public function index(Request $request)
+{
+    try {
+        $query = Role::query()->with('permissions');
+
+        if ($request->filled('search')) {
+            $query->where(
+                'name',
+                'like',
+                '%' . $request->input('search') . '%'
+            );
         }
+
+        return JsonResponse::respondSuccess(
+            'Items Fetched Successfully',
+            $query->latest('id')->get()
+        );
+
+    } catch (Exception $e) {
+        return JsonResponse::respondError($e->getMessage());
     }
+}
 
    public function store(Request $request)
 {

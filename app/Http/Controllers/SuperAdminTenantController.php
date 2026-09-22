@@ -180,7 +180,7 @@ if (!empty($data['admin_email'])) {
         ]);
     }
 
-    private function createDefaultRolesForTenant(Tenant $tenant): array
+private function createDefaultRolesForTenant(Tenant $tenant): array
 {
     $roleNames = [
         'Admin',
@@ -197,11 +197,20 @@ if (!empty($data['admin_email'])) {
 
     $roles = [];
 
+    $permissions = \App\Models\Permission::query()->pluck('id');
+
     foreach ($roleNames as $name) {
-        $roles[$name] = \App\Models\Role::withoutGlobalScopes()->create([
+        $role = \App\Models\Role::withoutGlobalScopes()->create([
             'tenant_id' => $tenant->id,
             'name' => $name,
         ]);
+
+        // Admin gets all permissions
+        if ($name === 'Admin') {
+            $role->permissions()->sync($permissions);
+        }
+
+        $roles[$name] = $role;
     }
 
     return $roles;
