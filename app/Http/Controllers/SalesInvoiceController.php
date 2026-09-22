@@ -225,6 +225,7 @@ class SalesInvoiceController extends Controller
     // ============================================================
     // ✅ دالة تحديث نقاط الولاء
     // ============================================================
+    
     private function updateLoyaltyPoints($customerId, $paidAmount, $previousPaidAmount = 0)
     {
         Log::info('⭐ ========== LOYALTY POINTS START (Sales Invoice) ==========');
