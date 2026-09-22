@@ -40,90 +40,196 @@ class AdminController extends BaseController
         }
     }
 
-    public function store(AdminRequest $request)
-    {
-        try {
-            $data = $request->validated();
-            $actor = $request->user();
+public function store(AdminRequest $request)
+{
+    try {
+        $data = $request->validated();
+        $actor = $request->user();
 
-            if ($actor && !($actor->super_admin ?? false)) {
-                $data['tenant_id'] = $actor->tenant_id;
-            } elseif (!$actor) {
-                // The public registration endpoint is a workspace signup, not a
-                // way to create an unscoped admin in the shared database.
-                $tenant = DB::transaction(function () use ($data): Tenant {
-                    $baseSlug = Str::slug($data['name'] ?? Str::before($data['email'], '@')) ?: 'workspace';
-                    $slug = $baseSlug;
-                    $suffix = 1;
-                    while (Tenant::withoutGlobalScopes()->where('slug', $slug)->exists()) {
-                        $slug = $baseSlug . '-' . (++$suffix);
-                    }
-                    $tenant = Tenant::withoutGlobalScopes()->create([
-                        'name' => $data['name'] ?? $slug,
-                        'slug' => $slug,
-                        'status' => 'trial',
-                        'plan' => 'trial',
-                        'trial_starts_at' => now(),
-                        'trial_ends_at' => now()->addDays(15),
-                        'subscription_status' => 'trial',
-                    ]);
-                   foreach (TenantModule::available() as $moduleKey) {
-    TenantModule::withoutGlobalScopes()->create([
-        'tenant_id' => $tenant->id,
-        'module_key' => $moduleKey,
-        'is_enabled' => true,
-    ]);
-}
+        /*
+        |--------------------------------------------------------------------------
+        | Existing authenticated user creates an admin
+        |--------------------------------------------------------------------------
+        */
+        if ($actor && !($actor->super_admin ?? false)) {
 
-/*
-|--------------------------------------------------------------------------
-| Create Default Roles
-|--------------------------------------------------------------------------
-*/
+            $data['tenant_id'] = $actor->tenant_id;
 
-$roleNames = [
-    'Admin',
-    'Manager',
-    'Sales',
-    'Purchasing',
-    'Accountant',
-    'Cashier',
-    'Warehouse',
-    'HR',
-    'Customer Support',
-    'Viewer',
-];
+            // Get Admin role belonging to the same tenant
+            $data['role_id'] = \App\Models\Role::withoutGlobalScopes()
+                ->where('tenant_id', $actor->tenant_id)
+                ->where('name', 'Admin')
+                ->value('id');
 
-$permissions = \App\Models\Permission::query()->pluck('id');
-
-foreach ($roleNames as $roleName) {
-
-    $role = \App\Models\Role::withoutGlobalScopes()->create([
-        'tenant_id' => $tenant->id,
-        'name' => $roleName,
-    ]);
-
-    // Admin gets ALL permissions
-    if ($roleName === 'Admin') {
-        $role->permissions()->sync($permissions);
-    }
-}
-
-return $tenant;
-                });
-                $data['tenant_id'] = $tenant->id;
-                $data['super_admin'] = false;
+            if (!$data['role_id']) {
+                throw new Exception(
+                    'Admin role not found for this tenant.'
+                );
             }
-
-            $admin = $this->crudRepository->create($data);
-            if (request('logo') !== null) {
-                $this->crudRepository->AddMediaCollection('logo', $admin,'logo');
-            }
-            return new AdminResource($admin);
-        } catch (Exception $e) {
-            return JsonResponse::respondError($e->getMessage());
         }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Public Workspace Registration
+        |--------------------------------------------------------------------------
+        */
+        elseif (!$actor) {
+
+            $tenant = DB::transaction(function () use ($data): Tenant {
+
+                /*
+                |--------------------------------------------------------------------------
+                | Create Tenant
+                |--------------------------------------------------------------------------
+                */
+
+                $baseSlug = Str::slug(
+                    $data['name'] ?? Str::before($data['email'], '@')
+                ) ?: 'workspace';
+
+                $slug = $baseSlug;
+                $suffix = 1;
+
+                while (
+                    Tenant::withoutGlobalScopes()
+                        ->where('slug', $slug)
+                        ->exists()
+                ) {
+                    $slug = $baseSlug . '-' . (++$suffix);
+                }
+
+                $tenant = Tenant::withoutGlobalScopes()->create([
+                    'name' => $data['name'] ?? $slug,
+                    'slug' => $slug,
+                    'status' => 'trial',
+                    'plan' => 'trial',
+                    'trial_starts_at' => now(),
+                    'trial_ends_at' => now()->addDays(15),
+                    'subscription_status' => 'trial',
+                ]);
+
+                /*
+                |--------------------------------------------------------------------------
+                | Enable Default Modules
+                |--------------------------------------------------------------------------
+                */
+
+                foreach (TenantModule::available() as $moduleKey) {
+
+                    TenantModule::withoutGlobalScopes()->create([
+                        'tenant_id' => $tenant->id,
+                        'module_key' => $moduleKey,
+                        'is_enabled' => true,
+                    ]);
+                }
+
+                /*
+                |--------------------------------------------------------------------------
+                | Create Default Roles
+                |--------------------------------------------------------------------------
+                */
+
+                $roleNames = [
+                    'Admin',
+                    'Manager',
+                    'Sales',
+                    'Purchasing',
+                    'Accountant',
+                    'Cashier',
+                    'Warehouse',
+                    'HR',
+                    'Customer Support',
+                    'Viewer',
+                ];
+
+                $permissions = \App\Models\Permission::query()
+                    ->pluck('id');
+
+                foreach ($roleNames as $roleName) {
+
+                    $role = \App\Models\Role::withoutGlobalScopes()->create([
+                        'tenant_id' => $tenant->id,
+                        'name' => $roleName,
+                    ]);
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | Admin gets all permissions
+                    |--------------------------------------------------------------------------
+                    */
+
+                    if ($roleName === 'Admin') {
+                        $role->permissions()->sync($permissions);
+                    }
+                }
+
+                return $tenant;
+            });
+
+            /*
+            |--------------------------------------------------------------------------
+            | Assign Tenant
+            |--------------------------------------------------------------------------
+            */
+
+            $data['tenant_id'] = $tenant->id;
+            $data['super_admin'] = false;
+
+            /*
+            |--------------------------------------------------------------------------
+            | Assign Admin Role
+            |--------------------------------------------------------------------------
+            */
+
+            $data['role_id'] = \App\Models\Role::withoutGlobalScopes()
+                ->where('tenant_id', $tenant->id)
+                ->where('name', 'Admin')
+                ->value('id');
+
+            if (!$data['role_id']) {
+                throw new Exception(
+                    'Default Admin role not found for this tenant.'
+                );
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Create Admin
+        |--------------------------------------------------------------------------
+        */
+
+        $admin = $this->crudRepository->create($data);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Upload Logo
+        |--------------------------------------------------------------------------
+        */
+
+        if (request('logo') !== null) {
+            $this->crudRepository->AddMediaCollection(
+                'logo',
+                $admin,
+                'logo'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Response
+        |--------------------------------------------------------------------------
+        */
+
+        return new AdminResource($admin);
+
+    } catch (Exception $e) {
+
+        return JsonResponse::respondError(
+            $e->getMessage()
+        );
     }
+}
 
     public function show(Admin $admin): ?\Illuminate\Http\JsonResponse
     {
