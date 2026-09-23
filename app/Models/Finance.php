@@ -62,6 +62,10 @@ class Finance extends Model
     {
         return $this->belongsTo(Branch::class);
     }
+    public function journalEntry(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class);
+    }
     public function getPaymentMethodArabicAttribute()
     {
         $methods = [

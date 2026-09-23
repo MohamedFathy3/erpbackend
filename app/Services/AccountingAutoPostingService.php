@@ -1,0 +1,14 @@
+<?php
+namespace App\Services;
+use App\Models\Account;
+use App\Models\Finance;
+use App\Models\Revenue;
+use App\Models\JournalEntry;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+class AccountingAutoPostingService {
+    private function cashAccount(?int $treasuryId): Account { $account=Account::when($treasuryId,fn($q)=>$q->where('code','treasury_'.$treasuryId))->whereIn('account_type',['treasury','asset'])->first(); if(!$account) throw ValidationException::withMessages(['treasury_id'=>'لا يوجد حساب محاسبي مربوط بالخزينة المختارة.']); return $account; }
+    private function account(string $type,string $category): Account { $account=Account::where('account_type',$type)->where(function($q)use($category){$q->where('code',$category)->orWhere('code',$type.'_'.$category)->orWhere('name','like','%'.$category.'%');})->first() ?? Account::where('account_type',$type)->first(); if(!$account) throw ValidationException::withMessages(['account'=>'لا يوجد حساب محاسبي مناسب للعملية.']); return $account; }
+    public function postFinance(Finance $finance): JournalEntry { return DB::transaction(function()use($finance){$cash=$this->cashAccount($finance->treasury_id);$expense=$this->account('expense',(string)$finance->category);$entry=JournalEntry::create(['entry_date'=>$finance->date,'entry_number'=>'EXP-'.$finance->id,'description_ar'=>'مصروف: '.($finance->description??$finance->category),'description_en'=>'Expense: '.($finance->description??$finance->category),'status'=>'posted','treasury_id'=>$finance->treasury_id,'source_type'=>Finance::class,'source_id'=>$finance->id,'posted_by'=>auth()->id(),'posted_at'=>now()]);$entry->lines()->createMany([['account_id'=>$expense->id,'debit'=>$finance->amount,'credit'=>0,'description'=>$finance->description],['account_id'=>$cash->id,'debit'=>0,'credit'=>$finance->amount,'description'=>$finance->description]]);$finance->update(['journal_entry_id'=>$entry->id]);return $entry;}); }
+    public function postRevenue(Revenue $revenue): JournalEntry { return DB::transaction(function()use($revenue){$cash=$this->cashAccount($revenue->treasury_id);$income=$this->account('revenue',(string)$revenue->category);$entry=JournalEntry::create(['entry_date'=>$revenue->date,'entry_number'=>'REV-'.$revenue->id,'description_ar'=>'إيراد: '.($revenue->description??$revenue->category),'description_en'=>'Revenue: '.($revenue->description??$revenue->category),'status'=>'posted','treasury_id'=>$revenue->treasury_id,'source_type'=>Revenue::class,'source_id'=>$revenue->id,'posted_by'=>auth()->id(),'posted_at'=>now()]);$entry->lines()->createMany([['account_id'=>$cash->id,'debit'=>$revenue->amount,'credit'=>0,'description'=>$revenue->description],['account_id'=>$income->id,'debit'=>0,'credit'=>$revenue->amount,'description'=>$revenue->description]]);$revenue->update(['journal_entry_id'=>$entry->id]);return $entry;}); }
+}

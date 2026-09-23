@@ -9,6 +9,7 @@ use App\Interfaces\RevenueRepositoryInterface;
 use App\Models\Revenue;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
+use App\Services\AccountingAutoPostingService;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -48,6 +49,7 @@ class RevenueController extends BaseController
 
             if ($request->has('treasury_id') && $request->treasury_id) {
                 $this->createTreasuryTransaction($revenue);
+                app(AccountingAutoPostingService::class)->postRevenue($revenue);
             }
 
             DB::commit();

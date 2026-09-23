@@ -56,6 +56,10 @@ class Revenue extends Model
     {
         return $this->belongsTo(Branch::class);
     }
+    public function journalEntry(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class);
+    }
     // Accessor
     public function getFormattedAmountAttribute()
     {

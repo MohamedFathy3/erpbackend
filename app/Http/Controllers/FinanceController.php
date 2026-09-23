@@ -9,6 +9,7 @@ use App\Interfaces\FinanceRepositoryInterface;
 use App\Models\Finance;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
+use App\Services\AccountingAutoPostingService;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -50,6 +51,7 @@ class FinanceController extends BaseController
             // 2. إذا كان فيه خزينة -> يخصم منها
             if ($request->filled('treasury_id')) {
                 $this->decreaseTreasuryBalance($finance);
+                app(AccountingAutoPostingService::class)->postFinance($finance);
             }
 
             DB::commit();
