@@ -20,6 +20,7 @@ use App\Http\Controllers\CrmAnalyticsController;
 use App\Http\Controllers\AdvancedAccessController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ProductLedgerController;
+use App\Http\Controllers\ReportController;
 use App\Http\Controllers\DeleveryManController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\FinanceController;
@@ -610,6 +611,9 @@ Route::middleware([
     ]);
 
     Route::apiResource('warehouse', WarehouseController::class);
+
+    Route::get('/reports/warehouse-inventory', [ReportController::class, 'warehouseInventory']);
+    Route::get('/reports/warehouse-movements', [ReportController::class, 'warehouseMovements']);
 
 
     Route::get('warehouses/{warehouse}/products', [
