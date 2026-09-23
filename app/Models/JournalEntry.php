@@ -16,6 +16,8 @@ class JournalEntry extends Model
         'entry_date' => 'date',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        'posted_at' => 'datetime',
+        'approved_at' => 'datetime',
     ];
 
     // =========================
@@ -45,6 +47,11 @@ class JournalEntry extends Model
     {
         return $this->belongsTo(Admin::class, 'created_by');
     }
+
+    public function fiscalPeriod(): BelongsTo { return $this->belongsTo(FinancialPeriod::class, 'fiscal_period_id'); }
+    public function costCenter(): BelongsTo { return $this->belongsTo(CostCenter::class, 'cost_center_id'); }
+    public function reversalOf(): BelongsTo { return $this->belongsTo(JournalEntry::class, 'reversal_of_id'); }
+    public function reversals(): HasMany { return $this->hasMany(JournalEntry::class, 'reversal_of_id'); }
 
     // =========================
     // ✅ Accessors (محسوبات)

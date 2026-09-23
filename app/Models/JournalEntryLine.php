@@ -30,6 +30,8 @@ class JournalEntryLine extends Model
         return $this->belongsTo(JournalEntry::class);
     }
 
+    public function costCenter(): BelongsTo { return $this->belongsTo(CostCenter::class, 'cost_center_id'); }
+
     // =========================
     // ✅ Accessors
     // =========================

@@ -30,6 +30,8 @@ use App\Http\Controllers\InventoryLogController;
 use App\Http\Controllers\InventoryTransferRequestController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\JournalEntryController;
+use App\Http\Controllers\AccountingCoreController;
+use App\Http\Controllers\AccountingDocumentController;
 use App\Http\Controllers\LoyaltySettingController;
 use App\Http\Controllers\MediaController;
 use App\Http\Controllers\ManufacturingController;
@@ -2236,6 +2238,21 @@ Route::middleware([
         JournalEntryController::class,
         'reports'
     ]);
+    Route::get('/accounting/periods', [AccountingCoreController::class, 'periods']);
+    Route::post('/accounting/periods', [AccountingCoreController::class, 'storePeriod']);
+    Route::post('/accounting/periods/{period}/close', [AccountingCoreController::class, 'closePeriod']);
+    Route::post('/accounting/periods/{period}/reopen', [AccountingCoreController::class, 'reopenPeriod']);
+    Route::get('/accounting/cost-centers', [AccountingCoreController::class, 'costCenters']);
+    Route::post('/accounting/cost-centers', [AccountingCoreController::class, 'storeCostCenter']);
+    Route::patch('/accounting/cost-centers/{costCenter}', [AccountingCoreController::class, 'updateCostCenter']);
+    Route::get('/accounting/accounts/{account}/ledger', [AccountingCoreController::class, 'ledger']);
+    Route::get('/accounting/reports/trial-balance', [AccountingCoreController::class, 'trialBalance']);
+    Route::get('/accounting/reports/income-statement', [AccountingCoreController::class, 'incomeStatement']);
+    Route::get('/accounting/reports/balance-sheet', [AccountingCoreController::class, 'balanceSheet']);
+    Route::get('/accounting/reports/cash-flow', [AccountingCoreController::class, 'cashFlow']);
+    Route::post('/journal-entries/{journalEntry}/reverse', [AccountingCoreController::class, 'reverse']);
+    Route::get('/accounting/documents', [AccountingDocumentController::class, 'index']);
+    Route::post('/accounting/documents', [AccountingDocumentController::class, 'store']);
 });
 
 

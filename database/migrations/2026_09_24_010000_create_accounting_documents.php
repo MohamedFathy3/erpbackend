@@ -1,0 +1,8 @@
+<?php
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+return new class extends Migration {
+ public function up(): void { if(!Schema::hasTable('accounting_documents')) Schema::create('accounting_documents',function(Blueprint $t){$t->id();$t->string('document_type');$t->string('document_number')->index();$t->date('document_date');$t->string('party_type')->nullable();$t->unsignedBigInteger('party_id')->nullable();$t->foreignId('source_account_id')->nullable()->constrained('accounts')->nullOnDelete();$t->foreignId('destination_account_id')->nullable()->constrained('accounts')->nullOnDelete();$t->foreignId('treasury_id')->nullable()->constrained('treasuries')->nullOnDelete();$t->foreignId('bank_id')->nullable()->constrained('banks')->nullOnDelete();$t->decimal('amount',15,2);$t->string('payment_method')->nullable();$t->text('reason')->nullable();$t->text('notes')->nullable();$t->string('status')->default('posted');$t->foreignId('journal_entry_id')->nullable()->constrained('journal_entries')->nullOnDelete();$t->foreignId('fiscal_period_id')->nullable()->constrained('financial_periods')->nullOnDelete();$t->foreignId('branch_id')->nullable()->constrained('branches')->nullOnDelete();$t->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();$t->foreignId('tenant_id')->nullable()->constrained('tenants')->nullOnDelete();$t->timestamps();$t->softDeletes();$t->index(['tenant_id','document_type','document_date'],'accounting_doc_type_date_idx');}); }
+ public function down(): void { Schema::dropIfExists('accounting_documents'); }
+};
