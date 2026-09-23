@@ -2191,6 +2191,9 @@ Route::middleware([
         AccountController::class,
         'treeStats'
     ])->name('accounts.stats');
+    Route::post('/', [AccountController::class, 'store'])->name('accounts.store');
+    Route::patch('{account}', [AccountController::class, 'update'])->name('accounts.update')->whereNumber('account');
+    Route::post('{account}/deactivate', [AccountController::class, 'deactivate'])->name('accounts.deactivate')->whereNumber('account');
 });
 
 

@@ -105,4 +105,24 @@ class AccountController extends Controller
             'tree_levels' => $maxLevel + 1, // +1 لأن المستوى يبدأ من 0
         ]);
     }
+
+    public function store(Request $request)
+    {
+        $data = $request->validate(['code'=>'required|string|max:40','name'=>'required|string|max:150','name_ar'=>'nullable|string|max:150','account_type'=>'required|in:asset,liability,equity,revenue,expense,treasury','parent_id'=>'nullable|exists:accounts,id','normal_balance'=>'nullable|in:debit,credit','is_header'=>'boolean','description'=>'nullable|string']);
+        $data['normal_balance'] = $data['normal_balance'] ?? (in_array($data['account_type'], ['liability','equity','revenue']) ? 'credit' : 'debit');
+        return response()->json(['data'=>Account::create($data)], 201);
+    }
+
+    public function update(Request $request, Account $account)
+    {
+        $data = $request->validate(['name'=>'sometimes|string|max:150','name_ar'=>'nullable|string|max:150','account_type'=>'sometimes|in:asset,liability,equity,revenue,expense,treasury','parent_id'=>'nullable|exists:accounts,id','is_header'=>'boolean','is_active'=>'boolean','description'=>'nullable|string']);
+        if (($data['parent_id'] ?? null) === $account->id) return response()->json(['message'=>'الحساب لا يمكن أن يكون أبًا لنفسه'],422);
+        $account->update($data); return response()->json(['data'=>$account->fresh()]);
+    }
+
+    public function deactivate(Account $account)
+    {
+        if ($account->children()->where('is_active', true)->exists()) return response()->json(['message'=>'لا يمكن تعطيل حساب له حسابات فرعية نشطة'],422);
+        $account->update(['is_active'=>false]); return response()->json(['data'=>$account]);
+    }
 }

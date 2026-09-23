@@ -9,6 +9,7 @@ use App\Models\EmployeePayroll;
 use App\Models\Finance;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
+use App\Services\AccountingAutoPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +27,7 @@ class EmployeeFinancialReportsController extends Controller
         $finance = Finance::create(['category'=>'salaries','amount'=>$amount,'description'=>$description,'date'=>$date,'payment_method'=>'cash','treasury_id'=>$treasuryId]);
         $treasury->decrement('balance', $amount);
         TreasuryTransaction::create(['treasury_id'=>$treasuryId,'reference_type'=>$referenceType,'reference_id'=>$referenceId,'type'=>'out','amount'=>$amount,'description'=>$description]);
+        app(AccountingAutoPostingService::class)->postFinance($finance);
         // Keep the general expense ledger and the source record connected.
         return $finance;
     }
