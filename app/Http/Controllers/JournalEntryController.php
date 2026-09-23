@@ -9,6 +9,7 @@ use App\Models\TreasuryTransaction;
 use App\Models\Admin;
 use App\Models\Employee;
 use App\Models\Account;
+use App\Models\FinancialPeriod;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -72,7 +73,7 @@ class JournalEntryController extends Controller
             // ============================================================
             // 🟢 تحديث الخزينة بناءً على حركة حساب الخزينة في القيد
             // ============================================================
-            if ($finalTreasuryId) {
+            if ($finalTreasuryId && ($request->status ?? 'draft') === 'posted') {
                 $this->updateTreasuryFromEntry($entry);
             }
         });
@@ -440,9 +441,14 @@ private function updateTreasuryFromEntry($entry)
                 ], 400);
             }
 
-            $journalEntry->update([
-                'status' => 'posted'
-            ]);
+            $journalEntry->load('lines');
+            if ($journalEntry->lines->count() < 2 || abs((float) $journalEntry->total_debit - (float) $journalEntry->total_credit) > 0.005) {
+                return response()->json(['result' => 'error', 'message' => 'لا يمكن ترحيل قيد غير متوازن أو بلا بنود كافية', 'status' => 422], 422);
+            }
+            $period = FinancialPeriod::where('starts_on', '<=', $journalEntry->entry_date)->where('ends_on', '>=', $journalEntry->entry_date)->first();
+            if ($period && $period->status !== 'open') return response()->json(['result' => 'error', 'message' => 'لا يمكن ترحيل قيد داخل فترة مالية مغلقة', 'status' => 422], 422);
+            $journalEntry->update(['status' => 'posted', 'posted_by' => auth()->id(), 'posted_at' => now(), 'fiscal_period_id' => $journalEntry->fiscal_period_id ?: $period?->id]);
+            if ($journalEntry->treasury_id) $this->updateTreasuryFromEntry($journalEntry);
 
             Log::info("📝 Journal entry posted", [
                 'journal_entry_id' => $journalEntry->id,
