@@ -24,6 +24,7 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\DeleveryManController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\EmployeeFinancialReportController;
+use App\Http\Controllers\EmployeeFinancialReportsController;
 use App\Http\Controllers\FinanceController;
 use App\Http\Controllers\InventoryLogController;
 use App\Http\Controllers\InventoryTransferRequestController;
@@ -1395,7 +1396,13 @@ Route::middleware([
     'auth:sanctum',
     'resolve.tenant',
 ])->group(function () {
-
+    Route::get('/employee-financial-reports', [EmployeeFinancialReportsController::class, 'index']);
+    Route::get('/employee-financial-reports/{employee}/statement', [EmployeeFinancialReportsController::class, 'statement']);
+    Route::post('/employee-financial-reports/payrolls', [EmployeeFinancialReportsController::class, 'storePayroll']);
+    Route::patch('/employee-financial-reports/payrolls/{payroll}', [EmployeeFinancialReportsController::class, 'updatePayroll']);
+    Route::post('/employee-financial-reports/advances', [EmployeeFinancialReportsController::class, 'storeAdvance']);
+    Route::post('/employee-financial-reports/advances/{advance}/payments', [EmployeeFinancialReportsController::class, 'storeAdvancePayment']);
+    Route::post('/employee-financial-reports/transactions', [EmployeeFinancialReportsController::class, 'storeTransaction']);
     Route::post('/employee/index', [
         EmployeeController::class,
         'index'
