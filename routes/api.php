@@ -1777,7 +1777,6 @@ Route::middleware([
         SuppliersController::class,
         'importSuppliers'
     ]);
-    });
 });
 
 
