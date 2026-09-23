@@ -58,6 +58,36 @@ class ReportController extends Controller
         }
         if (!empty($filters['date_from'])) $query->whereDate('created_at', '>=', $filters['date_from']);
         if (!empty($filters['date_to'])) $query->whereDate('created_at', '<=', $filters['date_to']);
+        $analytics = (clone $query)->get()->groupBy(fn (InventoryMovement $movement) => $movement->created_at?->format('Y-m-d') ?? 'unknown')
+            ->map(function ($day, $date) {
+                $netQuantity = 0.0;
+                $addedQuantity = 0.0;
+                $removedQuantity = 0.0;
+                $costValue = 0.0;
+                $sellingValue = 0.0;
+                $expectedProfit = 0.0;
+                foreach ($day as $movement) {
+                    $delta = (float) ($movement->quantity_delta ?? $movement->quantity ?? 0);
+                    $cost = (float) ($movement->unit_cost ?? $movement->product?->cost ?? 0);
+                    $price = (float) ($movement->product?->price ?? 0);
+                    $netQuantity += $delta;
+                    $addedQuantity += max($delta, 0);
+                    $removedQuantity += abs(min($delta, 0));
+                    $costValue += $delta * $cost;
+                    $sellingValue += $delta * $price;
+                    $expectedProfit += $delta * ($price - $cost);
+                }
+                return [
+                    'date' => $date,
+                    'movement_count' => $day->count(),
+                    'net_quantity' => round($netQuantity, 3),
+                    'added_quantity' => round($addedQuantity, 3),
+                    'removed_quantity' => round($removedQuantity, 3),
+                    'cost_value' => round($costValue, 2),
+                    'selling_value' => round($sellingValue, 2),
+                    'expected_profit' => round($expectedProfit, 2),
+                ];
+            })->sortBy('date')->values();
 
         $movements = $query->latest('created_at')->latest('id')->paginate(min(max((int) $request->input('perPage', 100), 1), 500));
         $data = collect($movements->items())->map(function (InventoryMovement $movement) {
@@ -83,6 +113,7 @@ class ReportController extends Controller
 
         return response()->json([
             'data' => $data,
+            'analytics' => $analytics,
             'meta' => ['current_page' => $movements->currentPage(), 'last_page' => $movements->lastPage(), 'per_page' => $movements->perPage(), 'total' => $movements->total()],
             'result' => 'Success',
         ]);
