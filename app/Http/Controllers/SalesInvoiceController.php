@@ -177,6 +177,7 @@ class SalesInvoiceController extends Controller
                     'treasury_id' => $invoice->treasury_id,
                     'bank_id' => $invoice->bank_id,
                     'created_by' => null,
+                    'employee_id' => auth()->user() instanceof \App\Models\Employee ? auth()->id() : null,
                 ]);
             }
 
@@ -546,6 +547,7 @@ class SalesInvoiceController extends Controller
                 'treasury_id' => $treasuryId,
                 'bank_id' => $request->bank_id,
                 'created_by' => null,
+                'employee_id' => auth()->user() instanceof \App\Models\Employee ? auth()->id() : null,
             ]);
             $paid = (float) ($invoice->paid_amount ?? 0) + $amount;
             $invoice->update([

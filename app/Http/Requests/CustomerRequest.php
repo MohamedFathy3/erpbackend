@@ -33,6 +33,7 @@ class CustomerRequest extends FormRequest
             'payment_terms' => 'nullable|string|max:100',
             'notes' => 'nullable|string',
             'active' => 'nullable|boolean',
+            'branch_id' => 'nullable|integer|exists:branches,id',
         ];
     }
 }

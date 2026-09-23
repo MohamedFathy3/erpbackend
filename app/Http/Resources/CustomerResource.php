@@ -30,6 +30,8 @@ class CustomerResource extends JsonResource
             'point' => (int) ($this->point ?? 0),
             'loyalty_points' => (int) ($this->point ?? 0),
             'active' => $this->active,
+            'branch_id' => $this->branch_id,
+            'branch' => $this->whenLoaded('branch', fn () => $this->branch ? ['id' => $this->branch->id, 'name' => $this->branch->name, 'name_ar' => $this->branch->name_ar] : null),
             'last_paid_amount' => (float) ($this->last_paid_amount ?? 0),
             'total_purchases' => (float) $this->invoices()->sum('total_amount')
                 + (float) $this->salesInvoices()->sum('net_total')

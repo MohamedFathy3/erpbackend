@@ -10,6 +10,11 @@ class InvoicePayment extends Model
     use BelongsToTenant;
     protected $guarded = ['id'];
 
+    public function employee()
+    {
+        return $this->belongsTo(Employee::class);
+    }
+
     public function invoice()
     {
         return $this->belongsTo(Invoice::class);

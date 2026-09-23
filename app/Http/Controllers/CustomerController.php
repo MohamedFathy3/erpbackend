@@ -22,14 +22,16 @@ class CustomerController extends BaseController
         $this->crudRepository = $pattern;
     }
 
-    public function index()
+    public function index(Request $request)
     {
         try {
-            $customer = CustomerResource::collection($this->crudRepository->all(
-                [],
-                [],
-                ['*']
-            ));
+            $query = Customer::query()->with('branch');
+            $user = $request->user();
+            $branchId = $user instanceof \App\Models\Employee && $user->branch_id
+                ? (int) $user->branch_id
+                : (int) ($request->input('branch_id') ?: 0);
+            if ($branchId) $query->where('branch_id', $branchId);
+            $customer = CustomerResource::collection($query->latest()->get());
             return $customer->additional(JsonResponse::success());
         } catch (Exception $e) {
             return JsonResponse::respondError($e->getMessage());
@@ -39,8 +41,15 @@ class CustomerController extends BaseController
     public function store(CustomerRequest $request)
     {
         try {
-            $customer = $this->crudRepository->create($request->validated());
-            return new CustomerResource($customer);
+            $data = $request->validated();
+            $user = $request->user();
+            if ($user instanceof \App\Models\Employee && $user->branch_id) {
+                $data['branch_id'] = $user->branch_id;
+            } elseif (!$request->filled('branch_id')) {
+                $data['branch_id'] = null;
+            }
+            $customer = $this->crudRepository->create($data);
+            return new CustomerResource($customer->load('branch'));
         } catch (Exception $e) {
             return JsonResponse::respondError($e->getMessage());
         }
@@ -49,7 +58,11 @@ class CustomerController extends BaseController
     public function show(Customer $customer): ?\Illuminate\Http\JsonResponse
     {
         try {
-            return JsonResponse::respondSuccess('Item Fetched Successfully', new CustomerResource($customer));
+            $user = request()->user();
+            if ($user instanceof \App\Models\Employee && $user->branch_id && (int) $customer->branch_id !== (int) $user->branch_id) {
+                abort(403, 'You are not allowed to access another branch customer');
+            }
+            return JsonResponse::respondSuccess('Item Fetched Successfully', new CustomerResource($customer->load('branch')));
         } catch (Exception $e) {
             return JsonResponse::respondError($e->getMessage());
         }
@@ -62,6 +75,10 @@ class CustomerController extends BaseController
     public function statement(Customer $customer): \Illuminate\Http\JsonResponse
     {
         try {
+            $user = request()->user();
+            if ($user instanceof \App\Models\Employee && $user->branch_id && (int) $customer->branch_id !== (int) $user->branch_id) {
+                abort(403, 'You are not allowed to access another branch customer');
+            }
             $posInvoices = $customer->invoices()->with('payments')->latest()->get()->map(fn ($invoice) => [
                 'id' => $invoice->id,
                 'source' => 'pos',
@@ -139,7 +156,13 @@ class CustomerController extends BaseController
     public function update(CustomerRequest $request, Customer $customer)
     {
         try {
-            $this->crudRepository->update($request->validated(), $customer->id);
+            $user = $request->user();
+            if ($user instanceof \App\Models\Employee && $user->branch_id && (int) $customer->branch_id !== (int) $user->branch_id) {
+                abort(403, 'You are not allowed to update another branch customer');
+            }
+            $data = $request->validated();
+            if ($user instanceof \App\Models\Employee && $user->branch_id) $data['branch_id'] = $user->branch_id;
+            $this->crudRepository->update($data, $customer->id);
             activity()->performedOn($customer)->withProperties(['attributes' => $customer])->log('update');
             return JsonResponse::respondSuccess(trans(JsonResponse::MSG_UPDATED_SUCCESSFULLY));
         } catch (Exception $e) {

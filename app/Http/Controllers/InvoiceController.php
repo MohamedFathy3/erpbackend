@@ -244,6 +244,7 @@ public function store(Request $request)
             $invoice->payments()->create([
                 'method' => $payment['method'],
                 'amount' => $payment['amount'],
+                'employee_id' => $user instanceof \App\Models\Employee ? $user->id : $cashierId,
             ]);
         }
 

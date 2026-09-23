@@ -15,6 +15,11 @@ class SalesInvoicePayment extends Model
         'amount' => 'decimal:2',
     ];
 
+    public function employee()
+    {
+        return $this->belongsTo(Employee::class);
+    }
+
     public function invoice()
     {
         return $this->belongsTo(SalesInvoice::class, 'sales_invoice_id');

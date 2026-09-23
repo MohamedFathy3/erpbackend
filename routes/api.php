@@ -23,6 +23,7 @@ use App\Http\Controllers\ProductLedgerController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\DeleveryManController;
 use App\Http\Controllers\EmployeeController;
+use App\Http\Controllers\EmployeeFinancialReportController;
 use App\Http\Controllers\FinanceController;
 use App\Http\Controllers\InventoryLogController;
 use App\Http\Controllers\InventoryTransferRequestController;
@@ -909,6 +910,7 @@ Route::middleware([
     'auth:sanctum',
     'resolve.tenant',
 ])->group(function () {
+    Route::middleware('branch.scope')->group(function () {
 
     Route::post('/customer/index', [
         CustomerController::class,
@@ -957,6 +959,7 @@ Route::middleware([
         CustomerController::class,
         'importCustomers'
     ]);
+    });
 });
 
 
@@ -1342,6 +1345,7 @@ Route::middleware([
     'auth:sanctum',
     'resolve.tenant',
 ])->group(function () {
+    Route::middleware('branch.scope')->group(function () {
 
     Route::post('/invoice/store', [
         InvoiceController::class,
@@ -1377,6 +1381,7 @@ Route::middleware([
         ProductController::class,
         'searchByProductName'
     ]);
+    });
 });
 
 
@@ -1416,6 +1421,7 @@ Route::middleware([
         'forceDelete'
     ]);
 
+    Route::get('/employee/{employee}/financial-report', [EmployeeFinancialReportController::class, 'show']);
     Route::apiResource('employee', EmployeeController::class);
 });
 
@@ -1684,6 +1690,7 @@ Route::middleware([
     'auth:sanctum',
     'resolve.tenant',
 ])->group(function () {
+    Route::middleware('branch.scope')->group(function () {
 
     Route::post('/sales-invoice/store', [
         SalesInvoiceController::class,
@@ -1729,6 +1736,7 @@ Route::middleware([
         SalesInvoiceReturnController::class,
         'cancel'
     ]);
+    });
 });
 
 
@@ -1769,6 +1777,7 @@ Route::middleware([
         SuppliersController::class,
         'importSuppliers'
     ]);
+    });
 });
 
 
