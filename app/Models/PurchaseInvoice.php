@@ -3,7 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-
+use App\Models\PurchaseReturn;
 class PurchaseInvoice extends BaseModel
 {
     protected $guarded = ['id'];
@@ -12,7 +12,13 @@ class PurchaseInvoice extends BaseModel
     {
         return $this->belongsTo(Supplier::class);
     }
-
+public function returns()
+{
+    return $this->hasMany(
+        PurchaseReturn::class,
+        'purchase_invoices_id'
+    );
+}
     public function branch()
     {
         return $this->belongsTo(Branch::class);
