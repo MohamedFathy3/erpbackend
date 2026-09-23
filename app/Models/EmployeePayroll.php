@@ -13,5 +13,6 @@ class EmployeePayroll extends BaseModel
         'adjustments' => 'array',
     ];
     public function employee(): BelongsTo { return $this->belongsTo(Employee::class); }
+    public function treasury(): BelongsTo { return $this->belongsTo(Treasury::class); }
+    public function finance(): BelongsTo { return $this->belongsTo(Finance::class); }
 }
-
