@@ -6,11 +6,27 @@ use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Facades\Schema;
 
 class JournalEntry extends Model
 {
     use BelongsToTenant;
     protected $guarded = ['id'];
+
+    protected static function booted(): void
+    {
+        static::saving(function (JournalEntry $entry): void {
+            $actor = auth()->user();
+            if (!$actor) return;
+
+            if (Schema::hasColumn('journal_entries', 'posted_by_type') && Schema::hasColumn('journal_entries', 'posted_by_id')) {
+                $entry->posted_by_type = $actor::class;
+                $entry->posted_by_id = $actor->getKey();
+            }
+            if (!($actor instanceof User)) $entry->posted_by = null;
+        });
+    }
 
     protected $casts = [
         'entry_date' => 'date',
@@ -46,6 +62,11 @@ class JournalEntry extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(Admin::class, 'created_by');
+    }
+
+    public function postedByActor(): MorphTo
+    {
+        return $this->morphTo('postedByActor', 'posted_by_type', 'posted_by_id');
     }
 
     public function fiscalPeriod(): BelongsTo { return $this->belongsTo(FinancialPeriod::class, 'fiscal_period_id'); }

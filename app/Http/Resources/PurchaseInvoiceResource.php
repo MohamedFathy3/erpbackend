@@ -256,6 +256,8 @@ class PurchaseInvoiceResource extends JsonResource
                 'amount' => (float) $payment->amount,
                 'payment_date' => $payment->payment_date?->toDateString(),
                 'payment_method' => $payment->payment_method,
+                'reference_number' => $payment->reference_number,
+                'treasury_name' => $payment->treasury?->name,
                 'created_by' => $payment->created_by,
                 'created_by_type' => $payment->created_by_type,
                 'journal_entry_id' => $payment->journal_entry_id,

@@ -246,7 +246,7 @@ class PurchaseInvoiceController extends Controller
                 'items.unit',
                 'items.color',
                 'items.size',
-                'payments',
+                'payments.treasury',
             ])->findOrFail($id);
 
             return response()->json([
@@ -292,8 +292,8 @@ class PurchaseInvoiceController extends Controller
                 'items.product',
                 'items.unit',
                 'items.color',
-                        'items.size',
-                'payments',
+                'items.size',
+                'payments.treasury',
             ]);
 
             // تطبيق الفلاتر
@@ -386,7 +386,11 @@ class PurchaseInvoiceController extends Controller
     {
         $data = $request->validate([
             'amount' => 'required|numeric|min:0.01',
-            'treasury_id' => 'nullable|exists:treasuries,id',
+            'treasury_id' => 'required|exists:treasuries,id',
+            'payment_date' => 'nullable|date',
+            'payment_method' => 'nullable|string|max:40',
+            'reference_number' => 'nullable|string|max:255',
+            'notes' => 'nullable|string|max:2000',
         ]);
 
         DB::beginTransaction();
@@ -397,17 +401,45 @@ class PurchaseInvoiceController extends Controller
             if ($newPaid > (float) $invoice->total_amount) {
                 throw new \RuntimeException('Amount exceeds total invoice value');
             }
-            $treasuryId = $data['treasury_id'] ?? $invoice->treasury_id;
+            $treasuryId = $data['treasury_id'];
             if (!$treasuryId) throw new \RuntimeException('Treasury is required for a purchase payment');
             $treasury = Treasury::lockForUpdate()->findOrFail($treasuryId);
             if ($treasury->balance < $amount) throw new \RuntimeException('رصيد الخزنة غير كافي');
             $treasury->decrement('balance', $amount);
-            TreasuryTransaction::create(['treasury_id' => $treasury->id, 'reference_type' => PurchaseInvoice::class, 'reference_id' => $invoice->id, 'type' => 'out', 'amount' => $amount, 'description' => "دفعة إضافية لفاتورة مشتريات رقم {$invoice->invoice_number}", 'created_by' => auth()->user() instanceof User ? auth()->user()->id : null]);
-            $actor=auth()->user(); $payment = PurchaseInvoicePayment::create(['purchase_invoice_id'=>$invoice->id,'treasury_id'=>$treasury->id,'amount'=>$amount,'payment_date'=>now()->toDateString(),'payment_method'=>'cash','created_by'=>$actor?->id,'created_by_type'=>$actor ? $actor::class : null,'notes'=>'دفعة سداد مورد']);
+            $paymentDate = !empty($data['payment_date']) ? $data['payment_date'] : now()->toDateString();
+            $paymentMethod = $data['payment_method'] ?? 'cash';
+            TreasuryTransaction::create(['treasury_id' => $treasury->id, 'reference_type' => PurchaseInvoice::class, 'reference_id' => $invoice->id, 'type' => 'out', 'amount' => $amount, 'description' => "دفعة سداد فاتورة مشتريات رقم {$invoice->invoice_number} بتاريخ {$paymentDate}", 'created_by' => auth()->user() instanceof User ? auth()->user()->id : null]);
+            $actor = auth()->user();
+            $payment = PurchaseInvoicePayment::create([
+                'purchase_invoice_id' => $invoice->id,
+                'treasury_id' => $treasury->id,
+                'amount' => $amount,
+                'payment_date' => $paymentDate,
+                'payment_method' => $paymentMethod,
+                'reference_number' => $data['reference_number'] ?? null,
+                'created_by' => $actor instanceof User ? $actor->id : null,
+                'created_by_type' => $actor ? $actor::class : null,
+                'notes' => $data['notes'] ?? null,
+            ]);
             $posting->postPurchasePayment($invoice, $payment);
             $invoice->update(['treasury_id' => $treasury->id, 'paid_amount' => $newPaid, 'remaining_amount' => (float) $invoice->total_amount - $newPaid]);
             DB::commit();
-            return response()->json(['message' => 'Payment updated successfully', 'invoice' => $invoice->fresh('payments'), 'remaining' => $invoice->remaining_amount]);
+            $updatedInvoice = $invoice->fresh()->load(['supplier', 'branch', 'warehouse', 'currency', 'tax', 'treasury', 'items.product', 'items.unit', 'items.color', 'items.size', 'payments.treasury']);
+            return response()->json([
+                'message' => 'Payment updated successfully',
+                'invoice' => new PurchaseInvoiceResource($updatedInvoice),
+                'payment' => [
+                    'id' => $payment->id,
+                    'amount' => (float) $payment->amount,
+                    'payment_date' => $payment->payment_date?->toDateString(),
+                    'payment_method' => $payment->payment_method,
+                    'reference_number' => $payment->reference_number,
+                    'treasury_id' => $payment->treasury_id,
+                    'journal_entry_id' => $payment->journal_entry_id,
+                    'notes' => $payment->notes,
+                ],
+                'remaining' => (float) $updatedInvoice->remaining_amount,
+            ]);
         } catch (\Throwable $e) {
             DB::rollBack();
             return response()->json(['message' => $e->getMessage()], 422);
