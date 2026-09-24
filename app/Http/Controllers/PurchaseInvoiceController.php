@@ -7,7 +7,7 @@ use App\Http\Resources\PurchaseInvoiceResource;
 use App\Models\Product;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseInvoiceItem;
-use App\Models\Transfer;
+use App\Models\PurchaseInvoicePayment;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\User;
@@ -174,14 +174,9 @@ class PurchaseInvoiceController extends Controller
                     'description' => "دفعة لفاتورة مشتريات رقم {$invoice->invoice_number}",
                     'created_by' => auth()->user() instanceof User ? auth()->user()->id : null,
                 ]);
+                $payment = PurchaseInvoicePayment::create(['purchase_invoice_id'=>$invoice->id,'treasury_id'=>$request->treasury_id,'amount'=>$paidAmount,'payment_date'=>$request->invoice_date ?? now()->toDateString(),'payment_method'=>'cash','created_by'=>auth()->id(),'notes'=>'دفعة عند إنشاء الفاتورة']);
+                $posting->postPurchasePayment($invoice, $payment);
 
-                Transfer::create([
-                    'type' => 'treasury_withdraw',
-                    'from_treasury_id' => $request->treasury_id,
-                    'amount' => $paidAmount,
-                    'notes' => "دفعة لفاتورة مشتريات رقم {$invoice->invoice_number}",
-                    'created_by' => auth()->user() instanceof User ? auth()->user()->id : null,
-                ]);
             }
 
             $journal = $posting->postPurchase($invoice);
@@ -374,7 +369,7 @@ class PurchaseInvoiceController extends Controller
     
     
     // ========== pay ==========
-    public function pay(Request $request, PurchaseInvoice $invoice)
+    public function pay(Request $request, PurchaseInvoice $invoice, WorkflowPostingService $posting)
     {
         $data = $request->validate([
             'amount' => 'required|numeric|min:0.01',
@@ -394,6 +389,8 @@ class PurchaseInvoiceController extends Controller
             if ($treasury->balance < $amount) throw new \RuntimeException('رصيد الخزنة غير كافي');
             $treasury->decrement('balance', $amount);
             TreasuryTransaction::create(['treasury_id' => $treasury->id, 'reference_type' => PurchaseInvoice::class, 'reference_id' => $invoice->id, 'type' => 'out', 'amount' => $amount, 'description' => "دفعة إضافية لفاتورة مشتريات رقم {$invoice->invoice_number}", 'created_by' => auth()->user() instanceof User ? auth()->user()->id : null]);
+            $payment = PurchaseInvoicePayment::create(['purchase_invoice_id'=>$invoice->id,'treasury_id'=>$treasury->id,'amount'=>$amount,'payment_date'=>now()->toDateString(),'payment_method'=>'cash','created_by'=>auth()->id(),'notes'=>'دفعة سداد مورد']);
+            $posting->postPurchasePayment($invoice, $payment);
             $invoice->update(['treasury_id' => $treasury->id, 'paid_amount' => $newPaid, 'remaining_amount' => (float) $invoice->total_amount - $newPaid]);
             DB::commit();
             return response()->json(['message' => 'Payment updated successfully', 'invoice' => $invoice->fresh(), 'remaining' => $invoice->remaining_amount]);

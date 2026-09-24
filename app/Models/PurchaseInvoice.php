@@ -59,4 +59,8 @@ public function returns()
     {
         return $this->morphMany(TreasuryTransaction::class, 'reference');
     }
+    public function payments()
+    {
+        return $this->hasMany(PurchaseInvoicePayment::class);
+    }
 }

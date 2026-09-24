@@ -9,6 +9,7 @@ use App\Models\Bank;
 use App\Models\Transfer;
 use App\Models\Treasury;
 use App\Models\User;
+use App\Services\TransferPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -50,7 +51,7 @@ class TransferController extends Controller
                 }
 
                 // ================= تسجيل الحركة =================
-                Transfer::create([
+                $transfer = Transfer::create([
                     'type'             => $type,
                     'from_treasury_id' => $request->from_treasury_id,
                     'to_treasury_id'   => $request->to_treasury_id,
@@ -61,6 +62,7 @@ class TransferController extends Controller
                     'notes'            => $request->notes,
                     'created_by'       => auth()->user() instanceof User ? auth()->user()->id : null,
                 ]);
+                app(TransferPostingService::class)->post($transfer);
             });
 
             return JsonResponse::respondSuccess('تم تسجيل الحركة بنجاح');

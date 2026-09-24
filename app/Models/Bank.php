@@ -14,4 +14,5 @@ class Bank extends BaseModel
     {
         return $this->belongsTo(Branch::class);
     }
+    public function account() { return $this->belongsTo(Account::class); }
 }

@@ -20,11 +20,13 @@ class Transfer extends Model
         'amount',
         'currency',
         'notes',
-        'created_by', 
+        'created_by',
+        'journal_entry_id',
     ];
 
     public function fromTreasury() { return $this->belongsTo(Treasury::class, 'from_treasury_id'); }
     public function toTreasury() { return $this->belongsTo(Treasury::class, 'to_treasury_id'); }
     public function fromBank() { return $this->belongsTo(Bank::class, 'from_bank_id'); }
     public function toBank() { return $this->belongsTo(Bank::class, 'to_bank_id'); }
+    public function journalEntry() { return $this->belongsTo(JournalEntry::class); }
 }

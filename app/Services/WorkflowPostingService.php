@@ -6,6 +6,7 @@ use App\Models\InventoryMovement;
 use App\Models\JournalEntry;
 use App\Models\Product;
 use App\Models\WorkflowTransaction;
+use App\Models\PurchaseInvoicePayment;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
@@ -51,6 +52,22 @@ class WorkflowPostingService
     public function postPurchase(Model $invoice): ?JournalEntry
     {
         return $this->postInvoice($invoice, 'purchase', (float) ($invoice->total_amount ?? 0), (int) ($invoice->treasury_id ?? 0));
+    }
+
+    public function postPurchasePayment(Model $invoice, PurchaseInvoicePayment $payment): ?JournalEntry
+    {
+        $amount = (float) $payment->amount;
+        if ($amount <= 0) return null;
+        $eventKey = 'financial-purchase-payment:' . $payment->getKey();
+        if (WorkflowTransaction::where('event_key', $eventKey)->whereNotNull('journal_entry_id')->exists()) return WorkflowTransaction::where('event_key', $eventKey)->first()->journalEntry;
+        $cash = $payment->treasury_id ? Account::whereHas('treasury', fn ($q) => $q->whereKey($payment->treasury_id))->first() : null;
+        $payable = Account::active()->where('account_type', 'liability')->orderBy('id')->first();
+        if (!$cash || !$payable) return null;
+        return DB::transaction(function () use ($invoice, $payment, $amount, $cash, $payable, $eventKey) {
+            $journal = JournalEntry::create(['entry_date'=>$payment->payment_date,'description_ar'=>'سداد مورد لفاتورة مشتريات #'.$invoice->getKey(),'description_en'=>'Supplier payment for purchase invoice #'.$invoice->getKey(),'status'=>'posted','treasury_id'=>$payment->treasury_id,'source_type'=>PurchaseInvoicePayment::class,'source_id'=>$payment->id,'posted_by'=>auth()->id(),'posted_at'=>now()]);
+            $journal->lines()->createMany([['account_id'=>$payable->id,'debit'=>$amount,'credit'=>0,'description'=>'تخفيض رصيد المورد'],['account_id'=>$cash->id,'debit'=>0,'credit'=>$amount,'description'=>'صرف من الخزينة لسداد المورد']]);
+            Account::whereKey($payable->id)->increment('debit',$amount); Account::whereKey($cash->id)->increment('credit',$amount); $payment->update(['journal_entry_id'=>$journal->id]); WorkflowTransaction::capture($eventKey,$payment,'purchase_payment_posted',['amount'=>$amount],$journal->id,null,'completed'); return $journal;
+        });
     }
 
     public function postReturn(Model $return, string $direction, float $amount, ?int $treasuryId = null): ?JournalEntry
@@ -170,7 +187,7 @@ class WorkflowPostingService
         $expense = Account::active()->where('account_type', 'expense')->first();
         return match ($type) {
             'sale' => ['debit' => (in_array($paymentMethod, ['credit', 'bank', 'bank_transfer'], true) ? $asset : ($treasuryAccount ?: $asset)), 'credit' => $revenue],
-            'purchase' => ['debit' => $asset, 'credit' => $treasuryAccount ?: Account::active()->where('account_type', 'liability')->first()],
+            'purchase' => ['debit' => $asset, 'credit' => Account::active()->where('account_type', 'liability')->orderBy('id')->first()],
             'sales_return' => ['debit' => $revenue ?: $expense, 'credit' => $treasuryAccount ?: $asset],
             default => ['debit' => $treasuryAccount ?: $asset, 'credit' => $asset ?: $expense],
         };

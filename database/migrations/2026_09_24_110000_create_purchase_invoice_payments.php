@@ -1,0 +1,5 @@
+<?php
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+return new class extends Migration { public function up(): void { if(!Schema::hasTable('purchase_invoice_payments')) Schema::create('purchase_invoice_payments',function(Blueprint $t){$t->id();$t->foreignId('purchase_invoice_id')->constrained('purchase_invoices')->cascadeOnDelete();$t->foreignId('treasury_id')->nullable()->constrained('treasuries')->nullOnDelete();$t->foreignId('bank_id')->nullable()->constrained('banks')->nullOnDelete();$t->decimal('amount',15,2);$t->date('payment_date');$t->string('payment_method')->default('cash');$t->foreignId('journal_entry_id')->nullable()->constrained('journal_entries')->nullOnDelete();$t->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();$t->foreignId('tenant_id')->nullable()->constrained('tenants')->nullOnDelete();$t->text('notes')->nullable();$t->timestamps();$t->index(['purchase_invoice_id','payment_date'],'purchase_payment_invoice_date_idx');}); } public function down(): void { Schema::dropIfExists('purchase_invoice_payments'); } };
