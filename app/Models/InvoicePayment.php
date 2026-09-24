@@ -19,4 +19,9 @@ class InvoicePayment extends Model
     {
         return $this->belongsTo(Invoice::class);
     }
+
+    public function journalEntry()
+    {
+        return $this->belongsTo(JournalEntry::class);
+    }
 }

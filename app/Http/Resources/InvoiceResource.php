@@ -46,6 +46,9 @@ class InvoiceResource extends JsonResource
             ],
 
             'total_amount' => (float) $this->total_amount,
+            'journal_entry_id' => $this->journal_entry_id,
+            'cogs_journal_entry_id' => $this->cogs_journal_entry_id,
+            'commission_journal_entry_id' => $this->commission_journal_entry_id,
             'discount_percentage' => (float) $this->discount_percentage,
             'discount_amount' => (float) $this->discount_amount,
 

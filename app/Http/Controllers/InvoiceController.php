@@ -15,6 +15,7 @@ use App\Models\Product;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\User;
+use App\Services\PosAccountingPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -129,6 +130,17 @@ class InvoiceController extends Controller
 
 public function store(Request $request)
 {
+    $request->validate([
+        'customer_id' => 'nullable|exists:customers,id',
+        'items' => 'required|array|min:1',
+        'items.*.product_id' => 'required|exists:products,id',
+        'items.*.quantity' => 'required|numeric|gt:0',
+        'items.*.price' => 'required|numeric|min:0',
+        'payments' => 'nullable|array',
+        'payments.*.method' => 'required|in:cash,card,wallet',
+        'payments.*.amount' => 'required|numeric|gt:0',
+        'discount_percentage' => 'nullable|numeric|min:0|max:100',
+    ]);
     DB::beginTransaction();
     
     try {
@@ -172,10 +184,11 @@ public function store(Request $request)
         $total = collect($request->items)
             ->sum(fn ($item) => $item['price'] * $item['quantity']);
 
-        $paid = collect($request->payments)->sum('amount');
-        $cashPaid = collect($request->payments)->where('method', 'cash')->sum('amount');
-        $cardPaid = collect($request->payments)->where('method', 'card')->sum('amount');
-        $walletPaid = collect($request->payments)
+        $payments = $request->input('payments', []);
+        $paid = collect($payments)->sum('amount');
+        $cashPaid = collect($payments)->where('method', 'cash')->sum('amount');
+        $cardPaid = collect($payments)->where('method', 'card')->sum('amount');
+        $walletPaid = collect($payments)
             ->where('method', 'wallet')
             ->sum('amount');
 
@@ -183,6 +196,9 @@ public function store(Request $request)
         $discountPercentage = $request->discount_percentage ?? 0;
         $discountAmount = ($total * $discountPercentage) / 100;
         $netTotal = $total - $discountAmount;
+        if ($paid > $netTotal) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['payments' => 'إجمالي المدفوعات أكبر من صافي الفاتورة.']);
+        }
 
         // ============================================================
         // ✅ إنشاء الفاتورة
@@ -192,6 +208,7 @@ public function store(Request $request)
             'customer_id'      => $request->customer_id,
             'sales_representative_id' => $request->sales_representative_id,
             'cashier_id'       => $cashierId,
+            'branch_id'        => $employee?->branch_id,
             'treasury_id'      => $treasuryId,
             'cashier_shift_id' => $shift->id,
             'total_amount'     => $netTotal,
@@ -199,14 +216,14 @@ public function store(Request $request)
             'discount_amount'  => $discountAmount,
             'paid_amount'      => $paid,
             'remaining_amount' => $netTotal - $paid,
-            'status'           => $paid >= $netTotal ? 'paid' : 'partial',
+            'status'           => $paid >= $netTotal ? 'paid' : ($paid > 0 ? 'partial' : 'unpaid'),
         ]);
 
         // ============================================================
         // ✅ إضافة العناصر
         // ============================================================
         foreach ($request->items as $item) {
-            $product = Product::find($item['product_id']);
+            $product = Product::query()->lockForUpdate()->find($item['product_id']);
 
             if (!$product) {
                 DB::rollBack();
@@ -240,7 +257,7 @@ public function store(Request $request)
         // ============================================================
         // ✅ إضافة المدفوعات
         // ============================================================
-        foreach ($request->payments as $payment) {
+        foreach ($payments as $payment) {
             $invoice->payments()->create([
                 'method' => $payment['method'],
                 'amount' => $payment['amount'],
@@ -252,7 +269,7 @@ public function store(Request $request)
         // ✅ إيداع المدفوعات النقدية في الخزينة
         // ============================================================
         if ($cashPaid > 0 && $treasuryId) {
-            $treasury = Treasury::find($treasuryId);
+            $treasury = Treasury::query()->lockForUpdate()->find($treasuryId);
             if ($treasury) {
                 $treasury->increment('balance', $cashPaid);
 
@@ -294,13 +311,22 @@ public function store(Request $request)
             'wallet_sales' => ($shift->wallet_sales ?? 0) + $walletPaid,
         ]);
 
+        $accounting = app(PosAccountingPostingService::class);
+        $invoiceForPosting = $invoice->fresh(['customer', 'salesRepresentative', 'items.product']);
+        $accounting->postSale($invoiceForPosting);
+        foreach ($invoice->payments()->get() as $payment) {
+            $accounting->postPayment($invoiceForPosting, $payment);
+        }
+        $accounting->postCogs($invoiceForPosting);
+        $accounting->postCommission($invoiceForPosting);
+
         DB::commit();
 
         return response()->json([
             'status'  => true,
             'message' => 'Invoice created successfully',
             'data'    => new InvoiceResource(
-                $invoice->load([
+                $invoice->fresh([
                     'items',
                     'payments',
                     'customer',

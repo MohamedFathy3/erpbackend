@@ -10,9 +10,10 @@ class InvoicePaymentResource extends JsonResource
     public function toArray($request)
     {
         return [
+            'id' => $this->id,
             'method' => $this->method,
             'amount' => $this->amount,
+            'journal_entry_id' => $this->journal_entry_id,
         ];
     }
 }
-

@@ -23,6 +23,21 @@ class Invoice extends BaseModel
         return $this->hasMany(InvoicePayment::class);
     }
 
+    public function journalEntry()
+    {
+        return $this->belongsTo(JournalEntry::class);
+    }
+
+    public function cogsJournalEntry()
+    {
+        return $this->belongsTo(JournalEntry::class, 'cogs_journal_entry_id');
+    }
+
+    public function commissionJournalEntry()
+    {
+        return $this->belongsTo(JournalEntry::class, 'commission_journal_entry_id');
+    }
+
     public function customer()
     {
         return $this->belongsTo(Customer::class);
@@ -55,4 +70,3 @@ class Invoice extends BaseModel
     }
 
 }
-
