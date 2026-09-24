@@ -70,6 +70,9 @@ class EnforceRoutePermission
                 ? 'inventory.transfer_requests.view'
                 : 'inventory.transfer_requests.create';
         }
+        if ($resource === 'products' && ($segments[1] ?? '') === 'by-branch') {
+            return 'inventory.view';
+        }
         $module = [
             'admin' => 'users', 'user' => 'users', 'role' => 'users', 'roles' => 'users', 'permissions' => 'users',
             'employee' => 'hr', 'employees' => 'hr', 'attendance' => 'hr',

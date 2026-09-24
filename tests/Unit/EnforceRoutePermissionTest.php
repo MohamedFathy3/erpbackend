@@ -23,6 +23,8 @@ class EnforceRoutePermissionTest extends TestCase
         $this->assertSame('currency.view', $this->permissionFor('POST', '/api/currency/index'));
         $this->assertSame('tax.view', $this->permissionFor('POST', '/api/tax/index'));
         $this->assertSame('purchasing.view', $this->permissionFor('POST', '/api/purchases-invoices/index'));
+        $this->assertSame('inventory.view', $this->permissionFor('POST', '/api/products/by-branch'));
+        $this->assertSame('finance.view', $this->permissionFor('GET', '/api/index-sub-account'));
     }
 
     public function test_plural_purchase_invoice_update_requires_purchasing_update(): void
