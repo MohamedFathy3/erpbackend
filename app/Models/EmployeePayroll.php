@@ -17,4 +17,5 @@ class EmployeePayroll extends BaseModel
     public function finance(): BelongsTo { return $this->belongsTo(Finance::class); }
     public function journalEntry(): BelongsTo { return $this->belongsTo(JournalEntry::class, 'journal_entry_id'); }
     public function paymentJournalEntry(): BelongsTo { return $this->belongsTo(JournalEntry::class, 'payment_journal_entry_id'); }
+    public function advancePayments() { return $this->hasMany(EmployeeAdvancePayment::class, 'source_payroll_id'); }
 }

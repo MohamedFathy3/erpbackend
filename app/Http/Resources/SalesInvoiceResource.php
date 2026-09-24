@@ -129,19 +129,25 @@ class SalesInvoiceResource extends JsonResource
 
             foreach ($return->items as $returnItem) {
 
-                $productId = $returnItem->product_id;
+                $key = implode(':', [
+                    $returnItem->product_id,
+                    $returnItem->product_unit_id ?? 0,
+                    $returnItem->color_id ?? 0,
+                    $returnItem->size_id ?? 0,
+                    $returnItem->product_variant_id ?? 0,
+                ]);
 
-                if (!isset($returnedByProduct[$productId])) {
-                    $returnedByProduct[$productId] = [
+                if (!isset($returnedByProduct[$key])) {
+                    $returnedByProduct[$key] = [
                         'quantity' => 0,
                         'amount' => 0,
                     ];
                 }
 
-                $returnedByProduct[$productId]['quantity'] +=
+                $returnedByProduct[$key]['quantity'] +=
                     (float) $returnItem->quantity;
 
-                $returnedByProduct[$productId]['amount'] +=
+                $returnedByProduct[$key]['amount'] +=
                     (float) ($returnItem->total ?? 0);
             }
         }
@@ -155,16 +161,13 @@ class SalesInvoiceResource extends JsonResource
         $returnedProducts = $this->items
             ->filter(function ($item) use ($returnedByProduct) {
 
-                return isset($returnedByProduct[$item->product_id])
-                    && $returnedByProduct[$item->product_id]['quantity'] > 0;
+                $key = implode(':', [$item->product_id, $item->product_unit_id ?? 0, $item->color_id ?? 0, $item->size_id ?? 0, $item->product_variant_id ?? 0]);
+                return isset($returnedByProduct[$key]) && $returnedByProduct[$key]['quantity'] > 0;
             })
             ->map(function ($item) use ($returnedByProduct) {
-
-                $returnedQuantity =
-                    $returnedByProduct[$item->product_id]['quantity'];
-
-                $returnedAmount =
-                    $returnedByProduct[$item->product_id]['amount'];
+                $key = implode(':', [$item->product_id, $item->product_unit_id ?? 0, $item->color_id ?? 0, $item->size_id ?? 0, $item->product_variant_id ?? 0]);
+                $returnedQuantity = $returnedByProduct[$key]['quantity'];
+                $returnedAmount = $returnedByProduct[$key]['amount'];
 
                 $originalQuantity = (float) $item->quantity;
 
@@ -429,9 +432,8 @@ class SalesInvoiceResource extends JsonResource
                         ? ($discountAmount / $originalPrice) * 100
                         : 0;
 
-                $returnedQuantity =
-                    $returnedByProduct[$item->product_id]['quantity']
-                    ?? 0;
+                $key = implode(':', [$item->product_id, $item->product_unit_id ?? 0, $item->color_id ?? 0, $item->size_id ?? 0, $item->product_variant_id ?? 0]);
+                $returnedQuantity = $returnedByProduct[$key]['quantity'] ?? 0;
 
                 $remainingQuantity = max(
                     0,

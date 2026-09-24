@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\Schema;
 
 class StoreSalesInvoiceReturnRequest extends FormRequest
 {
@@ -27,11 +28,18 @@ class StoreSalesInvoiceReturnRequest extends FormRequest
             'note' => 'nullable|string',
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
+            'items.*.product_unit_id' => 'nullable|integer|exists:units,id',
+            'items.*.color_id' => 'nullable|integer|exists:colors,id',
+            'items.*.size_id' => 'nullable|integer|exists:sizes,id',
+            'items.*.product_variant_id' => [
+                'nullable',
+                'integer',
+                ...(Schema::hasTable('product_variants') ? ['exists:product_variants,id'] : []),
+            ],
             'items.*.quantity' => 'required|numeric|min:1',
             'items.*.price' => 'required|numeric|min:0',
             'items.*.reason' => 'required|string',
         ];
     }
 }
-
 

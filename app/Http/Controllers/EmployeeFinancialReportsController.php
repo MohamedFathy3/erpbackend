@@ -41,7 +41,7 @@ class EmployeeFinancialReportsController extends Controller
             ->when($from, fn ($q) => $q->where('period_end', '>=', $from->toDateString()))
             ->when($to, fn ($q) => $q->where('period_start', '<=', $to->toDateString()))
             ->latest('period_end')->get();
-        $advances = EmployeeAdvance::with(['employee', 'treasury', 'journalEntry', 'payments'])
+        $advances = EmployeeAdvance::with(['employee', 'treasury', 'journalEntry', 'payments.treasury', 'payments.journalEntry'])
             ->when($employeeId, fn ($q) => $q->where('employee_id', $employeeId))
             ->when($from, fn ($q) => $q->where('advance_date', '>=', $from->toDateString()))
             ->when($to, fn ($q) => $q->where('advance_date', '<=', $to->toDateString()))
@@ -115,6 +115,7 @@ class EmployeeFinancialReportsController extends Controller
         $payroll = DB::transaction(function () use ($data, $posting) {
             $payroll = EmployeePayroll::create($data);
             $posting->postPayrollAccrual($payroll);
+            $this->applyPayrollAdvanceDeductions($payroll);
             if ($payroll->status === 'paid') $posting->postPayrollPayment($payroll);
             return $payroll->fresh(['employee', 'treasury', 'journalEntry', 'paymentJournalEntry']);
         });
@@ -145,7 +146,10 @@ class EmployeeFinancialReportsController extends Controller
 
         DB::transaction(function () use ($data, $payroll, $posting) {
             $payroll->update($data);
-            if (!$payroll->journal_entry_id) $posting->postPayrollAccrual($payroll);
+            if (!$payroll->journal_entry_id) {
+                $posting->postPayrollAccrual($payroll);
+                $this->applyPayrollAdvanceDeductions($payroll);
+            }
             if ($payroll->status === 'paid' && !$payroll->payment_journal_entry_id) {
                 if ($payroll->finance_id) throw ValidationException::withMessages(['payroll' => 'هذا الراتب مرتبط بصرف سابق؛ تمت حماية السجل من إعادة الصرف.']);
                 $posting->postPayrollPayment($payroll);
@@ -206,5 +210,58 @@ class EmployeeFinancialReportsController extends Controller
     {
         foreach (['allowances', 'deductions', 'advance_deductions'] as $key) $data[$key] = (float) ($data[$key] ?? 0);
         $data['net_salary'] = max(0, (float) ($data['base_salary'] ?? 0) + $data['allowances'] - $data['deductions'] - $data['advance_deductions']);
+    }
+
+    private function applyPayrollAdvanceDeductions(EmployeePayroll $payroll): void
+    {
+        $payroll->refresh();
+        $target = min(
+            round((float) $payroll->base_salary + (float) $payroll->allowances, 2),
+            round((float) $payroll->advance_deductions, 2)
+        );
+        $alreadyAllocated = (float) EmployeeAdvancePayment::query()
+            ->where('source_payroll_id', $payroll->id)
+            ->sum('amount');
+        $remainingToAllocate = round($target - $alreadyAllocated, 2);
+        if ($remainingToAllocate <= 0) return;
+
+        $advances = EmployeeAdvance::query()
+            ->where('employee_id', $payroll->employee_id)
+            ->whereDate('advance_date', '<=', $payroll->period_end)
+            ->orderBy('advance_date')
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($advances as $advance) {
+            $outstanding = round((float) $advance->amount - (float) $advance->paid_amount, 2);
+            if ($outstanding <= 0 || $remainingToAllocate <= 0) continue;
+
+            $amount = min($outstanding, $remainingToAllocate);
+            EmployeeAdvancePayment::create([
+                'advance_id' => $advance->id,
+                'source_payroll_id' => $payroll->id,
+                'treasury_id' => null,
+                'amount' => $amount,
+                'payment_date' => $payroll->paid_at ?? $payroll->period_end,
+                'recorded_by_name' => 'خصم سلفة من الراتب',
+                'notes' => 'استرداد تلقائي من خصم راتب الفترة ' . $payroll->period_start . ' - ' . $payroll->period_end,
+                'journal_entry_id' => $payroll->journal_entry_id,
+            ]);
+
+            $newPaid = min((float) $advance->amount, round((float) $advance->paid_amount + $amount, 2));
+            $advance->update([
+                'paid_amount' => $newPaid,
+                'last_payment_at' => $payroll->paid_at ?? $payroll->period_end,
+                'status' => $newPaid >= (float) $advance->amount ? 'paid' : 'repaying',
+            ]);
+            $remainingToAllocate = round($remainingToAllocate - $amount, 2);
+        }
+
+        if ($remainingToAllocate > 0) {
+            throw ValidationException::withMessages([
+                'advance_deductions' => 'قيمة خصم السلف أكبر من إجمالي السلف المستحقة على الموظف؛ تم إلغاء تسجيل الراتب.',
+            ]);
+        }
     }
 }

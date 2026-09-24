@@ -657,451 +657,159 @@ class SalesInvoiceReturnController extends Controller
         WorkflowPostingService $posting,
         InventoryMovementService $inventory
     ) {
-        DB::beginTransaction();
-
         try {
-
-            // ============================================================
-            // الفاتورة الأصلية
-            // ============================================================
-
-            $invoice = SalesInvoice::lockForUpdate()
-                ->findOrFail($request->sales_invoice_id);
-
-            // ============================================================
-            // تحديد الخزينة
-            // ============================================================
-
-            $treasuryId =
-                $request->treasury_id
-                ?? $invoice->treasury_id;
-
-            if (!$treasuryId) {
-
-                DB::rollBack();
-
-                return response()->json([
-                    'result' =>
-                        'Error',
-
-                    'message' =>
-                        'لا توجد خزينة للتعامل معها (يرجى تحديد خزينة أو التأكد من وجود خزينة في الفاتورة الأصلية)',
-
-                    'status' =>
-                        400,
-                ], 400);
-            }
-
-            // ============================================================
-            // تحديد المخزن
-            // ============================================================
-
-            $warehouseId =
-                $invoice->warehouse_id;
-
-            if (!$warehouseId) {
-
-                DB::rollBack();
-
-                return response()->json([
-                    'result' =>
-                        'Error',
-
-                    'message' =>
-                        'الفاتورة الأصلية لا تحتوي على مخزن',
-
-                    'status' =>
-                        400,
-                ], 400);
-            }
-
-            // ============================================================
-            // تحديد الفرع
-            // ============================================================
-
-            $branchId =
-                $invoice->branch_id
-                ?? null;
-
-            // ============================================================
-            // Return Number
-            // ============================================================
-
-            $returnNumber =
-                'SR-' .
-                now()->format('Ymd') .
-                '-' .
-                rand(1000, 9999);
-
-            // ============================================================
-            // حساب الإجمالي
-            // ============================================================
-
-            $totalReturn = collect($request->items)
-                ->sum(function ($item) {
-
-                    return
-                        (float) $item['quantity'] *
-                        (float) $item['price'];
-                });
-
-            // ============================================================
-            // طرق الدفع
-            // ============================================================
-
-            $cashReturn = 0;
-            $cardReturn = 0;
-            $walletReturn = 0;
-
-            $returnMethod =
-                $request->return_method;
-
-            if (in_array($returnMethod, [
-                'cash',
-                'نقدي',
-                'نقداً',
-                'نقدا'
-            ])) {
-
-                $cashReturn = $totalReturn;
-
-            } elseif (in_array($returnMethod, [
-                'card',
-                'بطاقة',
-                'بطاقه'
-            ])) {
-
-                $cardReturn = $totalReturn;
-
-            } elseif (in_array($returnMethod, [
-                'wallet',
-                'محفظة',
-                'محفظه',
-                'رصيد'
-            ])) {
-
-                $walletReturn = $totalReturn;
-            }
-
-            // ============================================================
-            // إنشاء المرتجع
-            // ============================================================
-
-            $return = SalesInvoiceReturn::create([
-                'sales_invoice_id' =>
-                    $invoice->id,
-
-                'return_number' =>
-                    $returnNumber,
-
-                'return_method' =>
-                    $request->return_method,
-
-                'total_amount' =>
-                    $totalReturn,
-
-                'note' =>
-                    $request->note,
-
-                'treasury_id' =>
-                    $treasuryId,
-
-                'branch_id' =>
-                    $branchId,
-
-                'warehouse_id' =>
-                    $warehouseId,
-
-                'shift_id' =>
-                    $request->shift_id ?? null,
-
-                'cashier_id' =>
-                    auth()->user() instanceof Employee
-                        ? auth()->user()->id
-                        : null,
-
-                'created_by' =>
-                    auth()->user() instanceof User
-                        ? auth()->user()->id
-                        : null,
-
-                'is_direct' =>
-                    false,
-            ]);
-
-            // ============================================================
-            // المنتجات + زيادة المخزون
-            // ============================================================
-
-            foreach ($request->items as $item) {
-
-                $quantity =
-                    (float) $item['quantity'];
-
-                $price =
-                    (float) $item['price'];
-
-                $lineTotal =
-                    $quantity * $price;
-
-                SalesInvoiceReturnItem::create([
-                    'sales_invoice_return_id' =>
-                        $return->id,
-
-                    'product_id' =>
-                        $item['product_id'],
-
-                    'product_unit_id' =>
-                        $item['product_unit_id'] ?? null,
-
-                    'color_id' =>
-                        $item['color_id'] ?? null,
-
-                    'size' =>
-                        $item['size'] ?? null,
-
-                    'quantity' =>
-                        $quantity,
-
-                    'price' =>
-                        $price,
-
-                    'total' =>
-                        $lineTotal,
-
-                    'reason' =>
-                        $item['reason'],
-
-                    'discount' =>
-                        $item['discount'] ?? 0,
-
-                    'tax' =>
-                        $item['tax'] ?? 0,
-                ]);
-
-                // ========================================================
-                // زيادة المخزون
-                // ========================================================
-
-                $inventory->apply([
-                    'product_id' =>
-                        $item['product_id'],
-
-                    'product_unit_id' =>
-                        $item['product_unit_id'] ?? null,
-
-                    'size_id' =>
-                        $item['size_id'] ?? null,
-
-                    'color_id' =>
-                        $item['color_id'] ?? null,
-
-                    'branch_id' =>
-                        $branchId,
-
-                    'warehouse_id' =>
-                        $warehouseId,
-
-                    'movement_type' =>
-                        'sales_return',
-
-                    'quantity_delta' =>
-                        $quantity,
-
-                    'reference_type' =>
-                        SalesInvoiceReturn::class,
-
-                    'reference_id' =>
-                        $return->id,
-
-                    'notes' =>
-                        "Sales return {$return->return_number} from invoice {$invoice->invoice_number}",
-                ]);
-            }
-
-            // ============================================================
-            // خصم الخزينة
-            // ============================================================
-
-            if ($cashReturn > 0) {
-
-                $treasury = Treasury::lockForUpdate()
-                    ->find($treasuryId);
-
-                if (!$treasury) {
-                    throw new \RuntimeException(
-                        'الخزينة غير موجودة'
-                    );
+            $return = DB::transaction(function () use ($request, $posting, $inventory) {
+                $invoice = SalesInvoice::with(['items', 'customer'])
+                    ->lockForUpdate()
+                    ->findOrFail($request->sales_invoice_id);
+
+                $warehouseId = $invoice->warehouse_id;
+                if (!$warehouseId) throw new \RuntimeException('لا يمكن تنفيذ المرتجع: الفاتورة لا تحتوي على مخزن.');
+
+                $returnItems = [];
+                $requestedByInvoiceItem = [];
+                foreach ($request->items as $input) {
+                    $productId = (int) $input['product_id'];
+                    $candidates = $invoice->items->where('product_id', $productId)->values();
+                    foreach (['product_unit_id', 'color_id', 'size_id', 'product_variant_id'] as $field) {
+                        if (array_key_exists($field, $input)) {
+                            $candidates = $candidates->filter(fn ($line) => (int) ($line->{$field} ?? 0) === (int) ($input[$field] ?? 0))->values();
+                        }
+                    }
+                    if ($candidates->count() !== 1) {
+                        throw new \RuntimeException($candidates->isEmpty()
+                            ? "المنتج رقم {$productId} أو مواصفته غير موجودة في الفاتورة الأصلية."
+                            : "المنتج رقم {$productId} له أكثر من وحدة/لون/مقاس؛ أرسل مواصفات الصنف كاملة.");
+                    }
+                    $invoiceItem = $candidates->first();
+                    $requestedByInvoiceItem[$invoiceItem->id] = ($requestedByInvoiceItem[$invoiceItem->id] ?? 0) + (float) $input['quantity'];
+
+                    $returnedQuery = SalesInvoiceReturnItem::query()
+                        ->where('product_id', $productId)
+                        ->where('product_unit_id', $invoiceItem->product_unit_id)
+                        ->where('color_id', $invoiceItem->color_id)
+                        ->where('size_id', $invoiceItem->size_id)
+                        ->where('product_variant_id', $invoiceItem->product_variant_id)
+                        ->whereHas('return', function ($q) use ($invoice) {
+                            $q->where('sales_invoice_id', $invoice->id)
+                                ->where(function ($status) {
+                                    $status->whereNull('workflow_status')->orWhere('workflow_status', '!=', 'cancelled');
+                                });
+                        });
+                    $alreadyReturned = (float) $returnedQuery->sum('quantity');
+                    $available = max(0, (float) $invoiceItem->quantity - $alreadyReturned);
+                    $requested = $requestedByInvoiceItem[$invoiceItem->id];
+                    if ($requested > $available) {
+                        throw new \RuntimeException("الكمية المطلوبة لإرجاع المنتج {$productId} هي {$requested} والمتاح المتبقي من الفاتورة {$available} فقط.");
+                    }
+
+                    // The original invoice controls price; never trust a client-supplied refund price.
+                    $price = (float) $invoiceItem->price;
+                    $returnItems[] = [
+                        'invoice_item' => $invoiceItem,
+                        'product_id' => $productId,
+                        'product_unit_id' => $invoiceItem->product_unit_id,
+                        'color_id' => $invoiceItem->color_id,
+                        'size_id' => $invoiceItem->size_id,
+                        'product_variant_id' => $invoiceItem->product_variant_id,
+                        'quantity' => (float) $input['quantity'],
+                        'price' => $price,
+                        'total' => round((float) $input['quantity'] * $price, 2),
+                        'reason' => $input['reason'],
+                    ];
                 }
 
-                if ((float) $treasury->balance < $cashReturn) {
-                    throw new \RuntimeException(
-                        'رصيد الخزينة غير كافٍ لتنفيذ المرتجع'
-                    );
+                $totalReturn = round(array_sum(array_column($returnItems, 'total')), 2);
+                $returnMethod = (string) $request->return_method;
+                $isCashRefund = in_array($returnMethod, ['cash', 'نقدي', 'نقداً', 'نقدا'], true);
+                if ($isCashRefund && $totalReturn > (float) ($invoice->paid_amount ?? 0)) {
+                    throw new \RuntimeException('قيمة رد النقد تتجاوز المبلغ المحصل من الفاتورة. اختر ردًا على حساب العميل أو قلل المبلغ.');
                 }
 
-                $oldBalance =
-                    (float) $treasury->balance;
-
-                $treasury->decrement(
-                    'balance',
-                    $cashReturn
-                );
-
-                Log::info(
-                    'Treasury balance decreased from sales return',
-                    [
-                        'treasury_id' =>
-                            $treasury->id,
-
-                        'old_balance' =>
-                            $oldBalance,
-
-                        'new_balance' =>
-                            $oldBalance - $cashReturn,
-
-                        'amount' =>
-                            $cashReturn,
-
-                        'return_id' =>
-                            $return->id,
-                    ]
-                );
-
-                TreasuryTransaction::create([
-                    'treasury_id' =>
-                        $treasuryId,
-
-                    'reference_type' =>
-                        SalesInvoiceReturn::class,
-
-                    'reference_id' =>
-                        $return->id,
-
-                    'type' =>
-                        'out',
-
-                    'amount' =>
-                        $cashReturn,
-
-                    'description' =>
-                        "مرتجع مبيعات رقم {$return->return_number} من الفاتورة {$invoice->invoice_number}",
-
-                    'created_by' =>
-                        auth()->user() instanceof User
-                            ? auth()->user()->id
-                            : null,
-
-                    'created_at' =>
-                        now(),
+                $treasuryId = $isCashRefund ? ($request->treasury_id ?: $invoice->treasury_id) : null;
+                if ($isCashRefund && !$treasuryId) throw new \RuntimeException('اختر خزينة لرد المبلغ النقدي.');
+                $returnNumber = 'SR-' . now()->format('YmdHis') . '-' . random_int(100, 999);
+                $return = SalesInvoiceReturn::create([
+                    'sales_invoice_id' => $invoice->id,
+                    'return_number' => $returnNumber,
+                    'return_method' => $returnMethod,
+                    'total_amount' => $totalReturn,
+                    'note' => $request->note,
+                    'treasury_id' => $treasuryId,
+                    'branch_id' => $invoice->branch_id,
+                    'warehouse_id' => $warehouseId,
+                    'shift_id' => $request->shift_id,
+                    'cashier_id' => auth()->user() instanceof Employee ? auth()->id() : null,
+                    'created_by' => auth()->user() instanceof User ? auth()->id() : null,
+                    'is_direct' => false,
                 ]);
-            }
 
-            // ============================================================
-            // نقاط الولاء
-            // ============================================================
+                foreach ($returnItems as $item) {
+                    SalesInvoiceReturnItem::create([
+                        'sales_invoice_return_id' => $return->id,
+                        'product_id' => $item['product_id'],
+                        'product_unit_id' => $item['product_unit_id'],
+                        'color_id' => $item['color_id'],
+                        'size_id' => $item['size_id'],
+                        'product_variant_id' => $item['product_variant_id'],
+                        'size' => $item['size_id'] ? (string) $item['size_id'] : null,
+                        'quantity' => $item['quantity'],
+                        'price' => $item['price'],
+                        'total' => $item['total'],
+                        'reason' => $item['reason'],
+                    ]);
+                    $inventory->apply([
+                        'product_id' => $item['product_id'],
+                        'product_unit_id' => $item['product_unit_id'],
+                        'size_id' => $item['size_id'],
+                        'color_id' => $item['color_id'],
+                        'branch_id' => $invoice->branch_id,
+                        'warehouse_id' => $warehouseId,
+                        'movement_type' => 'sales_return',
+                        'quantity_delta' => $item['quantity'],
+                        'reference_type' => SalesInvoiceReturn::class,
+                        'reference_id' => $return->id,
+                        'notes' => "Sales return {$returnNumber} from invoice {$invoice->invoice_number}",
+                    ]);
+                }
 
-            if ($invoice->customer_id) {
+                if ($isCashRefund && $totalReturn > 0) {
+                    $treasury = Treasury::query()->lockForUpdate()->findOrFail($treasuryId);
+                    if ((float) $treasury->balance < $totalReturn) throw new \RuntimeException('رصيد الخزينة غير كافٍ لتنفيذ المرتجع.');
+                    $treasury->decrement('balance', $totalReturn);
+                    TreasuryTransaction::create([
+                        'treasury_id' => $treasury->id,
+                        'reference_type' => SalesInvoiceReturn::class,
+                        'reference_id' => $return->id,
+                        'type' => 'out',
+                        'amount' => $totalReturn,
+                        'description' => "رد نقدي لمرتجع المبيعات {$returnNumber}",
+                        'created_by' => auth()->user() instanceof User ? auth()->id() : null,
+                    ]);
+                    $invoice->update(['paid_amount' => max(0, (float) $invoice->paid_amount - $totalReturn)]);
+                }
 
-                $this->deductLoyaltyPoints(
-                    $invoice->customer_id,
-                    $totalReturn
-                );
-            }
+                if ($invoice->customer_id) {
+                    $this->deductLoyaltyPoints($invoice->customer_id, $totalReturn);
+                    $this->deductTotalPurchases($invoice->customer_id, $totalReturn);
+                    $this->updateLastPaidAmount($invoice->customer_id, $totalReturn);
+                }
 
-            // ============================================================
-            // إجمالي المشتريات
-            // ============================================================
+                $journal = $posting->postReturn($return->load('invoice.customer', 'items.product'), 'sales_return', $totalReturn, $treasuryId);
+                $return->update([
+                    'posting_journal_entry_id' => $journal?->id,
+                    'workflow_status' => $journal ? 'posted' : 'pending_finance',
+                ]);
 
-            if ($invoice->customer_id) {
+                return $return->load('items.product', 'invoice.customer', 'treasury');
+            });
 
-                $this->deductTotalPurchases(
-                    $invoice->customer_id,
-                    $totalReturn
-                );
-            }
-
-            // ============================================================
-            // آخر مبلغ مدفوع
-            // ============================================================
-
-            if ($invoice->customer_id) {
-
-                $this->updateLastPaidAmount(
-                    $invoice->customer_id,
-                    $totalReturn
-                );
-            }
-
-            // ============================================================
-            // المحاسبة
-            // ============================================================
-
-            $journal = $posting->postReturn(
-                $return,
-                'sales_return',
-                $totalReturn,
-                $treasuryId
-            );
-
-            $return->update([
-                'posting_journal_entry_id' =>
-                    $journal?->id,
-
-                'workflow_status' =>
-                    $journal
-                        ? 'posted'
-                        : 'pending_finance',
-            ]);
-
-            DB::commit();
-
-            return response()->json([
-                'data' =>
-                    $return->load(
-                        'items.product',
-                        'invoice.customer',
-                        'treasury'
-                    ),
-
-                'result' =>
-                    'Success',
-
-                'message' =>
-                    'Sales return created successfully',
-
-                'status' =>
-                    200,
-            ]);
-
+            return response()->json(['data' => $return, 'result' => 'Success', 'message' => 'Sales return created successfully', 'status' => 200]);
+        } catch (\RuntimeException $e) {
+            return response()->json(['result' => 'Error', 'message' => $e->getMessage(), 'status' => 422], 422);
         } catch (\Throwable $e) {
-
-            DB::rollBack();
-
-            Log::error(
-                'Store Sales Return Error',
-                [
-                    'message' =>
-                        $e->getMessage(),
-
-                    'trace' =>
-                        $e->getTraceAsString(),
-
-                    'request' =>
-                        $request->all(),
-                ]
-            );
-
-            return response()->json([
-                'result' =>
-                    'Error',
-
-                'message' =>
-                    $e->getMessage(),
-
-                'status' =>
-                    500,
-            ], 500);
+            Log::error('Store Sales Return Error', ['message' => $e->getMessage(), 'trace' => $e->getTraceAsString(), 'request' => $request->all()]);
+            return response()->json(['result' => 'Error', 'message' => $e->getMessage(), 'status' => 500], 500);
         }
     }
 

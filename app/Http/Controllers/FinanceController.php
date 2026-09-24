@@ -24,17 +24,37 @@ class FinanceController extends BaseController
         $this->crudRepository = $pattern;
     }
 
-    public function index()
+    public function index(Request $request)
     {
         try {
-            $finances = $this->crudRepository->all(
-                [],
-                ['treasury', 'currency', 'branch'],
-                ['*']
-            );
-            
-            $Finance = FinanceResource::collection($finances);
-            return $Finance->additional(JsonResponse::success());
+            $filters = (array) $request->input('filters', []);
+            $query = Finance::query()->with(['treasury', 'currency', 'branch']);
+
+            if ($request->boolean('deleted')) $query->onlyTrashed();
+            $category = $filters['category'] ?? $request->input('category');
+            if ($category && $category !== 'all') $query->where('category', $category);
+            $description = $filters['description'] ?? $request->input('search');
+            if ($description) $query->where('description', 'like', '%' . $description . '%');
+            foreach (['payment_method', 'treasury_id', 'branch_id', 'currency_id'] as $column) {
+                $value = $filters[$column] ?? $request->input($column);
+                if ($value !== null && $value !== '') $query->where($column, $value);
+            }
+            $dateFrom = $filters['date_from'] ?? $request->input('date_from');
+            $dateTo = $filters['date_to'] ?? $request->input('date_to');
+            if ($dateFrom) $query->whereDate('date', '>=', $dateFrom);
+            if ($dateTo) $query->whereDate('date', '<=', $dateTo);
+
+            $allowedSorts = ['id', 'date', 'amount', 'category', 'created_at'];
+            $orderBy = $request->input('orderBy', 'id');
+            if (!in_array($orderBy, $allowedSorts, true)) $orderBy = 'id';
+            $direction = strtolower($request->input('orderByDirection', 'desc')) === 'asc' ? 'asc' : 'desc';
+            $query->orderBy($orderBy, $direction);
+
+            $finances = $request->boolean('paginate', true)
+                ? $query->paginate(max(1, min(500, $request->integer('perPage', 15))))
+                : $query->get();
+
+            return FinanceResource::collection($finances)->additional(JsonResponse::success());
         } catch (Exception $e) {
             return JsonResponse::respondError($e->getMessage());
         }

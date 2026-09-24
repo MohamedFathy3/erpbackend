@@ -8,4 +8,5 @@ class EmployeeAdvancePayment extends BaseModel
     public function advance(): BelongsTo { return $this->belongsTo(EmployeeAdvance::class, 'advance_id'); }
     public function treasury(): BelongsTo { return $this->belongsTo(Treasury::class); }
     public function journalEntry(): BelongsTo { return $this->belongsTo(JournalEntry::class, 'journal_entry_id'); }
+    public function sourcePayroll(): BelongsTo { return $this->belongsTo(EmployeePayroll::class, 'source_payroll_id'); }
 }

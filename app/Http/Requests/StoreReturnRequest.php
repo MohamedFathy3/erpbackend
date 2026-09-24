@@ -18,10 +18,12 @@ class StoreReturnRequest extends FormRequest
             'purchase_invoices_id' => 'required|exists:purchase_invoices,id',
             'reason' => 'nullable|string',
             'return_date' => 'nullable|date',
+            'payment_method' => 'nullable|in:cash,credit,check',
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.product_unit_id' => 'nullable|exists:units,id',
             'items.*.color_id' => 'nullable|exists:colors,id',
+            'items.*.size_id' => 'nullable|exists:sizes,id',
             'items.*.product_variant_id' => [
                 'nullable',
                 'integer',

@@ -43,9 +43,7 @@ class PurchaseInvoiceResource extends JsonResource
 
             foreach ($return->items as $returnItem) {
 
-                $key =
-                    $returnItem->product_id . '-' .
-                    ($returnItem->color_id ?? 'null');
+                $key = implode(':', [$returnItem->product_id, $returnItem->product_unit_id ?? 0, $returnItem->color_id ?? 0, $returnItem->size_id ?? 0, $returnItem->product_variant_id ?? 0]);
 
                 if (!isset($returnedItems[$key])) {
                     $returnedItems[$key] = 0;
@@ -66,9 +64,7 @@ class PurchaseInvoiceResource extends JsonResource
 
         foreach ($this->items as $invoiceItem) {
 
-            $key =
-                $invoiceItem->product_id . '-' .
-                ($invoiceItem->color_id ?? 'null');
+                $key = implode(':', [$invoiceItem->product_id, $invoiceItem->product_unit_id ?? 0, $invoiceItem->color_id ?? 0, $invoiceItem->size_id ?? 0, $invoiceItem->product_variant_id ?? 0]);
 
             $returnedQuantity = (float) (
                 $returnedItems[$key] ?? 0
@@ -278,9 +274,7 @@ class PurchaseInvoiceResource extends JsonResource
                 |--------------------------------------------------------------------------
                 */
 
-                $key =
-                    $item->product_id . '-' .
-                    ($item->color_id ?? 'null');
+                $key = implode(':', [$item->product_id, $item->product_unit_id ?? 0, $item->color_id ?? 0, $item->size_id ?? 0, $item->product_variant_id ?? 0]);
 
                 /*
                 |--------------------------------------------------------------------------
