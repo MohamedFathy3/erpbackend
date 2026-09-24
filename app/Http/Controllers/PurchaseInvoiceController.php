@@ -185,7 +185,7 @@ class PurchaseInvoiceController extends Controller
                     'description' => "دفعة لفاتورة مشتريات رقم {$invoice->invoice_number}",
                     'created_by' => auth()->user() instanceof User ? auth()->user()->id : null,
                 ]);
-                $payment = PurchaseInvoicePayment::create(['purchase_invoice_id'=>$invoice->id,'treasury_id'=>$request->treasury_id,'amount'=>$paidAmount,'payment_date'=>$request->invoice_date ?? now()->toDateString(),'payment_method'=>'cash','created_by'=>auth()->id(),'notes'=>'دفعة عند إنشاء الفاتورة']);
+                $actor=auth()->user(); $payment = PurchaseInvoicePayment::create(['purchase_invoice_id'=>$invoice->id,'treasury_id'=>$request->treasury_id,'amount'=>$paidAmount,'payment_date'=>$request->invoice_date ?? now()->toDateString(),'payment_method'=>'cash','created_by'=>$actor?->id,'created_by_type'=>$actor ? $actor::class : null,'notes'=>'دفعة عند إنشاء الفاتورة']);
                 $posting->postPurchasePayment($invoice, $payment);
 
             }
@@ -400,7 +400,7 @@ class PurchaseInvoiceController extends Controller
             if ($treasury->balance < $amount) throw new \RuntimeException('رصيد الخزنة غير كافي');
             $treasury->decrement('balance', $amount);
             TreasuryTransaction::create(['treasury_id' => $treasury->id, 'reference_type' => PurchaseInvoice::class, 'reference_id' => $invoice->id, 'type' => 'out', 'amount' => $amount, 'description' => "دفعة إضافية لفاتورة مشتريات رقم {$invoice->invoice_number}", 'created_by' => auth()->user() instanceof User ? auth()->user()->id : null]);
-            $payment = PurchaseInvoicePayment::create(['purchase_invoice_id'=>$invoice->id,'treasury_id'=>$treasury->id,'amount'=>$amount,'payment_date'=>now()->toDateString(),'payment_method'=>'cash','created_by'=>auth()->id(),'notes'=>'دفعة سداد مورد']);
+            $actor=auth()->user(); $payment = PurchaseInvoicePayment::create(['purchase_invoice_id'=>$invoice->id,'treasury_id'=>$treasury->id,'amount'=>$amount,'payment_date'=>now()->toDateString(),'payment_method'=>'cash','created_by'=>$actor?->id,'created_by_type'=>$actor ? $actor::class : null,'notes'=>'دفعة سداد مورد']);
             $posting->postPurchasePayment($invoice, $payment);
             $invoice->update(['treasury_id' => $treasury->id, 'paid_amount' => $newPaid, 'remaining_amount' => (float) $invoice->total_amount - $newPaid]);
             DB::commit();

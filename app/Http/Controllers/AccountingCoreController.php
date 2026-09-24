@@ -28,7 +28,7 @@ class AccountingCoreController extends Controller
     public function closePeriod(FinancialPeriod $period) {
         if($period->status!=='open') throw ValidationException::withMessages(['period'=>'الفترة مغلقة بالفعل.']);
         $drafts=JournalEntry::where('fiscal_period_id',$period->id)->where('status','draft')->count(); if($drafts) throw ValidationException::withMessages(['period'=>'لا يمكن إغلاق فترة تحتوي على قيود مسودة.']);
-        $period->update(['status'=>'closed','closed_by'=>auth()->id(),'closed_at'=>now()]); return response()->json(['data'=>$period]);
+        $actor=auth()->user(); $period->update(['status'=>'closed','closed_by'=>$actor?->id,'closed_by_type'=>$actor ? $actor::class : null,'closed_at'=>now()]); return response()->json(['data'=>$period]);
     }
     public function reopenPeriod(Request $request, FinancialPeriod $period) { $request->validate(['reason'=>'required|string']); $period->update(['status'=>'open','closed_by'=>null,'closed_at'=>null,'close_notes'=>$request->reason]); return response()->json(['data'=>$period]); }
 
