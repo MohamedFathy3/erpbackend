@@ -13,6 +13,10 @@ use Illuminate\Support\Facades\DB;
 
 class SubledgerPostingService
 {
+    public function __construct(private readonly AccountLedgerService $ledger)
+    {
+    }
+
     public function customerAccount(Customer $customer): Account
     {
         return $this->partyAccount($customer, 'customer', 'asset', '1100', 'حسابات العملاء', 'Accounts Receivable');
@@ -29,8 +33,8 @@ class SubledgerPostingService
         $existing = WorkflowTransaction::where('event_key', $eventKey)->whereNotNull('journal_entry_id')->first();
         if ($existing) return $existing->journalEntry;
 
-        $inventory = $this->controlAccount('asset', '1200', 'المخزون', 'Inventory');
-        $cogs = $this->controlAccount('expense', '5000', 'تكلفة البضاعة المباعة', 'Cost of Goods Sold');
+        $inventory = $this->detailAccount('asset', '1200-INVENTORY', 'مخزون البضائع', 'Merchandise inventory', '1200', 'المخزون', 'Inventory');
+        $cogs = $this->detailAccount('expense', '5000-COGS', 'تكلفة البضاعة المباعة', 'Cost of goods sold', '5000', 'تكلفة المبيعات', 'Cost of sales');
         $amount = 0.0;
 
         foreach ($invoice->items as $item) {
@@ -65,8 +69,8 @@ class SubledgerPostingService
                 ['account_id' => $inventory->id, 'debit' => 0, 'credit' => $amount, 'description' => 'خفض قيمة المخزون'],
             ]);
 
-            Account::whereKey($cogs->id)->increment('debit', $amount);
-            Account::whereKey($inventory->id)->increment('credit', $amount);
+            $this->ledger->updateTotals($cogs, $amount, 0);
+            $this->ledger->updateTotals($inventory, 0, $amount);
             $invoice->update(['cogs_journal_entry_id' => $journal->id]);
             WorkflowTransaction::capture($eventKey, $invoice, 'cogs_posted', ['amount' => $amount], $journal->id, null, 'completed');
             return $journal;
@@ -103,19 +107,14 @@ class SubledgerPostingService
 
     public function controlAccount(string $type, string $code, string $ar, string $en): Account
     {
-        return Account::firstOrCreate(
-            ['code' => $code],
-            [
-                'name' => $en,
-                'name_ar' => $ar,
-                'account_type' => $type,
-                'normal_balance' => in_array($type, ['liability', 'equity', 'revenue'], true) ? 'credit' : 'debit',
-                'is_header' => true,
-                'is_active' => true,
-                'debit' => 0,
-                'credit' => 0,
-                'balance' => 0,
-            ]
-        );
+        $account = $this->ledger->defaultAccount($type, $code, $ar, $en);
+        if (!$account->is_header) $account->update(['is_header' => true]);
+        return $account;
+    }
+
+    public function detailAccount(string $type, string $code, string $ar, string $en, string $parentCode, string $parentAr, string $parentEn): Account
+    {
+        $parent = $this->controlAccount($type, $parentCode, $parentAr, $parentEn);
+        return $this->ledger->defaultAccount($type, $code, $ar, $en, $parent->id);
     }
 }

@@ -49,8 +49,8 @@ class RevenueController extends BaseController
 
             if ($request->has('treasury_id') && $request->treasury_id) {
                 $this->createTreasuryTransaction($revenue);
-                app(AccountingAutoPostingService::class)->postRevenue($revenue);
             }
+            app(AccountingAutoPostingService::class)->postRevenue($revenue);
 
             DB::commit();
             
@@ -84,11 +84,11 @@ class RevenueController extends BaseController
     {
         DB::beginTransaction();
         try {
+            app(AccountingAutoPostingService::class)->reverseDocument($Revenue, 'تعديل إيراد');
             $this->crudRepository->update($request->validated(), $Revenue->id);
-            
-            if ($request->has('treasury_id') && $request->treasury_id) {
-                $this->updateTreasuryTransaction($Revenue);
-            }
+            $Revenue->refresh();
+            $this->updateTreasuryTransaction($Revenue);
+            app(AccountingAutoPostingService::class)->postRevenue($Revenue);
 
             activity()->performedOn($Revenue)->withProperties(['attributes' => $Revenue])->log('update');
             DB::commit();

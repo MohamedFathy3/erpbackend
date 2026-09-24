@@ -245,7 +245,8 @@ class PurchaseInvoiceController extends Controller
                 'items.product',
                 'items.unit',
                 'items.color',
-                        'items.size',
+                'items.size',
+                'payments',
             ])->findOrFail($id);
 
             return response()->json([
@@ -292,6 +293,7 @@ class PurchaseInvoiceController extends Controller
                 'items.unit',
                 'items.color',
                         'items.size',
+                'payments',
             ]);
 
             // تطبيق الفلاتر
@@ -389,6 +391,7 @@ class PurchaseInvoiceController extends Controller
 
         DB::beginTransaction();
         try {
+            $invoice = PurchaseInvoice::query()->lockForUpdate()->findOrFail($invoice->id);
             $amount = (float) $data['amount'];
             $newPaid = (float) $invoice->paid_amount + $amount;
             if ($newPaid > (float) $invoice->total_amount) {
@@ -404,7 +407,7 @@ class PurchaseInvoiceController extends Controller
             $posting->postPurchasePayment($invoice, $payment);
             $invoice->update(['treasury_id' => $treasury->id, 'paid_amount' => $newPaid, 'remaining_amount' => (float) $invoice->total_amount - $newPaid]);
             DB::commit();
-            return response()->json(['message' => 'Payment updated successfully', 'invoice' => $invoice->fresh(), 'remaining' => $invoice->remaining_amount]);
+            return response()->json(['message' => 'Payment updated successfully', 'invoice' => $invoice->fresh('payments'), 'remaining' => $invoice->remaining_amount]);
         } catch (\Throwable $e) {
             DB::rollBack();
             return response()->json(['message' => $e->getMessage()], 422);

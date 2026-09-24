@@ -9,6 +9,7 @@ use App\Models\Bank;
 use App\Models\Transfer;
 use App\Models\Treasury;
 use App\Models\User;
+use App\Services\AccountLedgerService;
 use App\Services\TransferPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +22,13 @@ class TransferController extends Controller
             DB::transaction(function () use ($request) {
                 $amount = $request->amount;
                 $type   = $request->type;
+                $ledger = app(AccountLedgerService::class);
+                foreach (['from_treasury_id', 'to_treasury_id'] as $key) {
+                    if ($request->filled($key)) $ledger->initializeTreasuryAccount(Treasury::query()->findOrFail($request->input($key)));
+                }
+                foreach (['from_bank_id', 'to_bank_id'] as $key) {
+                    if ($request->filled($key)) $ledger->initializeBankAccount(Bank::query()->findOrFail($request->input($key)));
+                }
 
                 // ================= خصم أو إضافة =================
                 if (in_array($type, ['treasury_to_treasury','treasury_to_bank','treasury_withdraw'])) {

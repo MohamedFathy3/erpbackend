@@ -244,6 +244,24 @@ class PurchaseInvoiceResource extends JsonResource
 
             'remaining_amount' => (float) $this->remaining_amount,
 
+            'posting_journal_entry_id' => $this->posting_journal_entry_id,
+
+            'workflow_status' => $this->workflow_status,
+
+            'payments' => $this->whenLoaded('payments', fn () => $this->payments->map(fn ($payment) => [
+                'id' => $payment->id,
+                'purchase_invoice_id' => $payment->purchase_invoice_id,
+                'treasury_id' => $payment->treasury_id,
+                'bank_id' => $payment->bank_id,
+                'amount' => (float) $payment->amount,
+                'payment_date' => $payment->payment_date?->toDateString(),
+                'payment_method' => $payment->payment_method,
+                'created_by' => $payment->created_by,
+                'created_by_type' => $payment->created_by_type,
+                'journal_entry_id' => $payment->journal_entry_id,
+                'notes' => $payment->notes,
+            ])),
+
             /*
             |--------------------------------------------------------------------------
             | Items

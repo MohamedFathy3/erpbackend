@@ -473,23 +473,6 @@ public function store(
                 $total
             );
 
-            Transfer::create([
-                'type' =>
-                    'treasury_deposit',
-
-                'treasury_id' =>
-                    $invoice->treasury_id,
-
-                'purchase_invoice_id' =>
-                    $invoice->id,
-
-                'amount' =>
-                    $total,
-
-                'notes' =>
-                    "مرتجع لفاتورة مشتريات رقم {$invoice->invoice_number}",
-            ]);
-
             TreasuryTransaction::create([
                 'treasury_id' =>
                     $invoice->treasury_id,

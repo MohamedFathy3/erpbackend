@@ -13,7 +13,6 @@ use App\Models\SalesInvoiceItem;
 use App\Models\SalesInvoicePayment;
 use App\Models\Treasury;
 use App\Models\Bank;
-use App\Models\Transfer;
 use App\Models\Tax;
 use App\Services\WorkflowPostingService;
 use App\Models\TreasuryTransaction;
@@ -159,24 +158,17 @@ class SalesInvoiceController extends Controller
             if (in_array($request->payment_method, ['bank', 'bank_transfer'], true)) {
                 $bank = Bank::query()->lockForUpdate()->findOrFail($request->bank_id);
                 $bank->increment('balance', $netTotal);
-                Transfer::create([
-                    'type' => 'bank_deposit',
-                    'to_bank_id' => $bank->id,
-                    'amount' => $netTotal,
-                    'currency' => $invoice->currency?->code ?? 'EGP',
-                    'notes' => "تحويل بنكي من فاتورة مبيعات {$invoice->invoice_number}",
-                    'created_by' => optional(auth()->user())->id,
-                ]);
             }
 
             if ((float) $invoice->paid_amount > 0) {
-                SalesInvoicePayment::create([
+                $payment = SalesInvoicePayment::create([
                     'sales_invoice_id' => $invoice->id,
                     'payment_method' => $request->payment_method,
                     'amount' => $invoice->paid_amount,
                     'treasury_id' => $invoice->treasury_id,
                     'bank_id' => $invoice->bank_id,
-                    'created_by' => null,
+                    'created_by' => optional(auth()->user())->id,
+                    'created_by_type' => auth()->user() ? auth()->user()::class : null,
                     'employee_id' => auth()->user() instanceof \App\Models\Employee ? auth()->id() : null,
                 ]);
             }
@@ -188,6 +180,8 @@ class SalesInvoiceController extends Controller
 
             $journal = $posting->postSale($invoice->load('items.product'));
             app(\App\Services\SubledgerPostingService::class)->postCogs($invoice->fresh()->load('items.product'));
+            app(\App\Services\EmployeeAccountingPostingService::class)->postSalesCommission($invoice->fresh()->load('salesRepresentative'));
+            if (isset($payment) && $journal) $payment->update(['journal_entry_id' => $journal->id]);
             $invoice->update(['posting_journal_entry_id' => $journal?->id, 'workflow_status' => $journal ? 'posted' : 'pending_finance']);
 
             DB::commit();
@@ -528,28 +522,22 @@ class SalesInvoiceController extends Controller
             } else {
                 $bank = Bank::query()->lockForUpdate()->findOrFail($request->bank_id);
                 $bank->increment('balance', $amount);
-                Transfer::create([
-                    'type' => 'bank_deposit',
-                    'to_bank_id' => $bank->id,
-                    'amount' => $amount,
-                    'currency' => $invoice->currency?->code ?? 'EGP',
-                    'notes' => "تحصيل تحويل بنكي لفاتورة {$invoice->invoice_number}",
-                    'created_by' => optional(auth()->user())->id,
-                ]);
             }
 
-            $treasuryId = $request->treasury_id ?: $invoice->treasury_id;
+            $treasuryId = $request->payment_method === 'cash' ? (int) $request->treasury_id : null;
+            $bankId = $request->payment_method === 'cash' ? null : (int) $request->bank_id;
             $previousPaid = (float) ($invoice->paid_amount ?? 0);
-            $journal = $posting->postCollection($invoice, $amount, $treasuryId);
-            SalesInvoicePayment::create([
+            $payment = SalesInvoicePayment::create([
                 'sales_invoice_id' => $invoice->id,
                 'payment_method' => $request->payment_method,
                 'amount' => $amount,
                 'treasury_id' => $treasuryId,
-                'bank_id' => $request->bank_id,
-                'created_by' => null,
+                'bank_id' => $bankId,
+                'created_by' => optional(auth()->user())->id,
+                'created_by_type' => auth()->user() ? auth()->user()::class : null,
                 'employee_id' => auth()->user() instanceof \App\Models\Employee ? auth()->id() : null,
             ]);
+            $journal = $posting->postCollection($invoice, $amount, $treasuryId, $bankId, $payment);
             $paid = (float) ($invoice->paid_amount ?? 0) + $amount;
             $invoice->update([
                 'paid_amount' => $paid,
@@ -583,18 +571,10 @@ class SalesInvoiceController extends Controller
 
             $posting->reverseInvoice($invoice, 'sale');
             if ($invoice->treasury_id && (float) ($invoice->paid_amount ?? 0) > 0) {
-                Treasury::whereKey($invoice->treasury_id)->decrement('balance', $invoice->paid_amount);
+                Treasury::query()->lockForUpdate()->whereKey($invoice->treasury_id)->decrement('balance', $invoice->paid_amount);
             }
             if ($invoice->bank_id && (float) ($invoice->paid_amount ?? 0) > 0) {
-                Bank::whereKey($invoice->bank_id)->decrement('balance', $invoice->paid_amount);
-                Transfer::create([
-                    'type' => 'bank_withdraw',
-                    'from_bank_id' => $invoice->bank_id,
-                    'amount' => $invoice->paid_amount,
-                    'currency' => $invoice->currency?->code ?? 'EGP',
-                    'notes' => "عكس تحويل فاتورة المبيعات {$invoice->invoice_number}",
-                    'created_by' => optional(auth()->user())->id,
-                ]);
+                Bank::query()->lockForUpdate()->whereKey($invoice->bank_id)->decrement('balance', $invoice->paid_amount);
             }
             $this->updateLoyaltyPoints($invoice->customer_id, -((float) ($invoice->paid_amount ?? 0)));
             $invoice->update(['workflow_status' => 'cancelled']);

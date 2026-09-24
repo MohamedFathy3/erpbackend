@@ -8,8 +8,10 @@ use App\Http\Requests\TreasuryUpdateRequest;
 use App\Http\Resources\TreasuryResource;
 use App\Interfaces\TreasuryRepositoryInterface;
 use App\Models\Treasury;
+use App\Services\AccountLedgerService;
 use Exception;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class TreasuryController extends BaseController
 {
@@ -35,10 +37,14 @@ class TreasuryController extends BaseController
         }
     }
 
-    public function store(TreasuryRequest $request)
+    public function store(TreasuryRequest $request, AccountLedgerService $ledger)
     {
         try {
-            $Treasury = $this->crudRepository->create($request->validated());
+            $Treasury = DB::transaction(function () use ($request, $ledger) {
+                $treasury = $this->crudRepository->create($request->validated());
+                $ledger->initializeTreasuryAccount($treasury);
+                return $treasury;
+            });
             return new TreasuryResource($Treasury);
         } catch (Exception $e) {
             return JsonResponse::respondError($e->getMessage());

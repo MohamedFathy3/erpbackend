@@ -7,8 +7,10 @@ use App\Http\Requests\BankRequest;
 use App\Http\Resources\BankResource;
 use App\Interfaces\BankRepositoryInterface;
 use App\Models\Bank;
+use App\Services\AccountLedgerService;
 use Exception;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class BankController extends BaseController
 {
@@ -34,10 +36,14 @@ class BankController extends BaseController
         }
     }
 
-    public function store(BankRequest $request)
+    public function store(BankRequest $request, AccountLedgerService $ledger)
     {
         try {
-            $Bank = $this->crudRepository->create($request->validated());
+            $Bank = DB::transaction(function () use ($request, $ledger) {
+                $bank = $this->crudRepository->create($request->validated());
+                $ledger->initializeBankAccount($bank);
+                return $bank;
+            });
             return new BankResource($Bank);
         } catch (Exception $e) {
             return JsonResponse::respondError($e->getMessage());

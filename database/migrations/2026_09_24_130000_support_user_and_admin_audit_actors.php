@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
  private function dropActorForeignKey(string $table, string $column): void {
   if (!Schema::hasTable($table) || !Schema::hasColumn($table, $column)) return;
+  if (DB::connection()->getDriverName() !== 'mysql') return;
   $constraint = DB::table('information_schema.KEY_COLUMN_USAGE')
    ->where('CONSTRAINT_SCHEMA', DB::connection()->getDatabaseName())
    ->where('TABLE_NAME', $table)->where('COLUMN_NAME', $column)

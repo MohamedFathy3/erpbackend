@@ -51,8 +51,8 @@ class FinanceController extends BaseController
             // 2. إذا كان فيه خزينة -> يخصم منها
             if ($request->filled('treasury_id')) {
                 $this->decreaseTreasuryBalance($finance);
-                app(AccountingAutoPostingService::class)->postFinance($finance);
             }
+            app(AccountingAutoPostingService::class)->postFinance($finance);
 
             DB::commit();
             
@@ -82,6 +82,7 @@ class FinanceController extends BaseController
     {
         DB::beginTransaction();
         try {
+            app(AccountingAutoPostingService::class)->reverseDocument($Finance, 'تعديل مصروف');
             // 1. الحصول على القيم القديمة قبل التعديل
             $oldTreasuryId = $Finance->getOriginal('treasury_id');
             $oldAmount = $Finance->getOriginal('amount');
@@ -113,6 +114,7 @@ class FinanceController extends BaseController
 
             // 4. تحديث البيانات الأساسية في الداتابيس
             $this->crudRepository->update($request->validated(), $Finance->id);
+            app(AccountingAutoPostingService::class)->postFinance($Finance->fresh());
 
             activity()->performedOn($Finance)->withProperties(['attributes' => $Finance])->log('update');
             DB::commit();
@@ -135,6 +137,7 @@ class FinanceController extends BaseController
             foreach ($items as $id) {
                 $finance = Finance::find($id);
                 if ($finance) {
+                    app(AccountingAutoPostingService::class)->reverseDocument($finance, 'حذف مصروف');
                     // ✅ إعادة الرصيد للخزينة عند حذف المصروف
                     if ($finance->treasury_id) {
                         $this->increaseTreasuryBalance($finance, $finance->treasury_id, $finance->amount);

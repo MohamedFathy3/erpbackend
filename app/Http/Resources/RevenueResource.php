@@ -19,6 +19,7 @@ class RevenueResource extends JsonResource
             'payment_method' => $this->payment_method,
             'payment_method_arabic' => $this->payment_method_arabic,
             'reference_number' => $this->reference_number,
+            'journal_entry_id' => $this->journal_entry_id,
             
             // ✅ الخزينة - استخدم ?-> بدلاً من whenLoaded
             'treasury_id' => $this->treasury_id,

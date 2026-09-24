@@ -358,6 +358,10 @@ class SalesInvoiceResource extends JsonResource
             'posting_journal_entry_id' =>
                 $this->posting_journal_entry_id,
 
+            'cogs_journal_entry_id' => $this->cogs_journal_entry_id,
+
+            'commission_journal_entry_id' => $this->commission_journal_entry_id,
+
             /*
             |--------------------------------------------------------------------------
             | Dates

@@ -26,6 +26,7 @@ class TransferResource extends JsonResource
             'amount' => $this->amount,
             'currency' => $this->currency,
             'notes' => $this->notes,
+            'journal_entry_id' => $this->journal_entry_id,
             'date' => $this->created_at->format('Y-m-d H:i'),
         ];
     }
