@@ -187,6 +187,7 @@ class SalesInvoiceController extends Controller
             $this->updateLoyaltyPoints($request->customer_id, (float) $invoice->paid_amount);
 
             $journal = $posting->postSale($invoice->load('items.product'));
+            app(\App\Services\SubledgerPostingService::class)->postCogs($invoice->fresh()->load('items.product'));
             $invoice->update(['posting_journal_entry_id' => $journal?->id, 'workflow_status' => $journal ? 'posted' : 'pending_finance']);
 
             DB::commit();

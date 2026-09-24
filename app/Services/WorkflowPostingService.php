@@ -7,6 +7,8 @@ use App\Models\JournalEntry;
 use App\Models\Product;
 use App\Models\WorkflowTransaction;
 use App\Models\PurchaseInvoicePayment;
+use App\Models\SalesInvoice;
+use App\Models\PurchaseInvoice;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
@@ -23,7 +25,9 @@ class WorkflowPostingService
         $cashAccount = $treasuryId
             ? Account::whereHas('treasury', fn ($q) => $q->whereKey($treasuryId))->first()
             : Account::active()->where('account_type', 'asset')->first();
-        $receivable = Account::active()->where('account_type', 'asset')->orderBy('id')->first();
+        $receivable = $invoice instanceof SalesInvoice && $invoice->customer
+            ? app(SubledgerPostingService::class)->customerAccount($invoice->customer)
+            : Account::active()->where('account_type', 'asset')->orderBy('id')->first();
         if (!$cashAccount || !$receivable) return null;
 
         return DB::transaction(function () use ($invoice, $amount, $cashAccount, $receivable, $eventKey) {
@@ -46,11 +50,13 @@ class WorkflowPostingService
 
     public function postSale(Model $invoice): ?JournalEntry
     {
+        if ($invoice instanceof SalesInvoice && $invoice->customer) app(SubledgerPostingService::class)->customerAccount($invoice->customer);
         return $this->postInvoice($invoice, 'sale', (float) ($invoice->net_total ?? $invoice->total_amount ?? 0), (int) ($invoice->treasury_id ?? 0), (string) ($invoice->payment_method ?? 'cash'));
     }
 
     public function postPurchase(Model $invoice): ?JournalEntry
     {
+        if ($invoice instanceof PurchaseInvoice && $invoice->supplier) app(SubledgerPostingService::class)->supplierAccount($invoice->supplier);
         return $this->postInvoice($invoice, 'purchase', (float) ($invoice->total_amount ?? 0), (int) ($invoice->treasury_id ?? 0));
     }
 
@@ -61,7 +67,9 @@ class WorkflowPostingService
         $eventKey = 'financial-purchase-payment:' . $payment->getKey();
         if (WorkflowTransaction::where('event_key', $eventKey)->whereNotNull('journal_entry_id')->exists()) return WorkflowTransaction::where('event_key', $eventKey)->first()->journalEntry;
         $cash = $payment->treasury_id ? Account::whereHas('treasury', fn ($q) => $q->whereKey($payment->treasury_id))->first() : null;
-        $payable = Account::active()->where('account_type', 'liability')->orderBy('id')->first();
+        $payable = $invoice instanceof PurchaseInvoice && $invoice->supplier
+            ? app(SubledgerPostingService::class)->supplierAccount($invoice->supplier)
+            : Account::active()->where('account_type', 'liability')->orderBy('id')->first();
         if (!$cash || !$payable) return null;
         return DB::transaction(function () use ($invoice, $payment, $amount, $cash, $payable, $eventKey) {
             $journal = JournalEntry::create(['entry_date'=>$payment->payment_date,'description_ar'=>'سداد مورد لفاتورة مشتريات #'.$invoice->getKey(),'description_en'=>'Supplier payment for purchase invoice #'.$invoice->getKey(),'status'=>'posted','treasury_id'=>$payment->treasury_id,'source_type'=>PurchaseInvoicePayment::class,'source_id'=>$payment->id,'posted_by'=>auth()->id(),'posted_at'=>now()]);
@@ -157,6 +165,9 @@ class WorkflowPostingService
         }
 
         $accounts = $this->accountsFor($type, $treasuryId, $paymentMethod);
+        if ($type === 'sale' && $source instanceof SalesInvoice && $source->customer && $paymentMethod === 'credit') $accounts['debit'] = app(SubledgerPostingService::class)->customerAccount($source->customer);
+        if ($type === 'purchase') $accounts['debit'] = app(SubledgerPostingService::class)->controlAccount('asset', '1200', 'المخزون', 'Inventory');
+        if ($type === 'purchase' && $source instanceof PurchaseInvoice && $source->supplier) $accounts['credit'] = app(SubledgerPostingService::class)->supplierAccount($source->supplier);
         if (!$accounts['debit'] || !$accounts['credit']) {
             WorkflowTransaction::capture($eventKey, $source, $type . '_pending_finance', ['amount' => $amount, 'reason' => 'لم يتم ضبط الحسابات الافتراضية'], null, null, 'pending_finance');
             return null;

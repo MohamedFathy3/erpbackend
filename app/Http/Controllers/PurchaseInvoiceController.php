@@ -139,6 +139,17 @@ class PurchaseInvoiceController extends Controller
                     'notes' => "Purchase invoice {$invoice->invoice_number}",
                 ]);
 
+                $product = Product::lockForUpdate()->find($item['product_id']);
+                if ($product) {
+                    $oldStock = max(0, (float) $product->stock - (float) $item['quantity']);
+                    $oldCost = (float) ($product->cost ?? 0);
+                    $purchaseCost = (float) $item['price'];
+                    $newCost = $oldStock > 0
+                        ? (($oldStock * $oldCost) + ((float) $item['quantity'] * $purchaseCost)) / ($oldStock + (float) $item['quantity'])
+                        : $purchaseCost;
+                    $product->update(['cost' => round($newCost, 4)]);
+                }
+
 
             }        
             
