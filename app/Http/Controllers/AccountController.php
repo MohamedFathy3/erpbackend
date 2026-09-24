@@ -108,15 +108,21 @@ class AccountController extends Controller
 
     public function store(Request $request)
     {
-        $data = $request->validate(['code'=>'required|string|max:40','name'=>'required|string|max:150','name_ar'=>'nullable|string|max:150','account_type'=>'required|in:asset,liability,equity,revenue,expense,treasury','parent_id'=>'nullable|exists:accounts,id','normal_balance'=>'nullable|in:debit,credit','is_header'=>'boolean','description'=>'nullable|string']);
+        $data = $request->validate(['code'=>'required|string|max:40','name'=>'required|string|max:150','name_ar'=>'nullable|string|max:150','account_type'=>'required|in:asset,liability,equity,revenue,expense,treasury','parent_id'=>'nullable|exists:accounts,id','parent_code'=>'nullable|string|max:40','normal_balance'=>'nullable|in:debit,credit','is_header'=>'boolean','description'=>'nullable|string']);
+        if (empty($data['parent_id']) && !empty($data['parent_code'])) $data['parent_id'] = Account::where('code', $data['parent_code'])->value('id');
+        unset($data['parent_code']);
+        $data['level'] = !empty($data['parent_id']) ? ((int) Account::whereKey($data['parent_id'])->value('level') + 1) : 0;
+        $data['is_header'] = $data['is_header'] ?? false;
         $data['normal_balance'] = $data['normal_balance'] ?? (in_array($data['account_type'], ['liability','equity','revenue']) ? 'credit' : 'debit');
         return response()->json(['data'=>Account::create($data)], 201);
     }
 
     public function update(Request $request, Account $account)
     {
-        $data = $request->validate(['name'=>'sometimes|string|max:150','name_ar'=>'nullable|string|max:150','account_type'=>'sometimes|in:asset,liability,equity,revenue,expense,treasury','parent_id'=>'nullable|exists:accounts,id','is_header'=>'boolean','is_active'=>'boolean','description'=>'nullable|string']);
+        $data = $request->validate(['name'=>'sometimes|string|max:150','name_ar'=>'nullable|string|max:150','account_type'=>'sometimes|in:asset,liability,equity,revenue,expense,treasury','parent_id'=>'nullable|exists:accounts,id','parent_code'=>'nullable|string|max:40','is_header'=>'boolean','is_active'=>'boolean','description'=>'nullable|string']);
+        if (array_key_exists('parent_code', $data)) { $data['parent_id'] = $data['parent_code'] ? Account::where('code', $data['parent_code'])->value('id') : null; unset($data['parent_code']); }
         if (($data['parent_id'] ?? null) === $account->id) return response()->json(['message'=>'الحساب لا يمكن أن يكون أبًا لنفسه'],422);
+        if (array_key_exists('parent_id', $data)) $data['level'] = $data['parent_id'] ? ((int) Account::whereKey($data['parent_id'])->value('level') + 1) : 0;
         $account->update($data); return response()->json(['data'=>$account->fresh()]);
     }
 
