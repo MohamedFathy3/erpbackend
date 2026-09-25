@@ -2,6 +2,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AttendanceRule;
+use App\Models\Attendance;
 use App\Models\BiometricDevice;
 use App\Models\Employee;
 use App\Services\BiometricAttendanceService;
@@ -59,6 +60,31 @@ class BiometricAttendanceController extends Controller
     {
         $data = $request->validate(['period_start' => 'required|date', 'period_end' => 'required|date|after_or_equal:period_start', 'rule_id' => 'nullable|exists:attendance_rules,id']);
         return response()->json(['status' => true, 'data' => $service->previewPayroll($employee, Carbon::parse($data['period_start']), Carbon::parse($data['period_end']), isset($data['rule_id']) ? AttendanceRule::find($data['rule_id']) : null)]);
+    }
+
+    public function report(Request $request, BiometricAttendanceService $service)
+    {
+        $data = $request->validate([
+            'period_start' => 'required|date',
+            'period_end' => 'required|date|after_or_equal:period_start',
+        ]);
+        $from = Carbon::parse($data['period_start']);
+        $to = Carbon::parse($data['period_end']);
+        $rule = AttendanceRule::where('is_active', true)->latest('id')->first();
+        $employees = Employee::query()->where('is_active', true)->orderBy('name')->get();
+        $attendance = Attendance::with('employee')->whereBetween('date', [$from->toDateString(), $to->toDateString()])->orderBy('date')->get();
+        $summary = $employees->map(fn (Employee $employee) => $service->previewPayroll($employee, $from, $to, $rule));
+
+        return response()->json(['status' => true, 'data' => [
+            'period_start' => $from->toDateString(), 'period_end' => $to->toDateString(), 'rule' => $rule,
+            'summary' => $summary, 'attendance' => $attendance->map(fn (Attendance $row) => [
+                'employee_id' => $row->employee_id, 'employee_name' => $row->employee?->name,
+                'employee_code' => $row->employee?->employee_code, 'date' => $row->date?->format('Y-m-d'),
+                'check_in' => $row->check_in?->format('H:i'), 'check_out' => $row->check_out?->format('H:i'),
+                'status' => $row->status, 'source' => $row->source, 'late_minutes' => (int) ($row->late_minutes ?? 0),
+                'worked_minutes' => (int) ($row->worked_minutes ?? 0),
+            ])->values(),
+        ]]);
     }
 
     private function validatedRule(Request $request, bool $sometimes = false): array

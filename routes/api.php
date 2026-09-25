@@ -1591,6 +1591,7 @@ Route::middleware([
         Route::get('/rules', [BiometricAttendanceController::class, 'rules']);
         Route::post('/rules', [BiometricAttendanceController::class, 'storeRule']);
         Route::patch('/rules/{rule}', [BiometricAttendanceController::class, 'updateRule']);
+        Route::get('/report', [BiometricAttendanceController::class, 'report']);
         Route::get('/payroll-preview/{employee}', [BiometricAttendanceController::class, 'payrollPreview']);
     });
 });
