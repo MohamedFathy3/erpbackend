@@ -15,7 +15,8 @@ class BiometricAttendanceService
 {
     public function sync(BiometricDevice $device): array
     {
-        $zk = new ZKTeco($device->ip_address, (int) $device->port, timeout: 15, password: (int) $device->device_password, protocol: $device->protocol);
+        $this->assertReachable($device, 1.5);
+        $zk = new ZKTeco($device->ip_address, (int) $device->port, timeout: 3, password: (int) $device->device_password, protocol: $device->protocol);
         if (!$zk->connect()) throw new RuntimeException('تعذر الاتصال بجهاز البصمة. تحقق من IP والمنفذ والشبكة.');
 
         try {
@@ -50,12 +51,17 @@ class BiometricAttendanceService
 
     public function testConnection(BiometricDevice $device): array
     {
-        $zk = new ZKTeco($device->ip_address, (int) $device->port, timeout: 8, password: (int) $device->device_password, protocol: $device->protocol);
-        $connected = $zk->connect();
-        if (!$connected) return ['connected' => false, 'message' => 'تعذر الاتصال بالجهاز'];
-        $result = ['connected' => true, 'device_name' => $zk->deviceName() ?: null, 'serial_number' => $zk->serialNumber() ?: null];
-        $zk->disconnect();
-        return $result;
+        try {
+            $this->assertReachable($device, 1.5);
+            $zk = new ZKTeco($device->ip_address, (int) $device->port, timeout: 3, password: (int) $device->device_password, protocol: $device->protocol);
+            $connected = $zk->connect();
+            if (!$connected) return ['connected' => false, 'message' => 'تعذر الاتصال بالجهاز خلال المهلة المحددة'];
+            $result = ['connected' => true, 'device_name' => $zk->deviceName() ?: null, 'serial_number' => $zk->serialNumber() ?: null];
+            $zk->disconnect();
+            return $result;
+        } catch (\Throwable $e) {
+            return ['connected' => false, 'message' => 'السيرفر لا يستطيع الوصول إلى الجهاز: ' . $e->getMessage()];
+        }
     }
 
     public function deviceUsers(BiometricDevice $device): array
@@ -95,7 +101,20 @@ class BiometricAttendanceService
 
     private function client(BiometricDevice $device, int $timeout): ZKTeco
     {
+        $this->assertReachable($device, 1.5);
         return new ZKTeco($device->ip_address, (int) $device->port, timeout: $timeout, password: (int) $device->device_password, protocol: $device->protocol);
+    }
+
+    private function assertReachable(BiometricDevice $device, float $timeout): void
+    {
+        if ($device->protocol !== 'tcp') return;
+        $errorCode = 0;
+        $errorMessage = '';
+        $socket = @stream_socket_client("tcp://{$device->ip_address}:{$device->port}", $errorCode, $errorMessage, $timeout, STREAM_CLIENT_CONNECT);
+        if (is_resource($socket)) fclose($socket);
+        if (!$socket) {
+            throw new RuntimeException("لا يمكن الوصول إلى {$device->ip_address}:{$device->port} من السيرفر. استخدم VPN أو Agent داخل شبكة الجهاز.");
+        }
     }
 
     public function previewPayroll(Employee $employee, Carbon $from, Carbon $to, ?AttendanceRule $rule = null): array

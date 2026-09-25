@@ -27,8 +27,22 @@ class BiometricAttendanceController extends Controller
         return response()->json(['status' => true, 'data' => $device->fresh('branch')]);
     }
 
-    public function testDevice(BiometricDevice $device, BiometricAttendanceService $service) { return response()->json(['status' => true, 'data' => $service->testConnection($device)]); }
-    public function syncDevice(BiometricDevice $device, BiometricAttendanceService $service) { return response()->json(['status' => true, 'data' => $service->sync($device)]); }
+    public function testDevice(BiometricDevice $device, BiometricAttendanceService $service)
+    {
+        try {
+            return response()->json(['status' => true, 'data' => $service->testConnection($device)]);
+        } catch (\Throwable $e) {
+            return response()->json(['status' => false, 'message' => $e->getMessage()], 503);
+        }
+    }
+    public function syncDevice(BiometricDevice $device, BiometricAttendanceService $service)
+    {
+        try {
+            return response()->json(['status' => true, 'data' => $service->sync($device)]);
+        } catch (\Throwable $e) {
+            return response()->json(['status' => false, 'message' => $e->getMessage()], 503);
+        }
+    }
     public function deviceUsers(BiometricDevice $device, BiometricAttendanceService $service) { return response()->json(['status' => true, 'data' => $service->deviceUsers($device)]); }
 
     public function storeDeviceUser(Request $request, BiometricDevice $device, BiometricAttendanceService $service)
