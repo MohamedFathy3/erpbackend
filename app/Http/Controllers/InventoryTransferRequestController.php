@@ -9,8 +9,10 @@ use App\Models\Product;
 use App\Models\Warehouse;
 use App\Notifications\InventoryTransferRequestNotification;
 use App\Services\InventoryMovementService;
+use App\Services\InventoryTransferPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -29,10 +31,11 @@ class InventoryTransferRequestController extends Controller
             ->where('active', true)
             ->when($data['category_id'] ?? null, fn ($q, $category) => $q->where('category_id', $category))
             ->when($data['search'] ?? null, function ($q, $search): void {
-                $q->where(function ($inner) use ($search): void {
-                    $inner->where('name', 'like', "%{$search}%")
-                        ->orWhere('name_ar', 'like', "%{$search}%")
-                        ->orWhere('sku', 'like', "%{$search}%")
+                $hasArabicName = Schema::hasColumn('products', 'name_ar');
+                $q->where(function ($inner) use ($search, $hasArabicName): void {
+                    $inner->where('name', 'like', "%{$search}%");
+                    if ($hasArabicName) $inner->orWhere('name_ar', 'like', "%{$search}%");
+                    $inner->orWhere('sku', 'like', "%{$search}%")
                         ->orWhere('barcode', 'like', "%{$search}%");
                 });
             })
@@ -77,7 +80,7 @@ class InventoryTransferRequestController extends Controller
         $this->requirePermission($user, 'inventory.transfer_requests.view');
 
         $requests = InventoryTransferRequest::query()
-            ->with(['product:id,name,name_ar,sku', 'fromBranch:id,name', 'toBranch:id,name', 'fromWarehouse:id,name', 'toWarehouse:id,name', 'requester:id,name'])
+            ->with(['product:id,name,sku', 'fromBranch:id,name', 'toBranch:id,name', 'fromWarehouse:id,name', 'toWarehouse:id,name', 'requester:id,name', 'journalEntry:id,entry_number,status'])
             ->when(!$this->isManager($user), fn ($q) => $q->where(function ($inner) use ($user): void {
                 $inner->where('requested_by', $user->id)->orWhere('to_branch_id', $user->branch_id);
             }))
@@ -148,31 +151,41 @@ class InventoryTransferRequestController extends Controller
         $transfer = DB::transaction(function () use ($transferRequest, $user, $data): InventoryTransferRequest {
             $transfer = InventoryTransferRequest::query()->lockForUpdate()->findOrFail($transferRequest->id);
             abort_unless($transfer->status === 'pending', Response::HTTP_UNPROCESSABLE_ENTITY, 'هذا الطلب تمت معالجته مسبقاً.');
-            app(InventoryMovementService::class)->apply([
+            $product = Product::query()->lockForUpdate()->findOrFail($transfer->product_id);
+            $warehouseCost = (float) DB::table('product_warehouse')
+                ->where('product_id', $product->id)
+                ->where('warehouse_id', $transfer->from_warehouse_id)
+                ->value('cost');
+            $unitCost = $warehouseCost > 0 ? $warehouseCost : (float) ($product->cost ?? 0);
+
+            $outMovement = app(InventoryMovementService::class)->apply([
                 'product_id' => $transfer->product_id,
                 'warehouse_id' => $transfer->from_warehouse_id,
                 'branch_id' => $transfer->from_branch_id,
                 'movement_type' => 'branch_transfer_out',
                 'quantity_delta' => -(float) $transfer->quantity,
+                'unit_cost' => $unitCost,
                 'reference_type' => InventoryTransferRequest::class,
                 'reference_id' => $transfer->id,
                 'notes' => 'نقل مخزون إلى فرع آخر',
             ]);
-            app(InventoryMovementService::class)->apply([
+            $inMovement = app(InventoryMovementService::class)->apply([
                 'product_id' => $transfer->product_id,
                 'warehouse_id' => $transfer->to_warehouse_id,
                 'branch_id' => $transfer->to_branch_id,
                 'movement_type' => 'branch_transfer_in',
                 'quantity_delta' => (float) $transfer->quantity,
+                'unit_cost' => $unitCost,
                 'reference_type' => InventoryTransferRequest::class,
                 'reference_id' => $transfer->id,
                 'notes' => 'استلام مخزون من فرع آخر',
             ]);
             $transfer->update(['status' => 'approved', 'approved_by' => $user instanceof Employee ? $user->id : null, 'approved_at' => now(), 'note' => $data['note'] ?? $transfer->note]);
-            return $transfer;
+            app(InventoryTransferPostingService::class)->post($transfer, $unitCost, [$outMovement->id, $inMovement->id]);
+            return $transfer->refresh();
         });
 
-        $transfer->load(['product', 'fromBranch', 'toBranch', 'fromWarehouse', 'toWarehouse']);
+        $transfer->load(['product', 'fromBranch', 'toBranch', 'fromWarehouse', 'toWarehouse', 'journalEntry']);
         if ($transfer->requester) $transfer->requester->notify(new InventoryTransferRequestNotification($transfer, 'approved'));
         return response()->json(['data' => $transfer]);
     }

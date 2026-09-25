@@ -74,6 +74,8 @@ class InventoryMovementService
                 'movement_type' => $data['movement_type'],
                 'quantity_delta' => $delta,
                 'balance_after' => $variantStock?->stock ?? $product->stock,
+                'unit_cost' => round((float) ($data['unit_cost'] ?? 0), 4),
+                'total_cost' => round(abs($delta) * (float) ($data['unit_cost'] ?? 0), 2),
                 'inventory_variant_stock_id' => $variantStock?->id,
                 'reference_type' => $data['reference_type'] ?? null,
                 'reference_id' => $data['reference_id'] ?? null,

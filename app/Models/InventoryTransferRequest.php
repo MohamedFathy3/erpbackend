@@ -21,4 +21,5 @@ class InventoryTransferRequest extends BaseModel
     public function toWarehouse(): BelongsTo { return $this->belongsTo(Warehouse::class, 'to_warehouse_id'); }
     public function requester(): BelongsTo { return $this->belongsTo(Employee::class, 'requested_by'); }
     public function approver(): BelongsTo { return $this->belongsTo(Employee::class, 'approved_by'); }
+    public function journalEntry(): BelongsTo { return $this->belongsTo(JournalEntry::class, 'journal_entry_id'); }
 }

@@ -3,10 +3,12 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\InventoryTransferRequestController;
+use App\Http\Controllers\ProductLedgerController;
 use App\Models\Admin;
 use App\Models\Branch;
 use App\Models\Employee;
 use App\Models\Finance;
+use App\Models\InventoryTransferRequest;
 use App\Models\Product;
 use App\Models\Role;
 use App\Models\Tenant;
@@ -16,6 +18,7 @@ use App\Models\Warehouse;
 use App\Notifications\SystemEventNotification;
 use App\Services\AccountingAutoPostingService;
 use App\Services\InventoryMovementService;
+use App\Services\InventoryTransferPostingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Notification;
@@ -44,6 +47,7 @@ class SystemNotificationsTest extends TestCase
         $product = Product::create([
             'name' => 'Test product',
             'stock' => 10,
+            'cost' => 8,
             'reorder_level' => 2,
             'tenant_id' => $tenant->id,
         ]);
@@ -51,6 +55,7 @@ class SystemNotificationsTest extends TestCase
             'product_id' => $product->id,
             'warehouse_id' => $sourceWarehouse->id,
             'stock' => 10,
+            'cost' => 8,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -74,6 +79,51 @@ class SystemNotificationsTest extends TestCase
             'to_warehouse_id' => $destinationWarehouse->id,
             'status' => 'pending',
         ]);
+        $transferId = (int) \Illuminate\Support\Facades\DB::table('inventory_transfer_requests')->value('id');
+
+        $indexRequest = Request::create('/api/inventory-transfer-requests', 'GET');
+        $indexRequest->setUserResolver(fn () => $employee);
+        $indexResponse = app(InventoryTransferRequestController::class)->index($indexRequest);
+        $this->assertSame(200, $indexResponse->getStatusCode());
+        $this->assertSame($transferId, $indexResponse->getData(true)['data']['data'][0]['id']);
+
+        $approveRequest = Request::create('/api/inventory-transfer-requests/' . $transferId . '/approve', 'POST', []);
+        $approveRequest->setUserResolver(fn () => $employee);
+        $approveResponse = app(InventoryTransferRequestController::class)->approve(
+            $approveRequest,
+            InventoryTransferRequest::query()->findOrFail($transferId),
+        );
+        $this->assertSame(200, $approveResponse->getStatusCode());
+        $this->assertDatabaseHas('inventory_transfer_requests', [
+            'id' => $transferId,
+            'status' => 'approved',
+        ]);
+        $this->assertNotNull(InventoryTransferRequest::query()->findOrFail($transferId)->journal_entry_id);
+        $this->assertSame(8.0, (float) \Illuminate\Support\Facades\DB::table('product_warehouse')->where('product_id', $product->id)->where('warehouse_id', $sourceWarehouse->id)->value('stock'));
+        $this->assertSame(2.0, (float) \Illuminate\Support\Facades\DB::table('product_warehouse')->where('product_id', $product->id)->where('warehouse_id', $destinationWarehouse->id)->value('stock'));
+        $this->assertSame(10.0, (float) $product->fresh()->stock);
+        $this->assertDatabaseHas('inventory_movements', [
+            'reference_type' => InventoryTransferRequest::class,
+            'reference_id' => $transferId,
+            'movement_type' => 'branch_transfer_out',
+            'quantity_delta' => -2,
+            'total_cost' => 16,
+        ]);
+        $this->assertDatabaseHas('inventory_movements', [
+            'reference_type' => InventoryTransferRequest::class,
+            'reference_id' => $transferId,
+            'movement_type' => 'branch_transfer_in',
+            'quantity_delta' => 2,
+            'total_cost' => 16,
+        ]);
+        $journalId = (int) InventoryTransferRequest::query()->findOrFail($transferId)->journal_entry_id;
+        $this->assertSame(16.0, (float) \Illuminate\Support\Facades\DB::table('journal_entry_lines')->where('journal_entry_id', $journalId)->sum('debit'));
+        $this->assertSame(16.0, (float) \Illuminate\Support\Facades\DB::table('journal_entry_lines')->where('journal_entry_id', $journalId)->sum('credit'));
+        $ledgerResponse = app(ProductLedgerController::class)->show(Request::create('/api/product/' . $product->id . '/ledger', 'GET'), $product->fresh());
+        $ledgerMovements = $ledgerResponse->getData(true)['data']['movements'];
+        $this->assertCount(2, $ledgerMovements);
+        $this->assertEqualsCanonicalizing(['branch_transfer_in', 'branch_transfer_out'], array_column($ledgerMovements, 'type'));
+        $this->assertEqualsCanonicalizing([$sourceBranch->id, $destinationBranch->id], array_column(array_column($ledgerMovements, 'branch'), 'id'));
         Notification::assertSentTo($admin, SystemEventNotification::class, fn (SystemEventNotification $notification) => $notification->category === 'warning');
     }
 

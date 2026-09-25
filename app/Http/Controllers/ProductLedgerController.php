@@ -101,12 +101,23 @@ class ProductLedgerController extends Controller
             ->when($from, fn ($q) => $q->whereDate('created_at', '>=', $from))
             ->when($to, fn ($q) => $q->whereDate('created_at', '<=', $to))
             ->latest()->get()->map(fn ($movement) => [
-                'id' => $movement->id, 'source' => 'inventory', 'type' => $movement->type,
-                'date' => $this->dateOnly($movement->created_at), 'reference' => $movement->reference_id,
-                'reference_type' => $movement->reference_type, 'invoice_id' => null, 'customer' => null,
-                'warehouse' => $movement->warehouse?->only(['id', 'name']), 'quantity' => (float) $movement->quantity,
-                'unit_cost' => (float) $movement->unit_cost, 'total_cost' => (float) $movement->total_cost,
-                'note' => $movement->note,
+                'id' => $movement->id,
+                'source' => 'inventory',
+                'type' => $movement->movement_type ?? $movement->type,
+                'movement_type' => $movement->movement_type ?? $movement->type,
+                'date' => $this->dateOnly($movement->created_at),
+                'reference' => $movement->reference_id ? '#'.$movement->reference_id : null,
+                'reference_id' => $movement->reference_id,
+                'reference_type' => $movement->reference_type,
+                'invoice_id' => null,
+                'customer' => null,
+                'warehouse' => $movement->warehouse?->only(['id', 'name']),
+                'branch' => $movement->branch?->only(['id', 'name']),
+                'quantity' => abs((float) ($movement->quantity_delta ?? $movement->quantity ?? 0)),
+                'quantity_delta' => (float) ($movement->quantity_delta ?? $movement->quantity ?? 0),
+                'unit_cost' => (float) ($movement->unit_cost ?? 0),
+                'total_cost' => (float) ($movement->total_cost ?? 0),
+                'note' => $movement->notes ?? $movement->note,
             ]);
 
         $salesRows = $sales->concat($pos)->sortByDesc('date')->values();
