@@ -13,7 +13,6 @@ use App\Services\InventoryTransferPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
 
 class InventoryTransferRequestController extends Controller
@@ -152,10 +151,17 @@ class InventoryTransferRequestController extends Controller
             $transfer = InventoryTransferRequest::query()->lockForUpdate()->findOrFail($transferRequest->id);
             abort_unless($transfer->status === 'pending', Response::HTTP_UNPROCESSABLE_ENTITY, 'هذا الطلب تمت معالجته مسبقاً.');
             $product = Product::query()->lockForUpdate()->findOrFail($transfer->product_id);
-            $warehouseCost = (float) DB::table('product_warehouse')
+            $sourceStock = DB::table('product_warehouse')
                 ->where('product_id', $product->id)
                 ->where('warehouse_id', $transfer->from_warehouse_id)
-                ->value('cost');
+                ->lockForUpdate()
+                ->first();
+            $destinationStock = DB::table('product_warehouse')
+                ->where('product_id', $product->id)
+                ->where('warehouse_id', $transfer->to_warehouse_id)
+                ->lockForUpdate()
+                ->first();
+            $warehouseCost = (float) ($sourceStock?->cost ?? 0);
             $unitCost = $warehouseCost > 0 ? $warehouseCost : (float) ($product->cost ?? 0);
 
             $outMovement = app(InventoryMovementService::class)->apply([
@@ -180,6 +186,18 @@ class InventoryTransferRequestController extends Controller
                 'reference_id' => $transfer->id,
                 'notes' => 'استلام مخزون من فرع آخر',
             ]);
+            $destinationQuantityBefore = (float) ($destinationStock?->stock ?? 0);
+            $destinationCostBefore = (float) ($destinationStock?->cost ?? 0);
+            $destinationQuantityAfter = $destinationQuantityBefore + (float) $transfer->quantity;
+            if ($destinationQuantityAfter > 0 && $unitCost > 0) {
+                $destinationAverageCost = $destinationQuantityBefore > 0 && $destinationCostBefore > 0
+                    ? (($destinationQuantityBefore * $destinationCostBefore) + ((float) $transfer->quantity * $unitCost)) / $destinationQuantityAfter
+                    : $unitCost;
+                DB::table('product_warehouse')
+                    ->where('product_id', $product->id)
+                    ->where('warehouse_id', $transfer->to_warehouse_id)
+                    ->update(['cost' => round($destinationAverageCost, 2), 'updated_at' => now()]);
+            }
             $transfer->update(['status' => 'approved', 'approved_by' => $user instanceof Employee ? $user->id : null, 'approved_at' => now(), 'note' => $data['note'] ?? $transfer->note]);
             app(InventoryTransferPostingService::class)->post($transfer, $unitCost, [$outMovement->id, $inMovement->id]);
             return $transfer->refresh();

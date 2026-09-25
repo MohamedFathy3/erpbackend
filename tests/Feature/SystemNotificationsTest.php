@@ -101,6 +101,7 @@ class SystemNotificationsTest extends TestCase
         $this->assertNotNull(InventoryTransferRequest::query()->findOrFail($transferId)->journal_entry_id);
         $this->assertSame(8.0, (float) \Illuminate\Support\Facades\DB::table('product_warehouse')->where('product_id', $product->id)->where('warehouse_id', $sourceWarehouse->id)->value('stock'));
         $this->assertSame(2.0, (float) \Illuminate\Support\Facades\DB::table('product_warehouse')->where('product_id', $product->id)->where('warehouse_id', $destinationWarehouse->id)->value('stock'));
+        $this->assertSame(8.0, (float) \Illuminate\Support\Facades\DB::table('product_warehouse')->where('product_id', $product->id)->where('warehouse_id', $destinationWarehouse->id)->value('cost'));
         $this->assertSame(10.0, (float) $product->fresh()->stock);
         $this->assertDatabaseHas('inventory_movements', [
             'reference_type' => InventoryTransferRequest::class,
