@@ -29,6 +29,18 @@ class BiometricAttendanceController extends Controller
 
     public function testDevice(BiometricDevice $device, BiometricAttendanceService $service) { return response()->json(['status' => true, 'data' => $service->testConnection($device)]); }
     public function syncDevice(BiometricDevice $device, BiometricAttendanceService $service) { return response()->json(['status' => true, 'data' => $service->sync($device)]); }
+    public function deviceUsers(BiometricDevice $device, BiometricAttendanceService $service) { return response()->json(['status' => true, 'data' => $service->deviceUsers($device)]); }
+
+    public function storeDeviceUser(Request $request, BiometricDevice $device, BiometricAttendanceService $service)
+    {
+        $data = $request->validate([
+            'uid' => 'required|integer|min:1|max:65535', 'user_id' => 'required|string|max:32',
+            'name' => 'required|string|max:100', 'password' => 'nullable|string|max:32',
+            'role' => 'nullable|integer|min:0|max:14', 'card_no' => 'nullable|integer|min:0',
+            'employee_id' => 'nullable|exists:employees,id',
+        ]);
+        return response()->json(['status' => true, 'data' => $service->createDeviceUser($device, $data)], 201);
+    }
 
     public function mappings()
     {

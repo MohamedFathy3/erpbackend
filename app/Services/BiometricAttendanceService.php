@@ -58,6 +58,46 @@ class BiometricAttendanceService
         return $result;
     }
 
+    public function deviceUsers(BiometricDevice $device): array
+    {
+        $zk = $this->client($device, 15);
+        if (!$zk->connect()) throw new RuntimeException('تعذر الاتصال بجهاز البصمة. تحقق من IP والمنفذ والشبكة.');
+        try {
+            return collect($zk->getUsers())->map(fn (array $user) => [
+                'uid' => (int) ($user['uid'] ?? 0),
+                'user_id' => (string) ($user['user_id'] ?? $user['uid'] ?? ''),
+                'name' => (string) ($user['name'] ?? ''),
+                'role' => (int) ($user['role'] ?? 0),
+                'card_no' => (string) ($user['card_no'] ?? ''),
+                'device_ip' => $device->ip_address,
+                'employee' => Employee::where('biometric_user_id', (string) ($user['user_id'] ?? $user['uid'] ?? ''))->first(['id', 'name', 'employee_code']),
+            ])->values()->all();
+        } finally {
+            $zk->disconnect();
+        }
+    }
+
+    public function createDeviceUser(BiometricDevice $device, array $data): array
+    {
+        $zk = $this->client($device, 15);
+        if (!$zk->connect()) throw new RuntimeException('تعذر الاتصال بجهاز البصمة.');
+        try {
+            $ok = $zk->setUser((int) $data['uid'], (string) $data['user_id'], (string) $data['name'], (string) ($data['password'] ?? ''), (int) ($data['role'] ?? 0), (int) ($data['card_no'] ?? 0));
+            if (!$ok) throw new RuntimeException('رفض الجهاز إضافة المستخدم.');
+        } finally {
+            $zk->disconnect();
+        }
+        if (!empty($data['employee_id'])) {
+            Employee::whereKey($data['employee_id'])->update(['biometric_user_id' => (string) $data['user_id']]);
+        }
+        return ['uid' => (int) $data['uid'], 'user_id' => (string) $data['user_id'], 'name' => (string) $data['name'], 'employee_id' => $data['employee_id'] ?? null];
+    }
+
+    private function client(BiometricDevice $device, int $timeout): ZKTeco
+    {
+        return new ZKTeco($device->ip_address, (int) $device->port, timeout: $timeout, password: (int) $device->device_password, protocol: $device->protocol);
+    }
+
     public function previewPayroll(Employee $employee, Carbon $from, Carbon $to, ?AttendanceRule $rule = null): array
     {
         $rule ??= AttendanceRule::where('is_active', true)->latest('id')->first();

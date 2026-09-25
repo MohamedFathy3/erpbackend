@@ -4,6 +4,23 @@
 
 ## إعداد الجهاز
 
+## تجهيز السيرفر
+
+بعد سحب نسخة جديدة من Git يجب تثبيت مكتبات PHP وإعادة بناء autoload، وإلا سيظهر الخطأ `Class Mithun\\PhpZkteco\\Libs\\ZKTeco not found`:
+
+```bash
+git pull origin main
+composer install --no-dev --optimize-autoloader
+php artisan migrate --force
+php artisan optimize:clear
+```
+
+تأكد أن الأمر التالي يطبع `1`:
+
+```bash
+php -r 'require "vendor/autoload.php"; var_dump(class_exists("Mithun\\PhpZkteco\\Libs\\ZKTeco"));'
+```
+
 1. ثبّت IP الجهاز داخل الشبكة، مثل `192.168.1.201`.
 2. اترك `TCP COMM.Port` على `4370`، واختر `TCP/IP` داخل ERP (ويمكن تجربة UDP عند الحاجة).
 3. من **HR → البصمة والرواتب → الأجهزة** أضف اسم الجهاز وIP والمنفذ.

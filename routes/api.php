@@ -1586,6 +1586,8 @@ Route::middleware([
         Route::patch('/devices/{device}', [BiometricAttendanceController::class, 'updateDevice']);
         Route::post('/devices/{device}/test', [BiometricAttendanceController::class, 'testDevice']);
         Route::post('/devices/{device}/sync', [BiometricAttendanceController::class, 'syncDevice']);
+        Route::get('/devices/{device}/users', [BiometricAttendanceController::class, 'deviceUsers']);
+        Route::post('/devices/{device}/users', [BiometricAttendanceController::class, 'storeDeviceUser']);
         Route::get('/mappings', [BiometricAttendanceController::class, 'mappings']);
         Route::patch('/mappings/{employee}', [BiometricAttendanceController::class, 'updateMapping']);
         Route::get('/rules', [BiometricAttendanceController::class, 'rules']);
