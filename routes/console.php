@@ -9,3 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote')->hourly();
 
 Schedule::command('reminders:dispatch')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('biometric:sync')->everyTenMinutes()->withoutOverlapping();

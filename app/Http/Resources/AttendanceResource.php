@@ -12,7 +12,8 @@ class AttendanceResource extends JsonResource
             'id'         => $this->id,
             'employee' => [
                 'name' => $this->employee?->name,
-                'employee_code'   => $this->employee?->id,
+                'employee_code'   => $this->employee?->employee_code,
+                'biometric_user_id' => $this->employee?->biometric_user_id,
             ],
             'date'       => $this->date?->format('Y-m-d'),
 
@@ -20,6 +21,9 @@ class AttendanceResource extends JsonResource
             'check_in'   => $this->check_in?->format('H:i:s'),
             'check_out'  => $this->check_out?->format('H:i:s'),
             'status'     => $this->status,
+            'source' => $this->source,
+            'late_minutes' => (int) ($this->late_minutes ?? 0),
+            'worked_minutes' => (int) ($this->worked_minutes ?? 0),
 
             'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
         ];

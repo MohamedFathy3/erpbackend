@@ -48,4 +48,9 @@ class Employee extends BaseModel implements Authenticatable
         return $this->hasMany(AutomotiveServiceOrderTechnician::class, 'employee_id');
     }
 
+    public function biometricLogs(): HasMany
+    {
+        return $this->hasMany(BiometricLog::class);
+    }
+
 }

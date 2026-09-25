@@ -6,6 +6,7 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AutomotiveController;
 use App\Http\Controllers\AutomotivePortalController;
 use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\BiometricAttendanceController;
 use App\Http\Controllers\BankController;
 use App\Http\Controllers\BranchController;
 use App\Http\Controllers\CashierShiftController;
@@ -1578,6 +1579,20 @@ Route::middleware([
         AttendanceController::class,
         'importAttendance'
     ]);
+
+    Route::prefix('biometric')->group(function () {
+        Route::get('/devices', [BiometricAttendanceController::class, 'devices']);
+        Route::post('/devices', [BiometricAttendanceController::class, 'storeDevice']);
+        Route::patch('/devices/{device}', [BiometricAttendanceController::class, 'updateDevice']);
+        Route::post('/devices/{device}/test', [BiometricAttendanceController::class, 'testDevice']);
+        Route::post('/devices/{device}/sync', [BiometricAttendanceController::class, 'syncDevice']);
+        Route::get('/mappings', [BiometricAttendanceController::class, 'mappings']);
+        Route::patch('/mappings/{employee}', [BiometricAttendanceController::class, 'updateMapping']);
+        Route::get('/rules', [BiometricAttendanceController::class, 'rules']);
+        Route::post('/rules', [BiometricAttendanceController::class, 'storeRule']);
+        Route::patch('/rules/{rule}', [BiometricAttendanceController::class, 'updateRule']);
+        Route::get('/payroll-preview/{employee}', [BiometricAttendanceController::class, 'payrollPreview']);
+    });
 });
 
 

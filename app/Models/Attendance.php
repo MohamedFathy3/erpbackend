@@ -20,4 +20,9 @@ class Attendance extends Model
     {
         return $this->belongsTo(Employee::class);
     }
+
+    public function device()
+    {
+        return $this->belongsTo(BiometricDevice::class, 'device_id');
+    }
 }
