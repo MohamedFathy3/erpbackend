@@ -24,6 +24,7 @@ class InventoryMovementService
     {
         return $this->database->transaction(function () use ($data) {
             $product = Product::query()->lockForUpdate()->findOrFail($data['product_id']);
+            $previousProductStock = (float) $product->stock;
             $delta = (float) $data['quantity_delta'];
             $productUnitId = $data['product_unit_id'] ?? null;
             $sizeId = $data['size_id'] ?? null;
@@ -63,7 +64,7 @@ class InventoryMovementService
                 $createdBy = null;
             }
 
-            return InventoryMovement::create([
+            $movement = InventoryMovement::create([
                 'product_id' => $product->id,
                 'product_unit_id' => $productUnitId,
                 'size_id' => $sizeId,
@@ -79,6 +80,10 @@ class InventoryMovementService
                 'created_by' => $createdBy,
                 'notes' => $data['notes'] ?? null,
             ]);
+            if ($delta < 0) {
+                app(SystemNotificationService::class)->lowStock($product->fresh(), $movement, $previousProductStock);
+            }
+            return $movement;
         });
     }
 

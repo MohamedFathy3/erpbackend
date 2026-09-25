@@ -19,6 +19,7 @@ class TreasuryResource extends JsonResource
             'branch_id' => $this->branch_id,
             'branch' => new BranchResource($this->branch) ?? null,
             'balance' => (float) $this->balance,
+            'alert_below_balance' => (float) ($this->alert_below_balance ?? 0),
             'currency' => $this->currency,
             'is_main' => $this->is_main,
             'notes' => $this->notes,
@@ -26,4 +27,3 @@ class TreasuryResource extends JsonResource
         ];
     }
 }
-

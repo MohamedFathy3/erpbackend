@@ -10,6 +10,8 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\RateLimiter;
 use App\Http\Middleware\AdminMiddleware;
 use App\Models\Invoice;
+use App\Models\InventoryTransferRequest;
+use App\Models\JournalEntry;
 use App\Models\ManufacturingOrder;
 use App\Models\Project;
 use App\Models\PurchaseInvoice;
@@ -17,6 +19,7 @@ use App\Models\PurchaseReturn;
 use App\Models\SalesInvoice;
 use App\Models\SalesInvoiceReturn;
 use App\Models\ReturnInvoice;
+use App\Models\TreasuryTransaction;
 use App\Models\WorkflowTransaction;
 use App\Services\AI\AIResponseService;
 use App\Services\AI\DatabaseSchemaService;
@@ -24,6 +27,7 @@ use App\Services\AI\GeminiService;
 use App\Services\AI\ReadOnlyQueryService;
 use App\Services\AI\SQLGeneratorService;
 use App\Services\AI\SQLValidatorService;
+use App\Services\SystemNotificationService;
 class AppServiceProvider extends ServiceProvider
 {
     /**
@@ -68,6 +72,17 @@ class AppServiceProvider extends ServiceProvider
             $trackedModel::created(fn ($model) => $track($model, 'created'));
             $trackedModel::updated(fn ($model) => $track($model, 'updated'));
         }
+
+        foreach ([SalesInvoice::class, Invoice::class] as $salesModel) {
+            $salesModel::created(fn ($invoice) => app(SystemNotificationService::class)->invoiceCreated($invoice, 'sale'));
+        }
+        PurchaseInvoice::created(fn ($invoice) => app(SystemNotificationService::class)->invoiceCreated($invoice, 'purchase'));
+        JournalEntry::created(fn ($entry) => app(SystemNotificationService::class)->journalPosted($entry));
+        JournalEntry::updated(function ($entry): void {
+            if ($entry->wasChanged('status')) app(SystemNotificationService::class)->journalPosted($entry);
+        });
+        TreasuryTransaction::created(fn ($transaction) => app(SystemNotificationService::class)->treasuryTransactionCreated($transaction));
+        InventoryTransferRequest::created(fn ($transfer) => app(SystemNotificationService::class)->transferRequested($transfer));
 
         ResetPassword::createUrlUsing(static function (object $notifiable, string $token) {
             return config('app.frontend_url')."/password-reset/$token?email={$notifiable->getEmailForPasswordReset()}";

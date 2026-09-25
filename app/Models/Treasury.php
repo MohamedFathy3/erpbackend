@@ -8,6 +8,7 @@ class Treasury extends BaseModel
 
     protected $casts = [
         'is_main' => 'boolean',
+        'alert_below_balance' => 'decimal:2',
         'currencies' => 'array', // تحويل JSON إلى array تلقائياً
     ];
 

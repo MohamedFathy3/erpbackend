@@ -32,10 +32,10 @@ class TreasuryRequest extends FormRequest
             ],
             'branch_id' => 'nullable|exists:branches,id',
             'balance' => 'nullable|numeric|min:0',
+            'alert_below_balance' => 'nullable|numeric|min:0',
             'currency' => 'required|string|max:10',
             'is_main' => 'required|boolean',
             'notes' => 'nullable|string',
         ];
     }
 }
-

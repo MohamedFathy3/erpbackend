@@ -130,11 +130,11 @@ class InventoryTransferRequestController extends Controller
             'status' => 'pending',
         ]);
 
-        Employee::query()->where('tenant_id', $user->tenant_id)->where('branch_id', $destinationBranchId)->where('is_active', true)->get()->each(function (Employee $employee) use ($transfer): void {
+        // employees has soft deletes but no is_active database column.
+        Employee::query()->with('role')->where('tenant_id', $user->tenant_id)->where('branch_id', $destinationBranchId)->get()->each(function (Employee $employee) use ($transfer): void {
             $role = strtolower((string) $employee->role?->name);
             if ($this->isManager($employee) || str_contains($role, 'cashier')) $employee->notify(new InventoryTransferRequestNotification($transfer));
         });
-
         return response()->json(['data' => $transfer->load(['product', 'fromBranch', 'toBranch', 'fromWarehouse', 'toWarehouse'])], Response::HTTP_CREATED);
     }
 
