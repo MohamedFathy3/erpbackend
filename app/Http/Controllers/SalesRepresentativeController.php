@@ -58,7 +58,7 @@ class SalesRepresentativeController extends BaseController
             $to = $request->input('to', data_get($request->input('filters', []), 'date_to'));
             $representatives = collect($this->crudRepository->all([], [], ['*']));
             $rows = $representatives->map(function ($representative) use ($from, $to) {
-                $invoices = SalesInvoice::with(['customer:id,name,name_ar', 'items.product:id,name,cost'])
+                $invoices = SalesInvoice::with(['customer:id,name', 'items.product:id,name,cost'])
                     ->where('sales_representative_id', $representative->id)
                     ->when($from, fn ($query) => $query->whereDate('invoice_date', '>=', $from))
                     ->when($to, fn ($query) => $query->whereDate('invoice_date', '<=', $to))
