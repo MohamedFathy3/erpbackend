@@ -1481,6 +1481,8 @@ Route::middleware([
         'index'
     ]);
 
+    Route::post('/sales-representative/{salesRepresentative}/bonus/collect', [SalesRepresentativeController::class, 'collectBonus']);
+
     Route::post('sales-representative/restore', [
         SalesRepresentativeController::class,
         'restore'

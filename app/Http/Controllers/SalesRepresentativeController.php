@@ -10,6 +10,12 @@ use App\Models\SalesRepresentative;
 use App\Models\Employee;
 use App\Models\SalesInvoice;
 use App\Models\Invoice;
+use App\Models\EmployeeBonus;
+use App\Models\Finance;
+use App\Models\Treasury;
+use App\Models\TreasuryTransaction;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -79,13 +85,40 @@ class SalesRepresentativeController extends BaseController
                 $sales = (float) $rowsForReport->sum('total');
                 $cost = (float) $rowsForReport->sum('cost');
                 $rate = (float) ($representative->commission_rate ?? 0);
-                return array_merge((new SalesRepresentativeResource($representative))->resolve(), ['report' => ['from' => $from, 'to' => $to, 'invoice_count' => $rowsForReport->count(), 'sales_total' => round($sales, 2), 'cost_total' => round($cost, 2), 'profit_total' => round($sales - $cost, 2), 'commission_rate' => $rate, 'commission_total' => round($sales * $rate / 100, 2), 'invoices' => $rowsForReport]]);
+                $bonus = $representative->employee_id
+                    ? EmployeeBonus::with(['treasury', 'journalEntry'])->where('employee_id', $representative->employee_id)->when($from, fn ($q) => $q->whereDate('bonus_date', '>=', $from))->when($to, fn ($q) => $q->whereDate('bonus_date', '<=', $to))->latest('bonus_date')->get()
+                    : collect();
+                return array_merge((new SalesRepresentativeResource($representative))->resolve(), ['bonus' => ['total' => round((float) $bonus->sum('amount'), 2), 'paid_total' => round((float) $bonus->where('status', 'paid')->sum('amount'), 2), 'due_total' => round((float) $bonus->where('status', 'due')->sum('amount'), 2), 'payments' => $bonus->map(fn ($item) => ['id' => $item->id, 'date' => $item->bonus_date?->toDateString(), 'amount' => (float) $item->amount, 'status' => $item->status, 'paid_at' => $item->paid_at?->toDateTimeString(), 'paid_by' => $item->recorded_by_name, 'treasury' => $item->treasury?->only(['id', 'name']), 'journal_entry_id' => $item->journal_entry_id])->values()], 'report' => ['from' => $from, 'to' => $to, 'invoice_count' => $rowsForReport->count(), 'sales_total' => round($sales, 2), 'cost_total' => round($cost, 2), 'profit_total' => round($sales - $cost, 2), 'commission_rate' => $rate, 'commission_total' => round($sales * $rate / 100, 2), 'invoices' => $rowsForReport]]);
             });
             return response()->json(['data' => $rows->values(), 'result' => 'Success', 'message' => 'Success', 'status' => 200]);
         } catch (Exception $e) {
             return JsonResponse::respondError($e->getMessage());
         }
     }
+    public function collectBonus(Request $request, SalesRepresentative $salesRepresentative): \Illuminate\Http\JsonResponse
+    {
+        $data = $request->validate(['bonus_date' => 'required|date', 'treasury_id' => 'required|exists:treasuries,id', 'notes' => 'nullable|string']);
+        if (!$salesRepresentative->employee_id) throw ValidationException::withMessages(['sales_representative' => 'المندوب غير مربوط بموظف.']);
+        $date = $data['bonus_date'];
+        $sales = SalesInvoice::where('sales_representative_id', $salesRepresentative->id)->whereDate('invoice_date', $date)->get()->sum(fn ($invoice) => (float) ($invoice->net_total ?? $invoice->total_amount ?? $invoice->total ?? 0));
+        $sales += Invoice::where('sales_representative_id', $salesRepresentative->id)->whereDate('created_at', $date)->get()->sum(fn ($invoice) => (float) ($invoice->total_amount ?? $invoice->total ?? 0));
+        $amount = round($sales * ((float) $salesRepresentative->commission_rate) / 100, 2);
+        if ($amount <= 0) throw ValidationException::withMessages(['bonus' => 'لا توجد عمولة مستحقة لهذا المندوب في هذا اليوم.']);
+        $result = DB::transaction(function () use ($data, $salesRepresentative, $date, $amount, $request) {
+            $bonus = EmployeeBonus::query()->lockForUpdate()->firstOrCreate(['employee_id' => $salesRepresentative->employee_id, 'bonus_date' => $date, 'reason' => 'عمولة مبيعات المندوب'], ['amount' => $amount, 'status' => 'due', 'recorded_by_name' => $this->actor($request)]);
+            if ($bonus->status === 'paid' || $bonus->finance_id) throw ValidationException::withMessages(['bonus' => 'تم دفع بونص هذا اليوم بالفعل.']);
+            $treasury = Treasury::query()->lockForUpdate()->findOrFail($data['treasury_id']);
+            if ((float) $treasury->balance < $amount) throw ValidationException::withMessages(['treasury_id' => 'رصيد الخزينة غير كافٍ.']);
+            $finance = Finance::create(['category' => 'bonus', 'amount' => $amount, 'description' => 'عمولة مندوب المبيعات: ' . $salesRepresentative->name . ' - ' . $date, 'date' => $date, 'payment_method' => 'cash', 'treasury_id' => $treasury->id, 'branch_id' => $salesRepresentative->branch_id]);
+            $treasury->decrement('balance', $amount);
+            TreasuryTransaction::create(['treasury_id' => $treasury->id, 'reference_type' => EmployeeBonus::class, 'reference_id' => $bonus->id, 'type' => 'out', 'amount' => $amount, 'description' => 'دفع عمولة مندوب ' . $salesRepresentative->name]);
+            $journal = app(\App\Services\AccountingAutoPostingService::class)->postFinance($finance);
+            $bonus->update(['amount' => $amount, 'status' => 'paid', 'treasury_id' => $treasury->id, 'finance_id' => $finance->id, 'journal_entry_id' => $journal->id, 'paid_at' => now(), 'notes' => $data['notes'] ?? null, 'recorded_by_name' => $this->actor($request)]);
+            return $bonus->fresh(['employee', 'treasury', 'finance', 'journalEntry']);
+        });
+        return response()->json(['status' => true, 'message' => 'تم دفع بونص المندوب وتسجيل القيد.', 'data' => $result]);
+    }
+    private function actor(Request $request): string { return (string) ($request->user()?->name ?? $request->user()?->email ?? 'System'); }
     public function store(SalesRepresentativeRequest $request)
     {
         try {
