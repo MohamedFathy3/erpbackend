@@ -19,9 +19,24 @@ use App\Services\PosAccountingPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Hash;
 
 class InvoiceController extends Controller
 {
+    public function cashierAccess(Request $request)
+    {
+        $data = $request->validate([
+            'employee_id' => ['required', 'integer', 'exists:employees,id'],
+            'password' => ['required', 'string'],
+        ]);
+        $employee = Employee::query()->findOrFail($data['employee_id']);
+        abort_unless($employee->is_active !== false && Hash::check($data['password'], (string) $employee->password), 403, 'كلمة مرور الكاشير غير صحيحة.');
+        $invoices = Invoice::with(['customer', 'branch', 'cashier', 'treasury', 'salesRepresentative', 'shift'])
+            ->where('cashier_id', $employee->id)
+            ->latest('id')->limit(200)->get();
+        return response()->json(['result' => 'Success', 'data' => InvoiceResource::collection($invoices)]);
+    }
+
     public function invoiceIndex(Request $request)
     {
         try {

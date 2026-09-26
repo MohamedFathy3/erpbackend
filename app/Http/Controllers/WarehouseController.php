@@ -235,6 +235,7 @@ class WarehouseController extends BaseController
                     'reference_id' => $inventoryLog->id,
                     'notes' => $validated['note'] ?? 'تسوية جرد المخزون',
                 ]);
+                app(\App\Services\InventoryAdjustmentPostingService::class)->post($inventoryLog, (float) ($product->cost ?? 0));
             }
 
             DB::commit();
@@ -280,6 +281,7 @@ class WarehouseController extends BaseController
                 'reference_id' => $inventoryLog->id,
                 'notes' => $validated['note'] ?? 'تعديل تسوية الجرد',
             ]);
+            app(\App\Services\InventoryAdjustmentPostingService::class)->post($inventoryLog, (float) ($product->cost ?? 0));
         });
 
         return response()->json([

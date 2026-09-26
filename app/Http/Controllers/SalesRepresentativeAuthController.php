@@ -57,7 +57,7 @@ class SalesRepresentativeAuthController extends Controller
         $to = $request->date('to');
 
         $invoices = SalesInvoice::query()
-            ->with(['customer:id,name', 'salesRepresentative:id,name,commission_rate'])
+            ->with(['customer:id,name', 'salesRepresentative:id,name,commission_rate', 'items.product:id,cost'])
             ->where('sales_representative_id', $representative->id)
             ->when($from, fn ($query) => $query->whereDate('invoice_date', '>=', $from))
             ->when($to, fn ($query) => $query->whereDate('invoice_date', '<=', $to))
@@ -70,17 +70,25 @@ class SalesRepresentativeAuthController extends Controller
             ->when($to, fn ($query) => $query->whereDate('created_at', '<=', $to))
             ->get();
 
+        $costTotal = (float) $invoices->sum(fn ($invoice) => $invoice->items->sum(fn ($item) => (float) ($item->product?->cost ?? 0) * (float) $item->quantity));
+        $invoices->each(function ($invoice) {
+            $invoice->cost_total = round((float) $invoice->items->sum(fn ($item) => (float) ($item->product?->cost ?? 0) * (float) $item->quantity), 2);
+            $invoice->profit_total = round((float) ($invoice->net_total ?? $invoice->total_amount ?? 0) - (float) $invoice->cost_total, 2);
+        });
         $salesTotal = (float) $invoices->sum(fn ($invoice) => $invoice->net_total ?? $invoice->total_amount ?? 0);
+        $profitTotal = $salesTotal - $costTotal;
         $paidTotal = (float) $invoices->sum('paid_amount');
         $returnsTotal = (float) $returns->sum('total_amount');
         $netSales = max(0, $salesTotal - $returnsTotal);
         $commissionRate = (float) ($representative->commission_rate ?? 0);
 
-        $periods = $invoices->groupBy(fn ($invoice) => optional($invoice->invoice_date ?? $invoice->created_at)->format('Y-m'))
+        $periods = $invoices->groupBy(fn ($invoice) => optional($invoice->invoice_date ?? $invoice->created_at)->format('Y-m-d'))
             ->map(fn ($rows, $period) => [
                 'period' => $period,
                 'invoice_count' => $rows->count(),
                 'sales_total' => (float) $rows->sum(fn ($invoice) => $invoice->net_total ?? $invoice->total_amount ?? 0),
+                'cost_total' => (float) $rows->sum(fn ($invoice) => $invoice->items->sum(fn ($item) => (float) ($item->product?->cost ?? 0) * (float) $item->quantity)),
+                'profit_total' => (float) $rows->sum(fn ($invoice) => ($invoice->net_total ?? $invoice->total_amount ?? 0) - $invoice->items->sum(fn ($item) => (float) ($item->product?->cost ?? 0) * (float) $item->quantity)),
                 'commission' => (float) $rows->sum(fn ($invoice) => (($invoice->net_total ?? $invoice->total_amount ?? 0) * $commissionRate) / 100),
             ])->values();
 
@@ -90,6 +98,8 @@ class SalesRepresentativeAuthController extends Controller
                 'summary' => [
                     'invoice_count' => $invoices->count(),
                     'sales_total' => round($salesTotal, 2),
+                    'cost_total' => round($costTotal, 2),
+                    'profit_total' => round($profitTotal, 2),
                     'paid_total' => round($paidTotal, 2),
                     'returns_total' => round($returnsTotal, 2),
                     'net_sales' => round($netSales, 2),
