@@ -758,6 +758,9 @@ public function report($shiftId)
                 'closed_at'       => now(),
                 'notes'           => $request->notes,
             ]);
+            \App\Models\InvoiceTransferRequest::where('cashier_shift_id', $shift->id)
+                ->where('status', 'pending')
+                ->update(['status' => 'cancelled', 'note' => 'تم الإلغاء تلقائيًا لإغلاق الوردية']);
 
             DB::commit();
 

@@ -360,6 +360,8 @@ public function store(Request $request)
         ]);
 
         try {
+            $invoiceNumber = trim((string) $request->query('invoice_number'));
+            $digits = preg_replace('/\D+/', '', $invoiceNumber);
             $invoice = Invoice::with([
                 'items.product',
                 'customer',
@@ -367,7 +369,11 @@ public function store(Request $request)
                 'treasury',
                 'salesRepresentative'
             ])
-                ->where('invoice_number', $request->query('invoice_number'))
+                ->where(function ($query) use ($invoiceNumber, $digits): void {
+                    $query->where('invoice_number', $invoiceNumber);
+                    if ($digits !== '') $query->orWhere('invoice_number', 'like', '%' . $digits);
+                })
+                ->latest('id')
                 ->first();
 
             if (!$invoice) {

@@ -168,7 +168,7 @@ class ReportController extends Controller
     public function shifts(Request $request)
     {
         $filters = $request->input('filters', []);
-        $query = CashierShift::query()->with(['employee', 'admin']);
+        $query = CashierShift::query()->with(['employee', 'admin', 'invoices.items.product', 'invoices.salesRepresentative', 'invoices.cashier']);
 
         if (!empty($filters['employee_id'])) {
             $query->where('employee_id', $filters['employee_id']);
@@ -191,8 +191,18 @@ class ReportController extends Controller
         $perPage = min(max((int) $request->input('perPage', 25), 1), 200);
         $shifts = $query->latest('id')->paginate($perPage);
 
+        $shiftData = collect($shifts->items())->map(function (CashierShift $shift) {
+            $invoices = $shift->invoices->map(function ($invoice) {
+                $cost = (float) $invoice->items->sum(function ($item) {
+                    return (float) ($item->quantity ?? 0) * (float) ($item->product?->cost ?? 0);
+                });
+                $sale = (float) ($invoice->total_amount ?? 0);
+                return ['id'=>$invoice->id,'number'=>$invoice->invoice_number,'date'=>$invoice->created_at,'seller'=>$invoice->salesRepresentative?->only(['id','name']),'cashier'=>$invoice->cashier?->only(['id','name']),'sale'=>$sale,'cost'=>round($cost,2),'profit'=>round($sale-$cost,2),'items'=>$invoice->items->map(fn($item)=>['product'=>$item->product?->only(['id','name','sku']),'quantity'=>(float)$item->quantity,'price'=>(float)$item->price,'total'=>(float)$item->total])->values()];
+            })->values();
+            return array_merge($shift->toArray(), ['invoices'=>$invoices,'invoices_count'=>$invoices->count(),'sales_total'=>(float)$invoices->sum('sale'),'cost_total'=>(float)$invoices->sum('cost'),'profit_total'=>(float)$invoices->sum('profit')]);
+        })->values();
         return response()->json([
-            'data' => $shifts->items(),
+            'data' => $shiftData,
             'meta' => [
                 'current_page' => $shifts->currentPage(),
                 'last_page' => $shifts->lastPage(),

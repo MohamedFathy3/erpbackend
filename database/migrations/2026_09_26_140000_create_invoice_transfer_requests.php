@@ -1,0 +1,5 @@
+<?php
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+return new class extends Migration { public function up(): void { if (!Schema::hasTable('invoice_transfer_requests')) Schema::create('invoice_transfer_requests', function(Blueprint $t){$t->id();$t->string('invoice_type');$t->unsignedBigInteger('invoice_id');$t->foreignId('from_employee_id')->nullable()->constrained('employees')->nullOnDelete();$t->foreignId('to_employee_id')->constrained('employees')->cascadeOnDelete();$t->foreignId('cashier_shift_id')->nullable()->constrained('cashier_shifts')->nullOnDelete();$t->string('status')->default('pending');$t->foreignId('approved_by')->nullable()->constrained('admins')->nullOnDelete();$t->timestamp('approved_at')->nullable();$t->text('note')->nullable();$t->timestamps();$t->index(['invoice_type','invoice_id']);$t->index(['cashier_shift_id','status']);}); } public function down(): void { Schema::dropIfExists('invoice_transfer_requests'); } };

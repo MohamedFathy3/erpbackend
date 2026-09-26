@@ -30,6 +30,7 @@ use App\Http\Controllers\FinanceController;
 use App\Http\Controllers\InventoryLogController;
 use App\Http\Controllers\InventoryTransferRequestController;
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\InvoiceTransferRequestController;
 use App\Http\Controllers\JournalEntryController;
 use App\Http\Controllers\AccountingCoreController;
 use App\Http\Controllers\AccountingDocumentController;
@@ -1350,6 +1351,11 @@ Route::middleware([
     'resolve.tenant',
 ])->group(function () {
     Route::middleware('branch.scope')->group(function () {
+
+    Route::get('/invoice-transfer-requests', [InvoiceTransferRequestController::class, 'index']);
+    Route::post('/invoice-transfer-requests', [InvoiceTransferRequestController::class, 'store']);
+    Route::post('/invoice-transfer-requests/{transfer}/approve', [InvoiceTransferRequestController::class, 'approve']);
+    Route::post('/invoice-transfer-requests/{transfer}/reject', [InvoiceTransferRequestController::class, 'reject']);
 
     Route::post('/invoice/store', [
         InvoiceController::class,

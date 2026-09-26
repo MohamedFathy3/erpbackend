@@ -154,38 +154,18 @@ class WarehouseController extends BaseController
                     throw new \Exception('الكمية غير متاحة للتحويل');
                 }
 
-                // 1️⃣ خصم الكمية من مخزن المصدر
-                $fromWarehouse->products()->updateExistingPivot(
-                    $productId,
-                    [
-                        'stock' => $fromPivot->stock - $qty
-                    ]
-                );
-
-                // 🔎 هل المنتج موجود في مخزن الهدف؟
-                $productInToWarehouse = $toWarehouse->products()
-                    ->where('products.id', $productId)
-                    ->withPivot('stock')
-                    ->lockForUpdate()
-                    ->first();
-
-                if ($productInToWarehouse) {
-                    // 2️⃣ المنتج موجود → زوّد الكمية
-                    $toWarehouse->products()->updateExistingPivot(
-                        $productId,
-                        [
-                            'stock' => $productInToWarehouse->pivot->stock + $qty
-                        ]
-                    );
-                } else {
-                    // 3️⃣ المنتج مش موجود → attach جديد
-                    $toWarehouse->products()->attach(
-                        $productId,
-                        [
-                            'stock' => $qty
-                        ]
-                    );
-                }
+                app(\App\Services\InventoryMovementService::class)->apply([
+                    'product_id' => $productId, 'warehouse_id' => $fromWarehouse->id,
+                    'branch_id' => $fromWarehouse->branch_id, 'movement_type' => 'warehouse_transfer_out',
+                    'quantity_delta' => -$qty, 'reference_type' => \App\Models\Warehouse::class,
+                    'reference_id' => $toWarehouse->id, 'notes' => "تحويل إلى مخزن {$toWarehouse->name}",
+                ]);
+                app(\App\Services\InventoryMovementService::class)->apply([
+                    'product_id' => $productId, 'warehouse_id' => $toWarehouse->id,
+                    'branch_id' => $toWarehouse->branch_id, 'movement_type' => 'warehouse_transfer_in',
+                    'quantity_delta' => $qty, 'reference_type' => \App\Models\Warehouse::class,
+                    'reference_id' => $fromWarehouse->id, 'notes' => "تحويل من مخزن {$fromWarehouse->name}",
+                ]);
             }
 
             DB::commit();
@@ -237,22 +217,23 @@ class WarehouseController extends BaseController
                 $systemStock = $product->pivot->stock;
                 $difference  = $countedStock - $systemStock;
 
-                // تحديث الكمية للجرد
-                $warehouse->products()->updateExistingPivot(
-                    $productId,
-                    [
-                        'stock' => $countedStock
-                    ]
-                );
-
-                // (اختياري) سجل حركة الجرد
-                InventoryLog::create([
+                $inventoryLog = InventoryLog::create([
                     'warehouse_id'   => $warehouse->id,
                     'product_id'     => $productId,
                     'system_stock'   => $systemStock,
                     'counted_stock'  => $countedStock,
                     'difference'     => $difference,
                     'note'           => $validated['note'] ?? null,
+                ]);
+                app(\App\Services\InventoryMovementService::class)->apply([
+                    'product_id' => $productId,
+                    'warehouse_id' => $warehouse->id,
+                    'branch_id' => $warehouse->branch_id,
+                    'movement_type' => 'inventory_adjustment',
+                    'quantity_delta' => $difference,
+                    'reference_type' => InventoryLog::class,
+                    'reference_id' => $inventoryLog->id,
+                    'notes' => $validated['note'] ?? 'تسوية جرد المخزون',
                 ]);
             }
 
@@ -282,13 +263,22 @@ class WarehouseController extends BaseController
             if (!$warehouse->products()->whereKey($inventoryLog->product_id)->exists()) {
                 throw new \RuntimeException('المنتج غير موجود في المخزن المرتبط بسجل الجرد');
             }
-            $warehouse->products()->updateExistingPivot($inventoryLog->product_id, [
-                'stock' => $validated['counted_stock'],
-            ]);
+            $product = $warehouse->products()->whereKey($inventoryLog->product_id)->withPivot('stock')->firstOrFail();
+            $difference = (float) $validated['counted_stock'] - (float) $product->pivot->stock;
             $inventoryLog->update([
                 'counted_stock' => $validated['counted_stock'],
                 'note' => $validated['note'] ?? null,
                 'difference' => $validated['counted_stock'] - $inventoryLog->system_stock,
+            ]);
+            app(\App\Services\InventoryMovementService::class)->apply([
+                'product_id' => $inventoryLog->product_id,
+                'warehouse_id' => $warehouse->id,
+                'branch_id' => $warehouse->branch_id,
+                'movement_type' => 'inventory_adjustment',
+                'quantity_delta' => $difference,
+                'reference_type' => InventoryLog::class,
+                'reference_id' => $inventoryLog->id,
+                'notes' => $validated['note'] ?? 'تعديل تسوية الجرد',
             ]);
         });
 
