@@ -1358,6 +1358,7 @@ Route::middleware([
     Route::post('/invoice-transfer-requests/{transfer}/reject', [InvoiceTransferRequestController::class, 'reject']);
 
     Route::post('/invoices/cashier-access', [InvoiceController::class, 'cashierAccess']);
+    Route::post('/invoices/sales-rep-access', [InvoiceController::class, 'salesRepAccess']);
 
     Route::post('/invoice/store', [
         InvoiceController::class,
