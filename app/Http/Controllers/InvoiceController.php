@@ -12,6 +12,7 @@ use App\Models\InvoiceItem;
 use App\Models\InvoicePayment;
 use App\Models\LoyaltySetting;
 use App\Models\Product;
+use App\Models\SalesRepresentative;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\User;
@@ -39,20 +40,21 @@ class InvoiceController extends Controller
 
     public function salesRepAccess(Request $request)
     {
-        $data = $request->validate([
-            'email' => ['required', 'email'],
-            'password' => ['required', 'string'],
-        ]);
-        $employee = Employee::query()->where('email', $data['email'])->first();
-        abort_unless($employee && $employee->is_active !== false && Hash::check($data['password'], (string) $employee->password), 403, 'بيانات مندوب المبيعات غير صحيحة.');
+        $data = $request->validate(['email' => ['required', 'email'], 'password' => ['required', 'string']]);
+        $representative = SalesRepresentative::query()->where('email', $data['email'])->first();
+        abort_unless($representative && $representative->active && $representative->password && Hash::check($data['password'], $representative->password), 403, 'بيانات مندوب المبيعات غير صحيحة.');
         $invoices = Invoice::with(['customer', 'branch', 'cashier', 'treasury', 'salesRepresentative', 'shift'])
-            ->where('cashier_id', $employee->id)
-            ->whereDate('created_at', now()->toDateString())
-            ->latest('id')->limit(200)->get();
-        return response()->json([
-            'result' => 'Success',
-            'data' => ['employee' => $employee->only(['id', 'name', 'email']), 'invoices' => InvoiceResource::collection($invoices)],
-        ]);
+            ->where(function ($query) use ($representative) {
+                $query->where('sales_representative_id', $representative->id);
+                if ($representative->employee_id) $query->orWhere('cashier_id', $representative->employee_id);
+            })
+            ->whereDate('created_at', now()->toDateString())->latest('id')->limit(200)->get();
+        return response()->json(['result' => 'Success', 'data' => [
+            'employee' => ['id' => $representative->employee_id, 'name' => $representative->name, 'email' => $representative->email, 'representative_id' => $representative->id],
+            'representative' => $representative->only(['id', 'name', 'email', 'employee_id', 'commission_rate']),
+            'representatives' => SalesRepresentative::query()->where('active', true)->get(['id', 'name', 'email', 'employee_id']),
+            'invoices' => InvoiceResource::collection($invoices),
+        ]]);
     }
 
     public function invoiceIndex(Request $request)

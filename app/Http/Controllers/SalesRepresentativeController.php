@@ -7,6 +7,7 @@ use App\Http\Requests\SalesRepresentativeRequest;
 use App\Http\Resources\SalesRepresentativeResource;
 use App\Interfaces\SalesRepresentativeRepositoryInterface;
 use App\Models\SalesRepresentative;
+use App\Models\SalesInvoice;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -50,15 +51,29 @@ class SalesRepresentativeController extends BaseController
         return response()->json(['data' => new SalesRepresentativeResource($request->user())]);
     }
 
-    public function index()
+    public function index(Request $request)
     {
         try {
-            $salesRepresentative = SalesRepresentativeResource::collection($this->crudRepository->all(
-                [],
-                [],
-                ['*']
-            ));
-            return $salesRepresentative->additional(JsonResponse::success());
+            $from = $request->input('from', data_get($request->input('filters', []), 'date_from'));
+            $to = $request->input('to', data_get($request->input('filters', []), 'date_to'));
+            $representatives = collect($this->crudRepository->all([], [], ['*']));
+            $rows = $representatives->map(function ($representative) use ($from, $to) {
+                $invoices = SalesInvoice::with(['customer:id,name,name_ar', 'items.product:id,name,cost'])
+                    ->where('sales_representative_id', $representative->id)
+                    ->when($from, fn ($query) => $query->whereDate('invoice_date', '>=', $from))
+                    ->when($to, fn ($query) => $query->whereDate('invoice_date', '<=', $to))
+                    ->latest('invoice_date')->get();
+                $sales = (float) $invoices->sum(fn ($invoice) => $invoice->net_total ?? $invoice->total_amount ?? 0);
+                $cost = (float) $invoices->sum(fn ($invoice) => $invoice->items->sum(fn ($item) => (float) ($item->product?->cost ?? 0) * (float) $item->quantity));
+                $rate = (float) ($representative->commission_rate ?? 0);
+                $invoiceRows = $invoices->map(function ($invoice) {
+                    $invoiceCost = (float) $invoice->items->sum(fn ($item) => (float) ($item->product?->cost ?? 0) * (float) $item->quantity);
+                    $total = (float) ($invoice->net_total ?? $invoice->total_amount ?? 0);
+                    return ['id' => $invoice->id, 'invoice_number' => $invoice->invoice_number, 'invoice_date' => $invoice->invoice_date ?? $invoice->created_at, 'customer' => $invoice->customer?->only(['id','name','name_ar']), 'total' => round($total, 2), 'cost' => round($invoiceCost, 2), 'profit' => round($total - $invoiceCost, 2)];
+                })->values();
+                return array_merge((new SalesRepresentativeResource($representative))->resolve(), ['report' => ['from' => $from, 'to' => $to, 'invoice_count' => $invoices->count(), 'sales_total' => round($sales, 2), 'cost_total' => round($cost, 2), 'profit_total' => round($sales - $cost, 2), 'commission_rate' => $rate, 'commission_total' => round($sales * $rate / 100, 2), 'invoices' => $invoiceRows]]);
+            });
+            return response()->json(['data' => $rows->values(), 'result' => 'Success', 'message' => 'Success', 'status' => 200]);
         } catch (Exception $e) {
             return JsonResponse::respondError($e->getMessage());
         }

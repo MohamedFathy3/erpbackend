@@ -22,9 +22,13 @@ class ReturnInvoiceController extends Controller
 
         try {
 
+            $invoiceNumber = trim((string) $request->invoice_number);
             $invoice = Invoice::with('items')
-                ->where('invoice_number', $request->invoice_number)
-                ->firstOrFail();
+                ->where(function ($query) use ($invoiceNumber) {
+                    $query->where('invoice_number', $invoiceNumber)
+                        ->orWhere('invoice_number', 'like', '%' . addcslashes($invoiceNumber, '%_') );
+                })
+                ->latest('id')->firstOrFail();
 
             $total = 0;
 
