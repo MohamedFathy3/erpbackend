@@ -32,7 +32,7 @@ class InvoiceResource extends JsonResource
             ],
 
             // ✅ إضافة الكاشير (الموظف اللي سجل الفاتورة)
-            'cashier' => $this->cashier ? [
+            'cashier' => $this->relationLoaded('cashier') && $this->cashier ? [
                 'id'          => $this->cashier->id,
                 'name'        => $this->cashier->name,
                 'name_ar'     => $this->cashier->name_ar,

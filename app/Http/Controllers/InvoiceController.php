@@ -43,11 +43,8 @@ class InvoiceController extends Controller
         $data = $request->validate(['email' => ['required', 'email'], 'password' => ['required', 'string']]);
         $representative = SalesRepresentative::query()->where('email', $data['email'])->first();
         abort_unless($representative && $representative->active && $representative->password && Hash::check($data['password'], $representative->password), 403, 'بيانات مندوب المبيعات غير صحيحة.');
-        $invoices = Invoice::with(['customer', 'branch', 'cashier', 'treasury', 'salesRepresentative', 'shift'])
-            ->where(function ($query) use ($representative) {
-                $query->where('sales_representative_id', $representative->id);
-                if ($representative->employee_id) $query->orWhere('cashier_id', $representative->employee_id);
-            })
+        $invoices = Invoice::with(['customer', 'branch', 'treasury', 'salesRepresentative', 'shift'])
+            ->where('sales_representative_id', $representative->id)
             ->whereDate('created_at', now()->toDateString())->latest('id')->limit(200)->get();
         return response()->json(['result' => 'Success', 'data' => [
             'employee' => ['id' => $representative->employee_id, 'name' => $representative->name, 'email' => $representative->email, 'representative_id' => $representative->id],
