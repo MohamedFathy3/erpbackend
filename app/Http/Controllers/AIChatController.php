@@ -80,6 +80,8 @@ class AIChatController extends Controller
 
     private function audit(array $data): void
     {
-        if (Schema::hasTable('ai_query_audits')) \App\Models\AIQueryAudit::create($data);
+        if (!Schema::hasTable('ai_query_audits')) return;
+        $allowed = ['user_id', 'tenant_id', 'question', 'sql', 'parameters', 'validation_passed', 'duration_ms', 'row_count', 'model', 'error'];
+        \App\Models\AIQueryAudit::create(array_intersect_key($data, array_flip($allowed)));
     }
 }
