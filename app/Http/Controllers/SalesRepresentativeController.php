@@ -7,6 +7,7 @@ use App\Http\Requests\SalesRepresentativeRequest;
 use App\Http\Resources\SalesRepresentativeResource;
 use App\Interfaces\SalesRepresentativeRepositoryInterface;
 use App\Models\SalesRepresentative;
+use App\Models\Employee;
 use App\Models\SalesInvoice;
 use App\Models\Invoice;
 use Exception;
@@ -57,7 +58,9 @@ class SalesRepresentativeController extends BaseController
         try {
             $from = $request->input('from', data_get($request->input('filters', []), 'date_from'));
             $to = $request->input('to', data_get($request->input('filters', []), 'date_to'));
-            $representatives = collect($this->crudRepository->all([], [], ['*']));
+            $user = $request->user();
+            $branchId = $user instanceof Employee && $user->branch_id ? (int) $user->branch_id : (int) data_get($request->input('filters', []), 'branch_id', $request->input('branch_id', 0));
+            $representatives = collect($this->crudRepository->all($branchId ? ['branch_id' => $branchId] : [], [], ['*']));
             $rows = $representatives->map(function ($representative) use ($from, $to) {
                 $salesInvoices = SalesInvoice::with(['customer:id,name', 'items.product:id,name,cost'])
                     ->where('sales_representative_id', $representative->id)

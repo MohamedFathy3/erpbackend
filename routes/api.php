@@ -1415,6 +1415,8 @@ Route::middleware([
     Route::post('/employee-financial-reports/advances', [EmployeeFinancialReportsController::class, 'storeAdvance']);
     Route::post('/employee-financial-reports/advances/{advance}/payments', [EmployeeFinancialReportsController::class, 'storeAdvancePayment']);
     Route::post('/employee-financial-reports/transactions', [EmployeeFinancialReportsController::class, 'storeTransaction']);
+    Route::post('/employee-financial-reports/bonuses', [EmployeeFinancialReportsController::class, 'storeBonus']);
+    Route::post('/employee-financial-reports/bonuses/{bonus}/collect', [EmployeeFinancialReportsController::class, 'collectBonus']);
     Route::post('/employee/index', [
         EmployeeController::class,
         'index'

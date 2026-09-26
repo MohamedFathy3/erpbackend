@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Employee;
 use App\Models\EmployeeAdvance;
+use App\Models\EmployeeBonus;
+use App\Models\Finance;
 use App\Models\EmployeeAdvancePayment;
 use App\Models\EmployeeFinancialTransaction;
 use App\Models\EmployeePayroll;
@@ -36,6 +38,11 @@ class EmployeeFinancialReportsController extends Controller
         $employeeId = $request->input('employee_id');
         $employees = Employee::query()->select('id', 'name', 'name_ar', 'employee_code', 'salary')->orderBy('name')->get();
         $treasuries = Treasury::query()->select('id', 'name', 'balance', 'currency')->orderBy('name')->get();
+        $bonuses = EmployeeBonus::with(['employee', 'treasury', 'finance', 'journalEntry'])
+            ->when($employeeId, fn ($q) => $q->where('employee_id', $employeeId))
+            ->when($from, fn ($q) => $q->whereDate('bonus_date', '>=', $from->toDateString()))
+            ->when($to, fn ($q) => $q->whereDate('bonus_date', '<=', $to->toDateString()))
+            ->latest('bonus_date')->get();
         $payrolls = EmployeePayroll::with(['employee', 'treasury', 'finance', 'journalEntry', 'paymentJournalEntry'])
             ->when($employeeId, fn ($q) => $q->where('employee_id', $employeeId))
             ->when($from, fn ($q) => $q->where('period_end', '>=', $from->toDateString()))
@@ -51,8 +58,12 @@ class EmployeeFinancialReportsController extends Controller
             'employees' => $employees,
             'treasuries' => $treasuries,
             'payrolls' => $payrolls,
+            'bonuses' => $bonuses,
             'advances' => $advances->map(fn ($advance) => array_merge($advance->toArray(), ['remaining_amount' => $advance->remaining_amount])),
             'summary' => [
+                'total_bonuses' => (float) $bonuses->sum('amount'),
+                'paid_bonuses' => (float) $bonuses->where('status', 'paid')->sum('amount'),
+                'due_bonuses' => $bonuses->where('status', 'due')->count(),
                 'total_payrolls' => (float) $payrolls->sum('net_salary'),
                 'total_advances' => (float) $advances->sum('amount'),
                 'total_advance_paid' => (float) $advances->sum('paid_amount'),
@@ -70,6 +81,7 @@ class EmployeeFinancialReportsController extends Controller
         $payrolls = EmployeePayroll::where('employee_id', $employee->id)->with(['journalEntry', 'paymentJournalEntry'])
             ->when($from, fn ($q) => $q->where('period_end', '>=', $from->toDateString()))
             ->when($to, fn ($q) => $q->where('period_start', '<=', $to->toDateString()))->get();
+        $bonuses = EmployeeBonus::where('employee_id', $employee->id)->with('journalEntry')->get();
         $advances = EmployeeAdvance::where('employee_id', $employee->id)->with(['payments.journalEntry'])
             ->when($from, fn ($q) => $q->where('advance_date', '>=', $from->toDateString()))
             ->when($to, fn ($q) => $q->where('advance_date', '<=', $to->toDateString()))->get();
@@ -80,6 +92,7 @@ class EmployeeFinancialReportsController extends Controller
         foreach ($payrolls as $payroll) {
             $rows[] = ['date' => optional($payroll->paid_at ?? $payroll->period_end)->toDateString(), 'type' => 'salary', 'reason' => 'Salary ' . $payroll->period_start . ' - ' . $payroll->period_end, 'amount' => (float) $payroll->net_salary, 'direction' => 'credit', 'notes' => $payroll->notes, 'reference_id' => $payroll->id, 'journal_entry_id' => $payroll->payment_journal_entry_id];
         }
+        foreach ($bonuses as $bonus) $rows[] = ['date' => $bonus->paid_at?->toDateString() ?? $bonus->bonus_date?->toDateString(), 'type' => 'bonus', 'reason' => 'بونص: ' . $bonus->reason, 'amount' => (float) $bonus->amount, 'direction' => 'credit', 'notes' => $bonus->notes, 'reference_id' => $bonus->id, 'journal_entry_id' => $bonus->journal_entry_id];
         foreach ($advances as $advance) {
             $rows[] = ['date' => $advance->advance_date?->toDateString(), 'type' => 'advance', 'reason' => $advance->reason, 'amount' => (float) $advance->amount, 'direction' => 'debit', 'notes' => $advance->notes, 'reference_id' => $advance->id, 'journal_entry_id' => $advance->journal_entry_id];
             foreach ($advance->payments as $payment) $rows[] = ['date' => $payment->payment_date?->toDateString(), 'type' => 'advance_payment', 'reason' => 'Advance repayment: ' . $advance->reason, 'amount' => (float) $payment->amount, 'direction' => 'credit', 'notes' => $payment->notes, 'reference_id' => $payment->id, 'journal_entry_id' => $payment->journal_entry_id];
@@ -100,6 +113,31 @@ class EmployeeFinancialReportsController extends Controller
         ]]);
     }
 
+    public function storeBonus(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $data = $request->validate(['employee_id' => 'required|exists:employees,id', 'bonus_date' => 'required|date', 'amount' => 'required|numeric|gt:0', 'reason' => 'required|string|max:255', 'notes' => 'nullable|string']);
+        $data['recorded_by_name'] = $this->actor($request);
+        $bonus = EmployeeBonus::create($data);
+        return response()->json(['status' => true, 'data' => $bonus->load('employee')], 201);
+    }
+    public function collectBonus(Request $request, EmployeeBonus $bonus): \Illuminate\Http\JsonResponse
+    {
+        $data = $request->validate(['treasury_id' => 'required|exists:treasuries,id', 'paid_at' => 'required|date', 'notes' => 'nullable|string']);
+        $result = DB::transaction(function () use ($data, $bonus, $request) {
+            $bonus = EmployeeBonus::query()->lockForUpdate()->findOrFail($bonus->id);
+            if ($bonus->status === 'paid' || $bonus->finance_id) throw ValidationException::withMessages(['bonus' => 'تم تحصيل هذا البونص بالفعل.']);
+            $treasury = Treasury::query()->lockForUpdate()->findOrFail($data['treasury_id']);
+            $amount = round((float) $bonus->amount, 2);
+            if ((float) $treasury->balance < $amount) throw ValidationException::withMessages(['treasury_id' => 'رصيد الخزينة غير كافٍ لصرف البونص.']);
+            $finance = Finance::create(['category' => 'bonus', 'amount' => $amount, 'description' => 'بونص الموظف: ' . ($bonus->employee?->name ?? $bonus->employee_id) . ' - ' . $bonus->reason, 'date' => $data['paid_at'], 'payment_method' => 'cash', 'treasury_id' => $treasury->id, 'branch_id' => $bonus->employee?->branch_id]);
+            $treasury->decrement('balance', $amount);
+            TreasuryTransaction::create(['treasury_id' => $treasury->id, 'reference_type' => EmployeeBonus::class, 'reference_id' => $bonus->id, 'type' => 'out', 'amount' => $amount, 'description' => 'صرف بونص الموظف #' . $bonus->employee_id]);
+            $journal = app(\App\Services\AccountingAutoPostingService::class)->postFinance($finance);
+            $bonus->update(['status' => 'paid', 'treasury_id' => $treasury->id, 'finance_id' => $finance->id, 'journal_entry_id' => $journal->id, 'paid_at' => $data['paid_at'], 'notes' => $data['notes'] ?? $bonus->notes, 'recorded_by_name' => $this->actor($request)]);
+            return $bonus->fresh(['employee', 'treasury', 'finance', 'journalEntry']);
+        });
+        return response()->json(['status' => true, 'message' => 'تم تحصيل البونص وتسجيله في المصروفات والقيد المحاسبي.', 'data' => $result]);
+    }
     public function storePayroll(Request $request, EmployeeAccountingPostingService $posting)
     {
         $data = $request->validate([

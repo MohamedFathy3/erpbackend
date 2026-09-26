@@ -29,7 +29,7 @@ class CustomerController extends BaseController
             $user = $request->user();
             $branchId = $user instanceof \App\Models\Employee && $user->branch_id
                 ? (int) $user->branch_id
-                : (int) ($request->input('branch_id') ?: 0);
+                : (int) ($request->input('branch_id') ?: data_get($request->input('filters', []), 'branch_id', 0));
             if ($branchId) $query->where('branch_id', $branchId);
             $customer = CustomerResource::collection($query->latest()->get());
             return $customer->additional(JsonResponse::success());
