@@ -33,6 +33,7 @@ class InvoiceController extends Controller
 
             $query = Invoice::with([
                 'customer',
+                'branch',
                 'cashier',
                 'treasury',
                 'salesRepresentative',
@@ -330,6 +331,7 @@ public function store(Request $request)
                     'items',
                     'payments',
                     'customer',
+                    'branch',
                     'shift',
                     'salesRepresentative',
                     'cashier',
@@ -362,16 +364,21 @@ public function store(Request $request)
         try {
             $invoiceNumber = trim((string) $request->query('invoice_number'));
             $digits = preg_replace('/\D+/', '', $invoiceNumber);
+            $normalized = preg_replace('/[^A-Za-z0-9]+/', '', strtoupper($invoiceNumber));
             $invoice = Invoice::with([
                 'items.product',
                 'customer',
+                'branch',
                 'cashier',
                 'treasury',
                 'salesRepresentative'
             ])
-                ->where(function ($query) use ($invoiceNumber, $digits): void {
+                ->where(function ($query) use ($invoiceNumber, $digits, $normalized): void {
                     $query->where('invoice_number', $invoiceNumber);
                     if ($digits !== '') $query->orWhere('invoice_number', 'like', '%' . $digits);
+                    if ($normalized !== '' && $normalized !== strtoupper($invoiceNumber)) {
+                        $query->orWhereRaw("REPLACE(REPLACE(UPPER(invoice_number), '-', ''), ' ', '') LIKE ?", ['%' . $normalized]);
+                    }
                 })
                 ->latest('id')
                 ->first();
@@ -405,6 +412,7 @@ public function store(Request $request)
                 'items',
                 'payments',
                 'customer',
+                'branch',
                 'shift',
                 'salesRepresentative',
                 'cashier',

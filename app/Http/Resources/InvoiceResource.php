@@ -12,6 +12,14 @@ class InvoiceResource extends JsonResource
             'id'               => $this->id,
             'invoice_number'   => $this->invoice_number,
             'status'           => $this->status,
+            'branch' => $this->branch ? [
+                'id' => $this->branch->id,
+                'name' => $this->branch->name,
+                'name_ar' => $this->branch->name_ar,
+                'phone' => $this->branch->phone,
+                'address' => $this->branch->address,
+                'address_ar' => $this->branch->address_ar,
+            ] : null,
 
             'customer' => [
                 'id'   => $this->customer?->id,
