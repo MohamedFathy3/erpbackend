@@ -3,15 +3,21 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\CustomerController;
 use App\Models\Admin;
+use App\Models\Employee;
 use App\Models\Invoice;
+use App\Models\Permission;
 use App\Models\Product;
+use App\Models\Role;
 use App\Models\SalesRepresentative;
 use App\Models\Tenant;
 use App\Notifications\SystemEventNotification;
 use App\Services\SalesRepresentativeReportService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
 
@@ -41,8 +47,90 @@ class PosComplimentaryAndRepresentativeReportTest extends TestCase
         $response = app(InvoiceController::class)->store($request);
 
         $this->assertSame(403, $response->getStatusCode());
-        $this->assertSame('pos_discount_admin_only', $response->getData(true)['code']);
+        $this->assertSame('pos_discount_permission_required', $response->getData(true)['code']);
         $this->assertDatabaseCount('invoices', 0);
+    }
+
+    public function test_employee_with_explicit_pos_discount_permission_can_apply_discounts(): void
+    {
+        $tenant = Tenant::create(['name' => 'POS discount grant tenant', 'slug' => 'pos-discount-grant-test']);
+        $product = Product::create(['name' => 'Granted widget', 'sku' => 'POS-GRANT-1', 'price' => 100, 'stock' => 10, 'tenant_id' => $tenant->id]);
+        $role = Role::create(['name' => 'discount-grant-cashier', 'tenant_id' => $tenant->id]);
+        $cashier = Employee::create([
+            'name' => 'Authorized cashier',
+            'role_id' => $role->id,
+            'tenant_id' => $tenant->id,
+        ]);
+        $permission = Permission::query()->where(Permission::identifierColumn(), 'sales.pos_discount.apply')->firstOrFail();
+        $cashier->permissions()->attach($permission->id);
+
+        $request = Request::create('/api/invoice/store', 'POST', [
+            'items' => [[
+                'product_id' => $product->id,
+                'quantity' => 1,
+                'price' => 100,
+                'discount_percentage' => 5,
+                'discount_amount' => 5,
+            ]],
+            'discount_percentage' => 0,
+            'payments' => [],
+        ]);
+        $request->setUserResolver(fn () => $cashier);
+        Auth::setUser($cashier);
+
+        try {
+            $response = app(InvoiceController::class)->store($request);
+        } finally {
+            Auth::forgetGuards();
+        }
+
+        // The controller proceeds past the discount authorization gate and then
+        // correctly refuses to post the sale because no cashier shift is open.
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertStringContainsString('لا توجد وردية مفتوحة', $response->getData(true)['message']);
+        $this->assertDatabaseCount('invoices', 0);
+    }
+
+    public function test_pos_customer_list_is_scoped_to_employee_branch_even_if_client_requests_another_branch(): void
+    {
+        $tenant = Tenant::create(['name' => 'Branch customer tenant', 'slug' => 'pos-customer-branch-test']);
+        $role = Role::create(['name' => 'branch-cashier', 'tenant_id' => $tenant->id]);
+        $branchA = DB::table('branches')->insertGetId([
+            'name' => 'Cashier branch', 'tenant_id' => $tenant->id, 'active' => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $branchB = DB::table('branches')->insertGetId([
+            'name' => 'Other branch', 'tenant_id' => $tenant->id, 'active' => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $cashier = Employee::create([
+            'name' => 'Branch cashier', 'role_id' => $role->id,
+            'tenant_id' => $tenant->id, 'branch_id' => $branchA,
+        ]);
+        $customerA = DB::table('customers')->insertGetId([
+            'name' => 'Local customer', 'branch_id' => $branchA, 'tenant_id' => $tenant->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('customers')->insert([
+            'name' => 'Foreign branch customer', 'branch_id' => $branchB, 'tenant_id' => $tenant->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $request = Request::create('/api/customer/index', 'POST', [
+            'pos_context' => true,
+            'branch_id' => $branchB,
+            'filters' => ['branch_id' => $branchB],
+        ]);
+        $request->setUserResolver(fn () => $cashier);
+        Auth::setUser($cashier);
+
+        try {
+            $response = app(CustomerController::class)->index($request);
+        } finally {
+            Auth::forgetGuards();
+        }
+
+        $this->assertSame([$customerA], collect($response->response()->getData(true)['data'])->pluck('id')->all());
     }
 
     public function test_complimentary_pos_invoice_notifies_tenant_admin_with_warning(): void

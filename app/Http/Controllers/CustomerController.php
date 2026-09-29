@@ -8,6 +8,7 @@ use App\Http\Resources\CustomerResource;
 use App\Imports\CustomerImport;
 use App\Interfaces\CustomerRepositoryInterface;
 use App\Models\Customer;
+use App\Models\Branch;
 use Exception;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
@@ -27,10 +28,20 @@ class CustomerController extends BaseController
         try {
             $query = Customer::query()->with('branch');
             $user = $request->user();
-            $branchId = $user instanceof \App\Models\Employee && $user->branch_id
-                ? (int) $user->branch_id
-                : (int) ($request->input('branch_id') ?: data_get($request->input('filters', []), 'branch_id', 0));
-            if ($branchId) $query->where('branch_id', $branchId);
+            $requestedBranchId = (int) ($request->input('branch_id') ?: data_get($request->input('filters', []), 'branch_id', 0));
+            if ($request->boolean('pos_context')) {
+                // Cashiers must never override their assigned branch from the client.
+                $branchId = $user instanceof \App\Models\Employee
+                    ? (int) ($user->branch_id ?? 0)
+                    : $requestedBranchId;
+                if ($branchId > 0) $query->where('branch_id', $branchId);
+                else $query->whereRaw('1 = 0');
+            } else {
+                $branchId = $user instanceof \App\Models\Employee && $user->branch_id
+                    ? (int) $user->branch_id
+                    : $requestedBranchId;
+                if ($branchId) $query->where('branch_id', $branchId);
+            }
             $customer = CustomerResource::collection($query->latest()->get());
             return $customer->additional(JsonResponse::success());
         } catch (Exception $e) {
@@ -43,10 +54,18 @@ class CustomerController extends BaseController
         try {
             $data = $request->validated();
             $user = $request->user();
-            if ($user instanceof \App\Models\Employee && $user->branch_id) {
+            if ($request->boolean('pos_context') && $user instanceof \App\Models\Employee) {
+                $data['branch_id'] = $user->branch_id;
+            } elseif ($user instanceof \App\Models\Employee && $user->branch_id) {
                 $data['branch_id'] = $user->branch_id;
             } elseif (!$request->filled('branch_id')) {
                 $data['branch_id'] = null;
+            }
+            if ($request->boolean('pos_context') && empty($data['branch_id'])) {
+                return response()->json(['message' => 'حدد الفرع الحالي قبل إضافة عميل من نقطة البيع.'], 422);
+            }
+            if ($request->boolean('pos_context') && !Branch::query()->whereKey($data['branch_id'])->exists()) {
+                return response()->json(['message' => 'الفرع المحدد غير متاح لهذا المستخدم.'], 422);
             }
             $customer = $this->crudRepository->create($data);
             return new CustomerResource($customer->load('branch'));

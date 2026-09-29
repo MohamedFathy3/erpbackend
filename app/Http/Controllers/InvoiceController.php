@@ -184,12 +184,12 @@ public function store(Request $request)
         || collect($request->input('items', []))->contains(fn ($item) =>
             (float) ($item['discount_percentage'] ?? 0) > 0 || (float) ($item['discount_amount'] ?? 0) > 0
         );
-    if ($hasDiscount && !$this->mayApplyPosDiscount($user)) {
-        return response()->json([
-            'message' => 'الخصم متاح للإدارة فقط.',
-            'code' => 'pos_discount_admin_only',
-        ], 403);
-    }
+        if ($hasDiscount && !$this->mayApplyPosDiscount($user)) {
+            return response()->json([
+                'message' => 'لا تملك صلاحية تطبيق خصم نقطة البيع.',
+                'code' => 'pos_discount_permission_required',
+            ], 403);
+        }
 
     DB::beginTransaction();
     
@@ -507,6 +507,7 @@ public function store(Request $request)
         if ($user instanceof Admin || (bool) ($user->super_admin ?? false)) return true;
         $role = $user->role ?? null;
         $roleName = strtolower((string) (is_object($role) ? ($role->name ?? '') : ($role ?? '')));
-        return in_array($roleName, ['admin', 'administrator', 'tenant_admin', 'company_admin'], true);
+        return in_array($roleName, ['admin', 'administrator', 'tenant_admin', 'company_admin'], true)
+            || (method_exists($user, 'hasPermission') && $user->hasPermission('sales.pos_discount.apply'));
     }
 }
