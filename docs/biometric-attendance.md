@@ -47,7 +47,7 @@ php -r 'require "vendor/autoload.php"; var_dump(class_exists("Mithun\\PhpZkteco\
 
 3. اضبط عناوين الأجهزة في ERP واربط `User ID` بموظفي ERP. سيكتشف الـAgent الأجهزة النشطة عبر API ويزامن السجلات دوريًا.
 
-مسارات الاقتران والتشغيل هي `POST /biometric/agents/pairing-codes`, `POST /biometric/agents/pair`, `GET /biometric/agents/devices`, `POST /biometric/agents/events`, و`POST /biometric/agents/heartbeat`. إنشاء رمز الاقتران وإلغاءه يتطلبان مستخدمًا مسجلاً لديه صلاحية `hr.view`؛ بقية مسارات الـAgent تستخدم bearer token عشوائيًا خاصًا به، يُخزّن كـSHA-256 hash، ومقيّدًا بالمستأجر وقابلًا للإلغاء من شاشة Local Agent.
+مسارات الاقتران والتشغيل هي `POST /biometric/agents/pairing-codes`, `POST /biometric/agents/pair`, `GET /biometric/agents/devices`, `POST /biometric/agents/events`, و`POST /biometric/agents/heartbeat`. إنشاء رمز الاقتران وإلغاءه يتطلبان مستخدمًا مسجلاً لديه صلاحية `hr.view`؛ بقية مسارات الـAgent تستخدم bearer token عشوائيًا خاصًا به، يُخزّن كـSHA-256 hash، ومقيّدًا بالمستأجر وقابلًا للإلغاء من شاشة Local Agent. يجب أن ترسل طلبات الـAgent أيضًا `X-Tenant-Slug`؛ يستنتجه العميل من subdomain مثل `acsa.professionalacademyedu.com`، أو يمرر `--tenant-slug` يدويًا عند استخدام نطاق مشترك أو مخصص.
 
 ## المزامنة
 
