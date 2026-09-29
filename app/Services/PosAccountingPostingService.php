@@ -113,8 +113,12 @@ class PosAccountingPostingService
         return DB::transaction(function () use ($invoice) {
             $invoice = Invoice::query()->with('salesRepresentative')->lockForUpdate()->findOrFail($invoice->id);
             if ($invoice->commission_journal_entry_id) return JournalEntry::with('lines')->findOrFail($invoice->commission_journal_entry_id);
-            $rate = (float) ($invoice->salesRepresentative?->commission_rate ?? 0);
-            $amount = round((float) $invoice->total_amount * $rate / 100, 2);
+            $rate = $invoice->commission_rate_snapshot !== null
+                ? (float) $invoice->commission_rate_snapshot
+                : (float) ($invoice->salesRepresentative?->commission_rate ?? 0);
+            $amount = $invoice->commission_amount_snapshot !== null
+                ? round((float) $invoice->commission_amount_snapshot, 2)
+                : round((float) $invoice->total_amount * $rate / 100, 2);
             if ($amount <= 0) return null;
 
             $eventKey = 'pos-commission:' . $invoice->id;

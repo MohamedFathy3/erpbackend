@@ -173,7 +173,24 @@ public function store(Request $request)
         'payments.*.method' => 'required|in:cash,card,wallet',
         'payments.*.amount' => 'required|numeric|gt:0',
         'discount_percentage' => 'nullable|numeric|min:0|max:100',
+        'is_complimentary' => 'sometimes|boolean',
+        'sales_representative_id' => 'nullable|integer|exists:sales_representatives,id',
+        'items.*.discount_percentage' => 'nullable|numeric|min:0|max:100',
+        'items.*.discount_amount' => 'nullable|numeric|min:0',
     ]);
+
+    $user = $request->user();
+    $hasDiscount = (float) $request->input('discount_percentage', 0) > 0
+        || collect($request->input('items', []))->contains(fn ($item) =>
+            (float) ($item['discount_percentage'] ?? 0) > 0 || (float) ($item['discount_amount'] ?? 0) > 0
+        );
+    if ($hasDiscount && !$this->mayApplyPosDiscount($user)) {
+        return response()->json([
+            'message' => 'الخصم متاح للإدارة فقط.',
+            'code' => 'pos_discount_admin_only',
+        ], 403);
+    }
+
     DB::beginTransaction();
     
     try {
@@ -214,8 +231,16 @@ public function store(Request $request)
         // ============================================================
         // ✅ حساب المجاميع
         // ============================================================
-        $total = collect($request->items)
-            ->sum(fn ($item) => $item['price'] * $item['quantity']);
+        $total = collect($request->items)->sum(fn ($item) => (float) $item['price'] * (float) $item['quantity']);
+        $itemDiscountTotal = collect($request->items)->sum(function ($item): float {
+            $gross = (float) $item['price'] * (float) $item['quantity'];
+            return round($gross * (float) ($item['discount_percentage'] ?? 0) / 100, 2);
+        });
+        $afterItemDiscounts = max(0, $total - $itemDiscountTotal);
+        $invoiceDiscountPercentage = (float) ($request->input('discount_percentage') ?? 0);
+        $invoiceDiscountAmount = round($afterItemDiscounts * $invoiceDiscountPercentage / 100, 2);
+        $totalDiscountAmount = round($itemDiscountTotal + $invoiceDiscountAmount, 2);
+        $effectiveDiscountPercentage = $total > 0 ? round($totalDiscountAmount / $total * 100, 2) : 0;
 
         $payments = $request->input('payments', []);
         $paid = collect($payments)->sum('amount');
@@ -226,9 +251,7 @@ public function store(Request $request)
             ->sum('amount');
 
         $invoiceNumber = 'INV-' . now()->format('Ymd') . '-' . rand(1000, 9999);
-        $discountPercentage = $request->discount_percentage ?? 0;
-        $discountAmount = ($total * $discountPercentage) / 100;
-        $netTotal = $total - $discountAmount;
+        $netTotal = max(0, $afterItemDiscounts - $invoiceDiscountAmount);
         if ($paid > $netTotal) {
             throw \Illuminate\Validation\ValidationException::withMessages(['payments' => 'إجمالي المدفوعات أكبر من صافي الفاتورة.']);
         }
@@ -236,6 +259,15 @@ public function store(Request $request)
         // ============================================================
         // ✅ إنشاء الفاتورة
         // ============================================================
+        $representative = $request->filled('sales_representative_id')
+            ? SalesRepresentative::query()->find($request->integer('sales_representative_id'))
+            : null;
+        if ($request->filled('sales_representative_id') && !$representative) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'sales_representative_id' => 'مندوب المبيعات غير موجود في مساحة العمل الحالية.',
+            ]);
+        }
+        $commissionRate = (float) ($representative?->commission_rate ?? 0);
         $invoice = Invoice::create([
             'invoice_number'   => $invoiceNumber,
             'customer_id'      => $request->customer_id,
@@ -245,8 +277,11 @@ public function store(Request $request)
             'treasury_id'      => $treasuryId,
             'cashier_shift_id' => $shift->id,
             'total_amount'     => $netTotal,
-            'discount_percentage' => $discountPercentage,
-            'discount_amount'  => $discountAmount,
+            'discount_percentage' => $effectiveDiscountPercentage,
+            'discount_amount'  => $totalDiscountAmount,
+            'is_complimentary' => $request->boolean('is_complimentary'),
+            'commission_rate_snapshot' => $commissionRate,
+            'commission_amount_snapshot' => round($netTotal * $commissionRate / 100, 2),
             'paid_amount'      => $paid,
             'remaining_amount' => $netTotal - $paid,
             'status'           => $paid >= $netTotal ? 'paid' : ($paid > 0 ? 'partial' : 'unpaid'),
@@ -281,7 +316,9 @@ public function store(Request $request)
                 'size'         => $item['size'] ?? null,
                 'quantity'     => $item['quantity'],
                 'price'        => $item['price'],
-                'total'        => $item['price'] * $item['quantity'],
+                'total'        => round(((float) $item['price'] * (float) $item['quantity']) * (1 - (float) ($item['discount_percentage'] ?? 0) / 100), 2),
+                'discount_percentage' => (float) ($item['discount_percentage'] ?? 0),
+                'discount_amount' => round(((float) $item['price'] * (float) $item['quantity']) * (float) ($item['discount_percentage'] ?? 0) / 100, 2),
             ]);
 
             $product->decrement('stock', $item['quantity']);
@@ -462,5 +499,14 @@ public function store(Request $request)
                 'message' => $e->getMessage()
             ], 500);
         }
+    }
+
+    private function mayApplyPosDiscount(?object $user): bool
+    {
+        if (!$user) return false;
+        if ($user instanceof Admin || (bool) ($user->super_admin ?? false)) return true;
+        $role = $user->role ?? null;
+        $roleName = strtolower((string) (is_object($role) ? ($role->name ?? '') : ($role ?? '')));
+        return in_array($roleName, ['admin', 'administrator', 'tenant_admin', 'company_admin'], true);
     }
 }

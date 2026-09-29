@@ -43,15 +43,18 @@ class SystemNotificationService
     public function invoiceCreated(Model $invoice, string $kind): void
     {
         $isPurchase = $kind === 'purchase';
+        $isComplimentary = !$isPurchase && (bool) ($invoice->is_complimentary ?? false);
         $number = $invoice->invoice_number ?? $invoice->getKey();
         $this->notifyTenantAdmins(
             (int) ($invoice->tenant_id ?? 0),
             'invoice-created:' . strtolower(class_basename($invoice)) . ':' . $invoice->getKey(),
-            'info',
-            $isPurchase ? 'فاتورة مشتريات جديدة' : 'فاتورة مبيعات جديدة',
-            ($isPurchase ? 'تم إنشاء فاتورة المشتريات رقم ' : 'تم إنشاء فاتورة المبيعات رقم ') . $number . '.',
+            $isComplimentary ? 'warning' : 'info',
+            $isPurchase ? 'فاتورة مشتريات جديدة' : ($isComplimentary ? 'فاتورة مجاملات جديدة' : 'فاتورة مبيعات جديدة'),
+            $isPurchase
+                ? 'تم إنشاء فاتورة المشتريات رقم ' . $number . '.'
+                : ($isComplimentary ? 'تم إصدار فاتورة مجاملات رقم ' . $number . ' وتحتاج إلى العلم.' : 'تم إنشاء فاتورة مبيعات رقم ' . $number . '.'),
             $isPurchase ? '/purchasing' : '/sales',
-            ['invoice_id' => $invoice->getKey(), 'invoice_number' => (string) $number, 'source' => $invoice::class],
+            ['invoice_id' => $invoice->getKey(), 'invoice_number' => (string) $number, 'source' => $invoice::class, 'is_complimentary' => $isComplimentary],
         );
     }
 

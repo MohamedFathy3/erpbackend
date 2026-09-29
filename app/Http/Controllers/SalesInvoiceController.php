@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\SalesInvoice;
 use App\Models\SalesInvoiceItem;
 use App\Models\SalesInvoicePayment;
+use App\Models\SalesRepresentative;
 use App\Models\Treasury;
 use App\Models\Bank;
 use App\Models\Tax;
@@ -91,6 +92,7 @@ class SalesInvoiceController extends Controller
                 $taxAmount = (($subtotal - $discountAmount) * $taxRate) / 100;
             }
             $netTotal = $subtotal - $discountAmount + $taxAmount;
+            $commissionRate = (float) (SalesRepresentative::query()->find($request->sales_representative_id)?->commission_rate ?? 0);
 
             // إنشاء الفاتورة
             $invoice = SalesInvoice::create([
@@ -111,6 +113,8 @@ class SalesInvoiceController extends Controller
                 'discount_percentage' => $discountPercentage,
                 'discount_amount' => $discountAmount,
                 'net_total' => $netTotal,
+                'commission_rate_snapshot' => $commissionRate,
+                'commission_amount_snapshot' => round($netTotal * $commissionRate / 100, 2),
                 'tax_amount' => $taxAmount,
                 'paid_amount' => $request->payment_method === 'credit' ? 0 : $netTotal,
                 'payment_status' => $request->payment_method === 'credit' ? 'unpaid' : 'paid',

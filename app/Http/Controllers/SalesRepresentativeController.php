@@ -6,6 +6,7 @@ use App\Helpers\JsonResponse;
 use App\Http\Requests\SalesRepresentativeRequest;
 use App\Http\Resources\SalesRepresentativeResource;
 use App\Interfaces\SalesRepresentativeRepositoryInterface;
+use App\Models\Admin;
 use App\Models\SalesRepresentative;
 use App\Models\Employee;
 use App\Models\SalesInvoice;
@@ -16,6 +17,7 @@ use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use App\Services\SalesRepresentativeReportService;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -61,6 +63,7 @@ class SalesRepresentativeController extends BaseController
 
     public function index(Request $request)
     {
+        $this->assertAdmin($request->user());
         try {
             $from = $request->input('from', data_get($request->input('filters', []), 'date_from'));
             $to = $request->input('to', data_get($request->input('filters', []), 'date_to'));
@@ -77,18 +80,49 @@ class SalesRepresentativeController extends BaseController
                     ->when($from, fn ($query) => $query->whereDate('created_at', '>=', $from))
                     ->when($to, fn ($query) => $query->whereDate('created_at', '<=', $to))->get();
                 $invoices = $salesInvoices->concat($posInvoices)->sortByDesc(fn ($invoice) => $invoice->invoice_date ?? $invoice->created_at)->values();
-                $rowsForReport = $invoices->map(function ($invoice) {
+                $rowsForReport = $invoices->map(function ($invoice) use ($representative) {
                     $invoiceCost = (float) $invoice->items->sum(fn ($item) => (float) ($item->product?->cost ?? 0) * (float) $item->quantity);
                     $total = (float) ($invoice->net_total ?? $invoice->total_amount ?? $invoice->total ?? 0);
-                    return ['id' => $invoice->id, 'invoice_number' => $invoice->invoice_number, 'invoice_date' => $invoice->invoice_date ?? $invoice->created_at, 'source' => $invoice instanceof Invoice ? 'pos' : 'sales', 'customer' => $invoice->customer?->only(['id', 'name']), 'total' => round($total, 2), 'cost' => round($invoiceCost, 2), 'profit' => round($total - $invoiceCost, 2), 'commission' => round($total * ((float) ($representative->commission_rate ?? 0)) / 100, 2), 'journal_entry_id' => $invoice->journal_entry_id, 'cogs_journal_entry_id' => $invoice->cogs_journal_entry_id, 'commission_journal_entry_id' => $invoice->commission_journal_entry_id, 'items' => $invoice->items->map(fn ($item) => ['product_id' => $item->product_id, 'product_name' => $item->product?->name, 'quantity' => (float) $item->quantity, 'price' => (float) ($item->price ?? 0), 'cost' => round((float) ($item->product?->cost ?? 0), 2), 'total' => round((float) ($item->total ?? (($item->price ?? 0) * $item->quantity)), 2)])->values()];
+                    $commissionRate = $invoice->commission_rate_snapshot !== null
+                        ? (float) $invoice->commission_rate_snapshot
+                        : (float) ($representative->commission_rate ?? 0);
+                    $commission = $invoice->commission_amount_snapshot !== null
+                        ? (float) $invoice->commission_amount_snapshot
+                        : round($total * $commissionRate / 100, 2);
+                    return [
+                        'id' => $invoice->id,
+                        'invoice_number' => $invoice->invoice_number,
+                        'invoice_date' => $invoice->invoice_date ?? $invoice->created_at,
+                        'source' => $invoice instanceof Invoice ? 'pos' : 'sales',
+                        'source_type' => $invoice instanceof Invoice ? 'pos' : 'sales_invoice',
+                        'is_complimentary' => (bool) ($invoice->is_complimentary ?? false),
+                        'customer' => $invoice->customer?->only(['id', 'name']),
+                        'total' => round($total, 2),
+                        'cost' => round($invoiceCost, 2),
+                        'profit' => round($total - $invoiceCost, 2),
+                        'commission_rate' => $commissionRate,
+                        'commission' => round($commission, 2),
+                        'journal_entry_id' => $invoice->journal_entry_id,
+                        'cogs_journal_entry_id' => $invoice->cogs_journal_entry_id,
+                        'commission_journal_entry_id' => $invoice->commission_journal_entry_id,
+                        'items' => $invoice->items->map(fn ($item) => [
+                            'product_id' => $item->product_id,
+                            'product_name' => $item->product?->name,
+                            'quantity' => (float) $item->quantity,
+                            'price' => (float) ($item->price ?? 0),
+                            'cost' => round((float) ($item->product?->cost ?? 0), 2),
+                            'total' => round((float) ($item->total ?? (($item->price ?? 0) * $item->quantity)), 2),
+                        ])->values(),
+                    ];
                 })->values();
                 $sales = (float) $rowsForReport->sum('total');
                 $cost = (float) $rowsForReport->sum('cost');
                 $rate = (float) ($representative->commission_rate ?? 0);
+                $commissionTotal = (float) $rowsForReport->sum('commission');
                 $bonus = $representative->employee_id
                     ? EmployeeBonus::with(['treasury', 'journalEntry'])->where('employee_id', $representative->employee_id)->when($from, fn ($q) => $q->whereDate('bonus_date', '>=', $from))->when($to, fn ($q) => $q->whereDate('bonus_date', '<=', $to))->latest('bonus_date')->get()
                     : collect();
-                return array_merge((new SalesRepresentativeResource($representative))->resolve(), ['bonus' => ['total' => round((float) $bonus->sum('amount'), 2), 'paid_total' => round((float) $bonus->where('status', 'paid')->sum('amount'), 2), 'due_total' => round((float) $bonus->where('status', 'due')->sum('amount'), 2), 'payments' => $bonus->map(fn ($item) => ['id' => $item->id, 'date' => $item->bonus_date?->toDateString(), 'amount' => (float) $item->amount, 'status' => $item->status, 'paid_at' => $item->paid_at?->toDateTimeString(), 'paid_by' => $item->recorded_by_name, 'treasury' => $item->treasury?->only(['id', 'name']), 'journal_entry_id' => $item->journal_entry_id])->values()], 'report' => ['from' => $from, 'to' => $to, 'invoice_count' => $rowsForReport->count(), 'sales_total' => round($sales, 2), 'cost_total' => round($cost, 2), 'profit_total' => round($sales - $cost, 2), 'commission_rate' => $rate, 'commission_total' => round($sales * $rate / 100, 2), 'invoices' => $rowsForReport]]);
+                return array_merge((new SalesRepresentativeResource($representative))->resolve(), ['bonus' => ['total' => round((float) $bonus->sum('amount'), 2), 'paid_total' => round((float) $bonus->where('status', 'paid')->sum('amount'), 2), 'due_total' => round((float) $bonus->where('status', 'due')->sum('amount'), 2), 'payments' => $bonus->map(fn ($item) => ['id' => $item->id, 'date' => $item->bonus_date?->toDateString(), 'amount' => (float) $item->amount, 'status' => $item->status, 'paid_at' => $item->paid_at?->toDateTimeString(), 'paid_by' => $item->recorded_by_name, 'treasury' => $item->treasury?->only(['id', 'name']), 'journal_entry_id' => $item->journal_entry_id])->values()], 'report' => ['from' => $from, 'to' => $to, 'invoice_count' => $rowsForReport->count(), 'sales_total' => round($sales, 2), 'cost_total' => round($cost, 2), 'profit_total' => round($sales - $cost, 2), 'commission_rate' => $rate, 'commission_total' => round($commissionTotal, 2), 'invoices' => $rowsForReport]]);
             });
             return response()->json(['data' => $rows->values(), 'result' => 'Success', 'message' => 'Success', 'status' => 200]);
         } catch (Exception $e) {
@@ -97,12 +131,17 @@ class SalesRepresentativeController extends BaseController
     }
     public function collectBonus(Request $request, SalesRepresentative $salesRepresentative): \Illuminate\Http\JsonResponse
     {
+        $this->assertAdmin($request->user());
         $data = $request->validate(['bonus_date' => 'required|date', 'treasury_id' => 'required|exists:treasuries,id', 'notes' => 'nullable|string']);
         if (!$salesRepresentative->employee_id) throw ValidationException::withMessages(['sales_representative' => 'المندوب غير مربوط بموظف.']);
         $date = $data['bonus_date'];
-        $sales = SalesInvoice::where('sales_representative_id', $salesRepresentative->id)->whereDate('invoice_date', $date)->get()->sum(fn ($invoice) => (float) ($invoice->net_total ?? $invoice->total_amount ?? $invoice->total ?? 0));
-        $sales += Invoice::where('sales_representative_id', $salesRepresentative->id)->whereDate('created_at', $date)->get()->sum(fn ($invoice) => (float) ($invoice->total_amount ?? $invoice->total ?? 0));
-        $amount = round($sales * ((float) $salesRepresentative->commission_rate) / 100, 2);
+        $salesInvoices = SalesInvoice::where('sales_representative_id', $salesRepresentative->id)->whereDate('invoice_date', $date)->get();
+        $posInvoices = Invoice::where('sales_representative_id', $salesRepresentative->id)->whereDate('created_at', $date)->get();
+        $rate = (float) $salesRepresentative->commission_rate;
+        $commissionFor = fn ($invoice) => $invoice->commission_amount_snapshot !== null
+            ? (float) $invoice->commission_amount_snapshot
+            : round((float) ($invoice->net_total ?? $invoice->total_amount ?? $invoice->total ?? 0) * $rate / 100, 2);
+        $amount = round((float) $salesInvoices->concat($posInvoices)->sum($commissionFor), 2);
         if ($amount <= 0) throw ValidationException::withMessages(['bonus' => 'لا توجد عمولة مستحقة لهذا المندوب في هذا اليوم.']);
         $result = DB::transaction(function () use ($data, $salesRepresentative, $date, $amount, $request) {
             $bonus = EmployeeBonus::query()->lockForUpdate()->firstOrCreate(['employee_id' => $salesRepresentative->employee_id, 'bonus_date' => $date, 'reason' => 'عمولة مبيعات المندوب'], ['amount' => $amount, 'status' => 'due', 'recorded_by_name' => $this->actor($request)]);
@@ -140,6 +179,44 @@ class SalesRepresentativeController extends BaseController
         }
     }
 
+    public function report(Request $request, SalesRepresentative $salesRepresentative, SalesRepresentativeReportService $reports): \Illuminate\Http\JsonResponse
+    {
+        $this->assertAdmin($request->user());
+
+        $filters = $request->validate([
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date', 'after_or_equal:from'],
+        ]);
+
+        return response()->json([
+            'data' => $reports->report($salesRepresentative, $filters['from'] ?? null, $filters['to'] ?? null),
+        ]);
+    }
+
+    public function dashboard(Request $request, SalesRepresentativeReportService $reports): \Illuminate\Http\JsonResponse
+    {
+        $representative = $request->user();
+        abort_unless($representative instanceof SalesRepresentative, 403, 'حساب المندوب غير صالح لهذا المسار.');
+        $filters = $request->validate([
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date', 'after_or_equal:from'],
+        ]);
+
+        return response()->json([
+            'data' => $reports->report($representative, $filters['from'] ?? null, $filters['to'] ?? null),
+        ]);
+    }
+
+
+    private function assertAdmin(?object $actor): void
+    {
+        $role = $actor?->role;
+        $roleName = is_object($role) ? ($role->name ?? '') : ($role ?? '');
+        $isAdmin = $actor instanceof Admin
+            || (bool) ($actor?->super_admin ?? false)
+            || in_array(strtolower((string) $roleName), ['admin', 'administrator', 'tenant_admin', 'company_admin'], true);
+        abort_unless($isAdmin, 403, 'هذه العملية متاحة للإدارة فقط.');
+    }
 
     public function update(SalesRepresentativeRequest $request, SalesRepresentative $salesRepresentative)
     {

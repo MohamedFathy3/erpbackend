@@ -481,6 +481,11 @@ Route::middleware([
     'me'
 ]);
 
+Route::middleware(['auth:sanctum', 'resolve.tenant'])->get('/sales-representative/dashboard', [
+    SalesRepresentativeController::class,
+    'dashboard',
+]);
+
 
 /*
 |--------------------------------------------------------------------------
@@ -1483,6 +1488,10 @@ Route::middleware([
     ]);
 
     Route::post('/sales-representative/{salesRepresentative}/bonus/collect', [SalesRepresentativeController::class, 'collectBonus']);
+    Route::get('/sales-representative/{salesRepresentative}/report', [
+        SalesRepresentativeController::class,
+        'report',
+    ]);
 
     Route::post('sales-representative/restore', [
         SalesRepresentativeController::class,
