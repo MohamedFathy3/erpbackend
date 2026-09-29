@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\BranchScope;
+use App\Http\Middleware\AuthenticateBiometricAgent;
 use App\Http\Middleware\CheckModuleEnabled;
 use App\Http\Middleware\CheckPermission;
 use App\Http\Middleware\EnforceRoutePermission;
@@ -43,6 +44,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'permission' => CheckPermission::class,
             'manage.tenant.access' => ManageTenantAccess::class,
             'resolve.tenant' => ResolveTenant::class,
+            'auth.biometric-agent' => AuthenticateBiometricAgent::class,
             'subscription' => EnsureTenantSubscriptionActive::class,
         ]);
     })

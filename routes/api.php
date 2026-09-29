@@ -7,6 +7,7 @@ use App\Http\Controllers\AutomotiveController;
 use App\Http\Controllers\AutomotivePortalController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\BiometricAttendanceController;
+use App\Http\Controllers\BiometricAgentController;
 use App\Http\Controllers\BankController;
 use App\Http\Controllers\BranchController;
 use App\Http\Controllers\CashierShiftController;
@@ -1550,6 +1551,9 @@ Route::middleware([
 });
 
 
+Route::middleware(['resolve.tenant', 'throttle:10,1'])
+    ->post('/biometric/agents/pair', [BiometricAgentController::class, 'pair']);
+
 /*
 |--------------------------------------------------------------------------
 | Attendance
@@ -1594,6 +1598,9 @@ Route::middleware([
     ]);
 
     Route::prefix('biometric')->group(function () {
+        Route::get('/agents', [BiometricAgentController::class, 'index']);
+        Route::post('/agents/pairing-codes', [BiometricAgentController::class, 'createPairingCode'])->middleware('throttle:10,1');
+        Route::delete('/agents/{agent}', [BiometricAgentController::class, 'revoke']);
         Route::get('/devices', [BiometricAttendanceController::class, 'devices']);
         Route::post('/devices', [BiometricAttendanceController::class, 'storeDevice']);
         Route::patch('/devices/{device}', [BiometricAttendanceController::class, 'updateDevice']);
@@ -1610,6 +1617,14 @@ Route::middleware([
         Route::get('/payroll-preview/{employee}', [BiometricAttendanceController::class, 'payrollPreview']);
     });
 });
+
+Route::middleware(['resolve.tenant', 'auth.biometric-agent', 'throttle:120,1'])
+    ->prefix('biometric/agents')
+    ->group(function (): void {
+        Route::get('/devices', [BiometricAgentController::class, 'devices']);
+        Route::post('/events', [BiometricAgentController::class, 'ingestEvents']);
+        Route::post('/heartbeat', [BiometricAgentController::class, 'heartbeat']);
+    });
 
 
 /*

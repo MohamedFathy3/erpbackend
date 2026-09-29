@@ -13,7 +13,11 @@ git pull origin main
 composer install --no-dev --optimize-autoloader
 php artisan migrate --force
 php artisan optimize:clear
+php artisan route:clear
+php artisan route:list --path=biometric/agents
 ```
+
+يجب أن تظهر مسارات `biometric/agents` في الأمر الأخير. إذا استمر `404` بعد تحديث الخادم، فتأكد أن الـrelease نشر `routes/api.php` وشغّل `php artisan route:clear` على نسخة الإنتاج.
 
 تأكد أن الأمر التالي يطبع `1`:
 
@@ -26,6 +30,24 @@ php -r 'require "vendor/autoload.php"; var_dump(class_exists("Mithun\\PhpZkteco\
 3. من **HR → البصمة والرواتب → الأجهزة** أضف اسم الجهاز وIP والمنفذ.
 4. اضغط **اختبار** ثم **سحب البصمات**.
 5. من **ربط الموظفين** أدخل `User ID` الموجود في الجهاز لكل موظف. يفضّل أن يكون User ID مختلفًا لكل موظف.
+
+## Local Connector Agent
+
+عند استضافة ERP SaaS خارج شبكة الشركة، لا يستطيع خادم Laravel عادةً الوصول إلى عنوان خاص مثل `192.168.x.x`. الـAgent المحلي يتصل بالجهاز من داخل شبكة العميل ويرسل السجلات إلى API الخاص بالمستأجر عبر HTTPS؛ لا يحتاج فتح منفذ جهاز البصمة للإنترنت.
+
+1. بعد نشر migrations ومسارات الـAPI، افتح **HR → البصمة والرواتب → Local Agent** وأنشئ رمز اقتران لمرة واحدة. الرمز صالح 10 دقائق ويُحفظ على الخادم كـhash فقط.
+2. على كمبيوتر دائم التشغيل داخل شبكة الجهاز، انسخ مجلد `agent/` من مستودع الواجهة وثبّته:
+
+   ```bash
+   python -m pip install ./agent
+   erp-biometric-agent pair --api-url https://acsa.professionalacademyedu.com/api --code ONE_TIME_CODE
+   erp-biometric-agent sync-once
+   erp-biometric-agent run
+   ```
+
+3. اضبط عناوين الأجهزة في ERP واربط `User ID` بموظفي ERP. سيكتشف الـAgent الأجهزة النشطة عبر API ويزامن السجلات دوريًا.
+
+مسارات الاقتران والتشغيل هي `POST /biometric/agents/pairing-codes`, `POST /biometric/agents/pair`, `GET /biometric/agents/devices`, `POST /biometric/agents/events`, و`POST /biometric/agents/heartbeat`. إنشاء رمز الاقتران وإلغاءه يتطلبان مستخدمًا مسجلاً لديه صلاحية `hr.view`؛ بقية مسارات الـAgent تستخدم bearer token عشوائيًا خاصًا به، يُخزّن كـSHA-256 hash، ومقيّدًا بالمستأجر وقابلًا للإلغاء من شاشة Local Agent.
 
 ## المزامنة
 
@@ -52,6 +74,6 @@ php artisan biometric:sync --device=DEVICE_ID
 
 ## ملاحظات الشبكة
 
-- يجب أن يكون خادم Laravel قادرًا على الوصول إلى IP الجهاز داخل الشبكة نفسها أو عبر VPN/Port forwarding آمن.
+- عند المزامنة المباشرة، يجب أن يستطيع خادم Laravel الوصول إلى IP الجهاز؛ وعند SaaS استخدم الـAgent المحلي داخل شبكة العميل.
 - لا تفتح المنفذ 4370 للعامة دون جدار ناري وقائمة IP مسموحة.
 - في حالة وجود أكثر من فرع/وحدة، أضف جهازًا مستقلًا لكل IP واربطه بالفرع المناسب.
