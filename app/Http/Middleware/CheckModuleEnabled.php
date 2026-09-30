@@ -33,9 +33,10 @@ class CheckModuleEnabled
         $enabled = TenantModule::query()
             ->where('tenant_id', $user->tenant_id)
             ->where('module_key', $module)
-            ->where('is_enabled', true)
-            ->exists();
-        if (!$enabled) {
+            ->value('is_enabled');
+        // The module UI and enabled-modules endpoint treat a missing row as
+        // enabled for backward compatibility with older tenants.
+        if ($enabled !== null && !(bool) $enabled) {
             return response()->json(['message' => 'This module is disabled for your tenant.'], 403);
         }
         return $next($request);
