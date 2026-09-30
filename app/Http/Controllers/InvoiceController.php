@@ -17,6 +17,7 @@ use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Models\User;
 use App\Services\PosAccountingPostingService;
+use App\Services\PosInvoicePricingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -179,17 +180,29 @@ public function store(Request $request)
         'items.*.discount_amount' => 'nullable|numeric|min:0',
     ]);
 
+    $isComplimentary = $request->boolean('is_complimentary');
     $user = $request->user();
-    $hasDiscount = (float) $request->input('discount_percentage', 0) > 0
+    $hasDiscount = $isComplimentary || (float) $request->input('discount_percentage', 0) > 0
         || collect($request->input('items', []))->contains(fn ($item) =>
             (float) ($item['discount_percentage'] ?? 0) > 0 || (float) ($item['discount_amount'] ?? 0) > 0
         );
-        if ($hasDiscount && !$this->mayApplyPosDiscount($user)) {
-            return response()->json([
-                'message' => 'لا تملك صلاحية تطبيق خصم نقطة البيع.',
-                'code' => 'pos_discount_permission_required',
-            ], 403);
+    if ($hasDiscount && !$this->mayApplyPosDiscount($user)) {
+        return response()->json([
+            'message' => 'لا تملك صلاحية تطبيق خصم نقطة البيع.',
+            'code' => 'pos_discount_permission_required',
+        ], 403);
+    }
+    if ($isComplimentary) {
+        $request->validate([
+            'customer_id' => 'required|integer|exists:customers,id',
+        ]);
+        $customer = Customer::query()->find($request->integer('customer_id'));
+        if (!$customer || trim((string) $customer->name) === '') {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'customer_id' => 'فاتورة المجاملات تتطلب اختيار عميل مسجل في مساحة العمل الحالية.',
+            ]);
         }
+    }
 
     DB::beginTransaction();
     
@@ -231,18 +244,20 @@ public function store(Request $request)
         // ============================================================
         // ✅ حساب المجاميع
         // ============================================================
-        $total = collect($request->items)->sum(fn ($item) => (float) $item['price'] * (float) $item['quantity']);
-        $itemDiscountTotal = collect($request->items)->sum(function ($item): float {
-            $gross = (float) $item['price'] * (float) $item['quantity'];
-            return round($gross * (float) ($item['discount_percentage'] ?? 0) / 100, 2);
-        });
-        $afterItemDiscounts = max(0, $total - $itemDiscountTotal);
-        $invoiceDiscountPercentage = (float) ($request->input('discount_percentage') ?? 0);
-        $invoiceDiscountAmount = round($afterItemDiscounts * $invoiceDiscountPercentage / 100, 2);
-        $totalDiscountAmount = round($itemDiscountTotal + $invoiceDiscountAmount, 2);
-        $effectiveDiscountPercentage = $total > 0 ? round($totalDiscountAmount / $total * 100, 2) : 0;
+        $pricing = app(PosInvoicePricingService::class)->calculate(
+            $request->input('items', []),
+            (float) ($request->input('discount_percentage') ?? 0),
+            $isComplimentary,
+        );
+        $total = $pricing['gross_total'];
+        $itemDiscountTotal = $pricing['item_discount_total'];
+        $afterItemDiscounts = $pricing['after_item_discounts'];
+        $invoiceDiscountPercentage = $pricing['invoice_discount_percentage'];
+        $invoiceDiscountAmount = $pricing['invoice_discount_amount'];
+        $totalDiscountAmount = $pricing['total_discount_amount'];
+        $effectiveDiscountPercentage = $pricing['effective_discount_percentage'];
 
-        $payments = $request->input('payments', []);
+        $payments = $isComplimentary ? [] : $request->input('payments', []);
         $paid = collect($payments)->sum('amount');
         $cashPaid = collect($payments)->where('method', 'cash')->sum('amount');
         $cardPaid = collect($payments)->where('method', 'card')->sum('amount');
@@ -251,7 +266,7 @@ public function store(Request $request)
             ->sum('amount');
 
         $invoiceNumber = 'INV-' . now()->format('Ymd') . '-' . rand(1000, 9999);
-        $netTotal = max(0, $afterItemDiscounts - $invoiceDiscountAmount);
+        $netTotal = $pricing['net_total'];
         if ($paid > $netTotal) {
             throw \Illuminate\Validation\ValidationException::withMessages(['payments' => 'إجمالي المدفوعات أكبر من صافي الفاتورة.']);
         }
@@ -279,7 +294,7 @@ public function store(Request $request)
             'total_amount'     => $netTotal,
             'discount_percentage' => $effectiveDiscountPercentage,
             'discount_amount'  => $totalDiscountAmount,
-            'is_complimentary' => $request->boolean('is_complimentary'),
+            'is_complimentary' => $isComplimentary,
             'commission_rate_snapshot' => $commissionRate,
             'commission_amount_snapshot' => round($netTotal * $commissionRate / 100, 2),
             'paid_amount'      => $paid,

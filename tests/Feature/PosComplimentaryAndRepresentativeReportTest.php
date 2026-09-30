@@ -13,12 +13,14 @@ use App\Models\Role;
 use App\Models\SalesRepresentative;
 use App\Models\Tenant;
 use App\Notifications\SystemEventNotification;
+use App\Services\PosInvoicePricingService;
 use App\Services\SalesRepresentativeReportService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class PosComplimentaryAndRepresentativeReportTest extends TestCase
@@ -43,6 +45,28 @@ class PosComplimentaryAndRepresentativeReportTest extends TestCase
             'payments' => [],
         ]);
         $request->setUserResolver(fn () => $cashier);
+
+        $response = app(InvoiceController::class)->store($request);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('pos_discount_permission_required', $response->getData(true)['code']);
+        $this->assertDatabaseCount('invoices', 0);
+    }
+
+    public function test_non_admin_without_discount_permission_cannot_create_complimentary_invoice(): void
+    {
+        $tenant = Tenant::create(['name' => 'Complimentary permission tenant', 'slug' => 'complimentary-permission-test']);
+        $product = Product::create(['name' => 'Gift item', 'sku' => 'POS-GIFT-PERM-1', 'price' => 100, 'stock' => 5, 'tenant_id' => $tenant->id]);
+        $customerId = DB::table('customers')->insertGetId([
+            'name' => 'VIP customer', 'tenant_id' => $tenant->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $request = Request::create('/api/invoice/store', 'POST', [
+            'customer_id' => $customerId,
+            'is_complimentary' => true,
+            'items' => [['product_id' => $product->id, 'quantity' => 1, 'price' => 100]],
+            'payments' => [],
+        ]);
+        $request->setUserResolver(fn () => (object) ['role' => null, 'super_admin' => false]);
 
         $response = app(InvoiceController::class)->store($request);
 
@@ -153,6 +177,43 @@ class PosComplimentaryAndRepresentativeReportTest extends TestCase
                 && $notification->eventKey === 'invoice-created:invoice:9001'
                 && str_contains($notification->message, 'فاتورة مجاملات');
         });
+    }
+
+    public function test_complimentary_pricing_forces_full_discount_and_zero_balance(): void
+    {
+        $pricing = app(PosInvoicePricingService::class)->calculate([
+            ['price' => 120, 'quantity' => 2, 'discount_percentage' => 10],
+            ['price' => 50, 'quantity' => 1, 'discount_percentage' => 0],
+        ], 7, true);
+
+        $this->assertSame(100.0, $pricing['invoice_discount_percentage']);
+        $this->assertSame(290.0, $pricing['gross_total']);
+        $this->assertSame(24.0, $pricing['item_discount_total']);
+        $this->assertSame(266.0, $pricing['invoice_discount_amount']);
+        $this->assertSame(290.0, $pricing['total_discount_amount']);
+        $this->assertSame(100.0, $pricing['effective_discount_percentage']);
+        $this->assertSame(0.0, $pricing['net_total']);
+    }
+
+    public function test_complimentary_invoice_requires_a_registered_customer(): void
+    {
+        $tenant = Tenant::create(['name' => 'Complimentary customer tenant', 'slug' => 'complimentary-customer-test']);
+        $product = Product::create(['name' => 'Gift item', 'sku' => 'POS-GIFT-CUSTOMER-1', 'price' => 100, 'stock' => 5, 'tenant_id' => $tenant->id]);
+        $request = Request::create('/api/invoice/store', 'POST', [
+            'is_complimentary' => true,
+            'items' => [['product_id' => $product->id, 'quantity' => 1, 'price' => 100]],
+            'payments' => [],
+        ]);
+        $request->setUserResolver(fn () => (object) ['super_admin' => true]);
+
+        try {
+            app(InvoiceController::class)->store($request);
+            $this->fail('A complimentary POS invoice must require a registered customer.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('customer_id', $exception->errors());
+        }
+
+        $this->assertDatabaseCount('invoices', 0);
     }
 
     public function test_representative_report_includes_pos_items_and_historical_commission_snapshot(): void
