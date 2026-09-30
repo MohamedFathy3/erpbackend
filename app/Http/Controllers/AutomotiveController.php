@@ -88,6 +88,9 @@ class AutomotiveController extends BaseController
             'stock_quantity' => ['nullable', 'numeric', 'min:0'], 'estimated_minutes' => ['nullable', 'integer', 'min:1'],
             'warranty_eligible' => ['boolean'], 'active' => ['boolean'],
         ]);
+        $data['active'] = $request->boolean('active', true);
+        $data['item_type'] = $data['item_type'] ?? 'service';
+        $data['stock_quantity'] = $data['stock_quantity'] ?? 0;
         $service = DB::transaction(function () use ($data) {
             $service = AutomotiveService::create($data);
             $product = Product::create([
@@ -96,8 +99,8 @@ class AutomotiveController extends BaseController
                 'sku' => 'AUTO-' . $service->code,
                 'price' => $service->small_vehicle_price ?? $service->selling_price,
                 'cost' => $service->estimated_cost,
-                'stock' => (int) ceil((float) ($service->stock_quantity ?? 999999)),
-                'active' => $service->active,
+                'stock' => $service->item_type === 'product' ? (int) ceil((float) ($service->stock_quantity ?? 0)) : 999999,
+                'active' => $service->active ?? true,
             ]);
             $service->update(['product_id' => $product->id]);
             return $service->fresh()->load('product');
@@ -109,11 +112,24 @@ class AutomotiveController extends BaseController
     {
         $data = $request->validate([
             'code' => ['sometimes', 'string', 'max:50'], 'name' => ['sometimes', 'string', 'max:255'], 'name_ar' => ['nullable', 'string', 'max:255'],
-            'description' => ['nullable', 'string'], 'selling_price' => ['sometimes', 'numeric', 'min:0'], 'estimated_cost' => ['nullable', 'numeric', 'min:0'],
-            'estimated_minutes' => ['nullable', 'integer', 'min:1'], 'warranty_eligible' => ['boolean'], 'active' => ['boolean'],
+            'description' => ['nullable', 'string'], 'item_type' => ['sometimes', Rule::in(['service', 'product'])], 'unit' => ['nullable', 'string', 'max:30'],
+            'selling_price' => ['sometimes', 'numeric', 'min:0'], 'estimated_cost' => ['nullable', 'numeric', 'min:0'],
+            'small_vehicle_quantity' => ['nullable', 'numeric', 'min:0.001'], 'large_vehicle_quantity' => ['nullable', 'numeric', 'min:0.001'],
+            'small_vehicle_price' => ['nullable', 'numeric', 'min:0'], 'large_vehicle_price' => ['nullable', 'numeric', 'min:0'],
+            'stock_quantity' => ['nullable', 'numeric', 'min:0'], 'estimated_minutes' => ['nullable', 'integer', 'min:1'],
+            'warranty_eligible' => ['boolean'], 'active' => ['boolean'],
         ]);
         $service->update($data);
-        return response()->json(['status' => true, 'data' => $service->fresh()]);
+        if ($service->product) {
+            $service->product->update([
+                'name' => $service->name, 'description' => $service->description,
+                'price' => $service->small_vehicle_price ?? $service->selling_price,
+                'cost' => $service->estimated_cost,
+                'stock' => $service->item_type === 'product' ? (int) ceil((float) ($service->stock_quantity ?? 0)) : 999999,
+                'active' => $service->active ?? true,
+            ]);
+        }
+        return response()->json(['status' => true, 'data' => $service->fresh()->load('product')]);
     }
 
     public function orders(Request $request)
