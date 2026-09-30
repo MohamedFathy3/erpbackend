@@ -839,7 +839,7 @@ Route::middleware([
 
     Route::post('/products/by-branch', [
         ProductController::class,
-        'getProductsByBranch'
+        'index'
     ]);
 
     Route::post('/warehouse-stock/index', [
