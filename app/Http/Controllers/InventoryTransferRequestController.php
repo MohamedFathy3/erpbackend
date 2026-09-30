@@ -235,11 +235,13 @@ class InventoryTransferRequestController extends Controller
 
     private function isAdmin(Employee|Admin $employee): bool
     {
-        return str_contains(strtolower((string) $employee->role?->name), 'admin');
+        return $employee instanceof Admin
+            || str_contains(strtolower((string) $employee->role?->name), 'admin');
     }
 
     private function isManager(Employee|Admin $employee): bool
     {
+        if ($employee instanceof Admin) return true;
         $role = strtolower((string) $employee->role?->name);
         return str_contains($role, 'manager') || str_contains($role, 'admin') || (bool) $employee->super_admin;
     }
