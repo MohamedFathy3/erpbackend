@@ -19,7 +19,14 @@ class ResolveTenant
         }
 
         $host=strtolower($request->getHost());
-        $slug=$this->slugFromHost($host, $request);
+        // Reverse proxies and shared API hosts can differ from the tenant's
+        // canonical slug (for example protect-plus-2.* serving tenant acsa).
+        // An explicit workspace header takes precedence, but the authenticated
+        // account is still checked against the resolved tenant below.
+        $headerSlug = trim((string) $request->header('X-Tenant-Slug', ''));
+        $slug = $headerSlug !== ''
+            ? strtolower($headerSlug)
+            : $this->slugFromHost($host, $request);
         if ($slug) {
             $tenant=Tenant::withoutGlobalScopes()->where('slug',$slug)->first();
             if (!$tenant) return response()->json(['message'=>'Tenant workspace was not found.','code'=>'tenant_not_found'],404);
@@ -44,13 +51,10 @@ class ResolveTenant
         $central=collect(explode(',',(string)config('tenancy.central_domains','')))->map(fn($item)=>trim(strtolower($item)))->filter()->all();
         if (in_array($host,$central,true)) return null;
         $root=strtolower((string)config('tenancy.root_domain','example.com'));
-        // The central frontend may serve tenant users on a shared host. In
-        // that case the frontend sends the workspace slug explicitly. This
-        // is still fail-closed because handle() verifies it against the
-        // authenticated user's tenant before setting the current tenant.
+        // Shared/central hosts do not imply a tenant. Authenticated users may
+        // fall back to their assigned tenant_id in handle().
         if ($host === $root || !str_ends_with($host,'.'.$root)) {
-            $headerSlug = trim((string) $request->header('X-Tenant-Slug', ''));
-            return $headerSlug !== '' ? strtolower($headerSlug) : null;
+            return null;
         }
         $prefix=substr($host,0,-(strlen($root)+1));
         return $prefix && !str_contains($prefix,'.') ? $prefix : null;
