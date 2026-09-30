@@ -48,6 +48,16 @@ class ProductResource extends JsonResource
 
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
+            'automotive_service' => $this->whenLoaded('automotiveService', fn () => $this->automotiveService ? [
+                'id' => $this->automotiveService->id,
+                'item_type' => $this->automotiveService->item_type,
+                'unit' => $this->automotiveService->unit,
+                'small_vehicle_quantity' => $this->automotiveService->small_vehicle_quantity,
+                'large_vehicle_quantity' => $this->automotiveService->large_vehicle_quantity,
+                'small_vehicle_price' => $this->automotiveService->small_vehicle_price,
+                'large_vehicle_price' => $this->automotiveService->large_vehicle_price,
+                'stock_quantity' => $this->automotiveService->stock_quantity,
+            ] : null),
         ];
     }
 }

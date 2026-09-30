@@ -6,6 +6,7 @@ use App\Models\AutomotiveService;
 use App\Models\AutomotiveServiceOrder;
 use App\Models\AutomotiveServiceOrderItem;
 use App\Models\AutomotiveVehicle;
+use App\Models\Product;
 use App\Models\Admin;
 use App\Models\AutomotiveWarranty;
 use App\Models\Employee;
@@ -69,7 +70,7 @@ class AutomotiveController extends BaseController
 
     public function services(Request $request)
     {
-        $query = AutomotiveService::query()->latest();
+        $query = AutomotiveService::with('product')->latest();
         if ($request->has('active')) $query->where('active', $request->boolean('active'));
         if ($request->filled('search')) $query->where(fn ($q) => $q->where('name', 'like', '%' . $request->string('search') . '%')->orWhere('code', 'like', '%' . $request->string('search') . '%'));
         return response()->json(['status' => true, 'data' => $query->paginate($request->integer('per_page', 25))]);
@@ -80,10 +81,27 @@ class AutomotiveController extends BaseController
         $data = $request->validate([
             'code' => ['required', 'string', 'max:50'], 'name' => ['required', 'string', 'max:255'],
             'name_ar' => ['nullable', 'string', 'max:255'], 'description' => ['nullable', 'string'],
+            'item_type' => ['nullable', Rule::in(['service', 'product'])], 'unit' => ['nullable', 'string', 'max:30'],
             'selling_price' => ['required', 'numeric', 'min:0'], 'estimated_cost' => ['nullable', 'numeric', 'min:0'],
-            'estimated_minutes' => ['nullable', 'integer', 'min:1'], 'warranty_eligible' => ['boolean'], 'active' => ['boolean'],
+            'small_vehicle_quantity' => ['nullable', 'numeric', 'min:0.001'], 'large_vehicle_quantity' => ['nullable', 'numeric', 'min:0.001'],
+            'small_vehicle_price' => ['nullable', 'numeric', 'min:0'], 'large_vehicle_price' => ['nullable', 'numeric', 'min:0'],
+            'stock_quantity' => ['nullable', 'numeric', 'min:0'], 'estimated_minutes' => ['nullable', 'integer', 'min:1'],
+            'warranty_eligible' => ['boolean'], 'active' => ['boolean'],
         ]);
-        $service = AutomotiveService::create($data);
+        $service = DB::transaction(function () use ($data) {
+            $service = AutomotiveService::create($data);
+            $product = Product::create([
+                'name' => $service->name,
+                'description' => $service->description,
+                'sku' => 'AUTO-' . $service->code,
+                'price' => $service->small_vehicle_price ?? $service->selling_price,
+                'cost' => $service->estimated_cost,
+                'stock' => (int) ceil((float) ($service->stock_quantity ?? 999999)),
+                'active' => $service->active,
+            ]);
+            $service->update(['product_id' => $product->id]);
+            return $service->fresh()->load('product');
+        });
         return response()->json(['status' => true, 'data' => $service], 201);
     }
 
@@ -197,7 +215,7 @@ class AutomotiveController extends BaseController
     {
         $from = $request->date('from')?->startOfDay() ?? now()->subDays(30)->startOfDay();
         $to = $request->date('to')?->endOfDay() ?? now()->endOfDay();
-        $orders = AutomotiveServiceOrder::with(['customer', 'items.service', 'technicians'])
+        $orders = AutomotiveServiceOrder::with(['customer', 'vehicle', 'items.service', 'technicians'])
             ->whereBetween('created_at', [$from, $to])->whereNotIn('status', ['cancelled'])->get();
         $serviceRows = $orders->flatMap(fn ($order) => $order->items)->groupBy('service_id')->map(function ($items, $serviceId) {
             $revenue = $items->sum(fn ($i) => (float) $i->quantity * (float) $i->unit_price - (float) $i->discount_amount);
@@ -217,6 +235,16 @@ class AutomotiveController extends BaseController
         })->values();
         $totalCost = $orders->sum(fn ($o) => $o->items->sum(fn ($i) => (float) $i->quantity * (float) $i->unit_cost));
         $totalRevenue = $orders->sum('total_amount');
-        return response()->json(['status' => true, 'data' => ['from' => $from->toDateString(), 'to' => $to->toDateString(), 'summary' => ['orders' => $orders->count(), 'revenue' => round($totalRevenue, 2), 'cost' => round($totalCost, 2), 'profit' => round($totalRevenue - $totalCost, 2)], 'services' => $serviceRows, 'technicians' => $technicianRows, 'customers' => $customerRows]]);
+        $details = $orders->flatMap(fn ($order) => $order->items->map(fn ($item) => [
+            'order_id' => $order->id, 'order_number' => $order->order_number,
+            'customer' => $order->customer?->name ?? 'عميل غير معروف',
+            'vehicle' => trim(($order->vehicle?->make ?? '') . ' ' . ($order->vehicle?->model ?? '')),
+            'service' => $item->service?->name ?? $item->description, 'quantity' => (float) $item->quantity,
+            'unit_price' => (float) $item->unit_price, 'unit_cost' => (float) $item->unit_cost,
+            'revenue' => round((float) $item->quantity * (float) $item->unit_price, 2),
+            'profit' => round((float) $item->quantity * ((float) $item->unit_price - (float) $item->unit_cost), 2),
+            'created_at' => $order->created_at?->toDateString(),
+        ]))->values();
+        return response()->json(['status' => true, 'data' => ['from' => $from->toDateString(), 'to' => $to->toDateString(), 'summary' => ['orders' => $orders->count(), 'revenue' => round($totalRevenue, 2), 'cost' => round($totalCost, 2), 'profit' => round($totalRevenue - $totalCost, 2)], 'services' => $serviceRows, 'technicians' => $technicianRows, 'customers' => $customerRows, 'details' => $details]]);
     }
 }

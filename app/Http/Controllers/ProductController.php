@@ -35,7 +35,7 @@ class ProductController extends BaseController
     try {
         $filters = $request->input('filters', []);
 
-        $query = Product::query()->with(['category', 'units.colors', 'warehouses']);
+        $query = Product::query()->with(['category', 'units.colors', 'warehouses', 'automotiveService']);
 
         // فلتر المخزن
         if (!empty($filters['warehouse_id'])) {

@@ -178,6 +178,8 @@ public function store(Request $request)
         'sales_representative_id' => 'nullable|integer|exists:sales_representatives,id',
         'items.*.discount_percentage' => 'nullable|numeric|min:0|max:100',
         'items.*.discount_amount' => 'nullable|numeric|min:0',
+        'items.*.vehicle_size' => 'nullable|in:small,large',
+        'items.*.meter_quantity' => 'nullable|numeric|min:0.001',
     ]);
 
     $isComplimentary = $request->boolean('is_complimentary');
@@ -316,7 +318,8 @@ public function store(Request $request)
                 ], 400);
             }
 
-            if ($product->stock < $item['quantity']) {
+            $stockUsage = (float) $item['quantity'] * (float) ($item['meter_quantity'] ?? 1);
+            if ($product->stock < $stockUsage) {
                 DB::rollBack();
                 return response()->json([
                     'status' => false,
@@ -328,7 +331,7 @@ public function store(Request $request)
                 'product_id'   => $item['product_id'],
                 'product_name' => $item['product_name'] ?? $product->name,
                 'color'        => $item['color'] ?? null,
-                'size'         => $item['size'] ?? null,
+                'size'         => $item['size'] ?? ($item['vehicle_size'] ?? null),
                 'quantity'     => $item['quantity'],
                 'price'        => $item['price'],
                 'total'        => round(((float) $item['price'] * (float) $item['quantity']) * (1 - (float) ($item['discount_percentage'] ?? 0) / 100), 2),
@@ -336,7 +339,10 @@ public function store(Request $request)
                 'discount_amount' => round(((float) $item['price'] * (float) $item['quantity']) * (float) ($item['discount_percentage'] ?? 0) / 100, 2),
             ]);
 
-            $product->decrement('stock', $item['quantity']);
+            $product->decrement('stock', $stockUsage);
+            if ($product->automotiveService) {
+                $product->automotiveService->decrement('stock_quantity', $stockUsage);
+            }
         }
 
         // ============================================================

@@ -20,6 +20,11 @@
             'active' => 'boolean',
         ];
 
+        public function automotiveService()
+        {
+            return $this->hasOne(AutomotiveService::class, 'product_id');
+        }
+
         public function units()
         {
             return $this->hasMany(ProductUnit::class);
