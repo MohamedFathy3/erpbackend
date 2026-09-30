@@ -63,13 +63,14 @@ class SalesRepresentativeController extends BaseController
 
     public function index(Request $request)
     {
-        $this->assertAdmin($request->user());
         try {
             $from = $request->input('from', data_get($request->input('filters', []), 'date_from'));
             $to = $request->input('to', data_get($request->input('filters', []), 'date_to'));
             $user = $request->user();
             $branchId = $user instanceof Employee && $user->branch_id ? (int) $user->branch_id : (int) data_get($request->input('filters', []), 'branch_id', $request->input('branch_id', 0));
-            $representatives = collect($this->crudRepository->all($branchId ? ['branch_id' => $branchId] : [], [], ['*']));
+            $representatives = SalesRepresentative::query()
+                ->when($branchId, fn ($query) => $query->where('branch_id', $branchId))
+                ->get();
             $rows = $representatives->map(function ($representative) use ($from, $to) {
                 $salesInvoices = SalesInvoice::with(['customer:id,name', 'items.product:id,name,cost'])
                     ->where('sales_representative_id', $representative->id)

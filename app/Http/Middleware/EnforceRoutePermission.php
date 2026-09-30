@@ -35,6 +35,11 @@ class EnforceRoutePermission
 
         $identifier = Permission::identifierColumn();
         $candidatePermissions = [$permission];
+        // POS and purchasing need read-only reference data. Do not grant
+        // sales staff permission to create or edit currencies/taxes.
+        if (in_array($permission, ['currency.view', 'tax.view'], true)) {
+            $candidatePermissions[] = 'sales.view';
+        }
         // Keep existing finance roles working while allowing the new
         // tax/treasury/currency/bank permissions to be assigned separately.
         if (in_array($permission, [
@@ -110,6 +115,12 @@ class EnforceRoutePermission
 
         if (!$module || in_array($resource, ['login', 'auth', 'get-admin'], true)) {
             return null;
+        }
+
+        // The POS selector reads representatives for the employee's branch;
+        // representative management remains protected by representative.*.
+        if ($resource === 'sales-representative' && ($segments[1] ?? '') === 'index') {
+            return 'sales.view';
         }
 
         // These endpoints use POST to fetch a paginated list; they still
