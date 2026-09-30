@@ -15,9 +15,11 @@ class SuperAdminTenantController extends Controller
 {
     private const MODULES = [
         'dashboard', 'pos', 'inventory', 'purchasing', 'sales', 'finance',
-        'hr', 'crm', 'reports', 'settings', 'industries', 'manufacturing',
-        'manufacturing_setup', 'product_ledger', 'projects', 'workflow',
-        'access_control', 'ai_assistant',
+        'hr', 'crm', 'reports', 'employee_financial_reports', 'warehouse_reports',
+        'settings', 'industries', 'manufacturing', 'manufacturing_setup',
+        'product_ledger', 'inventory_transfer_requests', 'representative',
+        'projects', 'workflow', 'access_control', 'ai_assistant',
+        'automotive_service',
         'email', 'whatsapp', 'google_calendar', 'google_drive', 'tasks',
     ];
 
