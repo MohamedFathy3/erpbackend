@@ -1,66 +1,65 @@
-<?php
+    <?php
 
-namespace App\Models;
+    namespace App\Models;
 
-use App\Traits\HasMedia;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Notifications\Notifiable;
+    use App\Traits\HasMedia;
+    use Illuminate\Database\Eloquent\Factories\HasFactory;
+    use Illuminate\Database\Eloquent\Model;
+    use Illuminate\Notifications\Notifiable;
 
-class Product extends BaseModel
-{
-    use HasFactory, Notifiable , HasMedia;
-
-    protected $with = [
-        'media',
-    ];
-
-    protected $guarded = ['id'];
-
-    protected $casts = [
-        'active' => 'boolean',
-    ];
-
-    public function units()
+    class Product extends BaseModel
     {
-        return $this->hasMany(ProductUnit::class);
-    }
+        use HasFactory, Notifiable , HasMedia;
 
-    public function offers()
-    {
-        return $this->belongsToMany(Offer::class);
-    }
+        protected $with = [
+            'media',
+        ];
 
-    public function category()
-    {
-        return $this->belongsTo(Category::class);
-    }
+        protected $guarded = ['id'];
+
+        protected $casts = [
+            'active' => 'boolean',
+        ];
+
+        public function units()
+        {
+            return $this->hasMany(ProductUnit::class);
+        }
+
+        public function offers()
+        {
+            return $this->belongsToMany(Offer::class);
+        }
+
+        public function category()
+        {
+            return $this->belongsTo(Category::class);
+        }
 
     public function warehouses()
     {
-        return $this->belongsToMany(Warehouse::class)
+        return $this->belongsToMany(Warehouse::class, 'product_warehouse')
             ->withPivot(['stock', 'cost'])
             ->withTimestamps();
     }
+        public function purchaseInvoiceItems()
+        {
+            return $this->hasMany(PurchaseInvoiceItem::class);
+        }
 
-    public function purchaseInvoiceItems()
-    {
-        return $this->hasMany(PurchaseInvoiceItem::class);
+        public function invoiceItems()
+        {
+            return $this->hasMany(InvoiceItem::class);
+        }
+
+        public function salesInvoiceItems()
+        {
+            return $this->hasMany(SalesInvoiceItem::class);
+        }
+
+        public function inventoryMovements()
+        {
+            return $this->hasMany(InventoryMovement::class);
+        }
+
     }
-
-    public function invoiceItems()
-    {
-        return $this->hasMany(InvoiceItem::class);
-    }
-
-    public function salesInvoiceItems()
-    {
-        return $this->hasMany(SalesInvoiceItem::class);
-    }
-
-    public function inventoryMovements()
-    {
-        return $this->hasMany(InventoryMovement::class);
-    }
-
-}

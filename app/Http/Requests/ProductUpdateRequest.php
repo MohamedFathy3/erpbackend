@@ -39,6 +39,10 @@ class ProductUpdateRequest extends FormRequest
             'price'           => 'nullable|numeric|min:0',
             'cost'            => 'nullable|numeric|min:0',
 
+        
+'warehouse_ids'   => 'nullable|array',
+'warehouse_ids.*' => 'exists:warehouses,id',
+
             // units
             'units' => 'sometimes|array',
             'units.*.unit_id'             => 'nullable|exists:units,id',

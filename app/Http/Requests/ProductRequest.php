@@ -45,6 +45,10 @@ class ProductRequest extends FormRequest
             'units.*.sell_price'          => 'required|numeric|min:0',
             'units.*.barcode'             => 'nullable|string',
 
+
+
+            'warehouse_ids'   => 'nullable|array',
+'warehouse_ids.*' => 'exists:warehouses,id',
             // colors per unit - ✅ إزالة قواعد distinct
             'units.*.colors' => 'sometimes|array',
             'units.*.colors.*.color_id'   => 'required_with:units.*.colors|exists:colors,id',

@@ -30,19 +30,56 @@ class ProductController extends BaseController
         $this->crudRepository = $pattern;
     }
 
-    public function index()
-    {
-        try {
-            $product = ProductResource::collection($this->crudRepository->all(
-                [],
-                [],
-                ['*']
-            ));
-            return $product->additional(JsonResponse::success());
-        } catch (Exception $e) {
-            return JsonResponse::respondError($e->getMessage());
+  public function index(Request $request)
+{
+    try {
+        $filters = $request->input('filters', []);
+
+        $query = Product::query()->with(['category', 'units.colors', 'warehouses']);
+
+        // فلتر المخزن
+        if (!empty($filters['warehouse_id'])) {
+            $warehouseId = (int) $filters['warehouse_id'];
+            $query->whereHas('warehouses', function ($q) use ($warehouseId) {
+                $q->where('warehouses.id', $warehouseId);
+            });
         }
+
+        // فلتر التصنيف
+        if (!empty($filters['category_id'])) {
+            $query->where('category_id', (int) $filters['category_id']);
+        }
+
+        // فلتر الحالة (active / inactive)
+        if (array_key_exists('active', $filters)) {
+            $query->where('active', filter_var($filters['active'], FILTER_VALIDATE_BOOLEAN));
+        }
+
+        $orderBy = $request->input('orderBy', 'id');
+        $direction = strtolower($request->input('orderByDirection', 'asc')) === 'desc' ? 'desc' : 'asc';
+        $query->orderBy($orderBy, $direction);
+
+        $products = $query->get();
+
+        return ProductResource::collection($products)
+            ->additional(JsonResponse::success());
+    } catch (Exception $e) {
+        return JsonResponse::respondError($e->getMessage());
     }
+}
+
+public function show(Product $product): ?\Illuminate\Http\JsonResponse
+{
+    try {
+        return JsonResponse::respondSuccess(
+            'Item Fetched Successfully',
+            new ProductResource($product->load('warehouses'))
+        );
+    } catch (Exception $e) {
+        return JsonResponse::respondError($e->getMessage());
+    }
+}
+
 
    public function store(ProductRequest $request)
 {
@@ -52,8 +89,8 @@ class ProductController extends BaseController
         $data = $request->validated();
 
         $product = $this->crudRepository->create(
-            collect($data)->except('units')->toArray()
-        );
+    collect($data)->except(['units', 'warehouse_ids', 'branch_ids'])->toArray()
+);
 
         if (!empty($data['units']) && is_array($data['units'])) {
             // إعادة تنظيم الوحدات
@@ -100,7 +137,7 @@ class ProductController extends BaseController
                 }
             }
         }
-
+$this->linkWarehouses($product, $data['warehouse_ids'] ?? null);
         if (request('image') !== null) {
             $this->crudRepository->AddMediaCollection('image', $product);
         }
@@ -109,7 +146,7 @@ class ProductController extends BaseController
 
         return new ProductResource($product->load('units.colors'));
 
-    } catch (\Exception $e) {
+    } catch (Exception $e) {
         DB::rollBack();
         return JsonResponse::respondError($e->getMessage());
     }
@@ -117,16 +154,7 @@ class ProductController extends BaseController
 
 
 
-    public function show(Product $product): ?\Illuminate\Http\JsonResponse
-    {
-        try {
-            return JsonResponse::respondSuccess('Item Fetched Successfully', new ProductResource($product));
-        } catch (Exception $e) {
-            return JsonResponse::respondError($e->getMessage());
-        }
-    }
-
-
+    
 
 public function update(ProductUpdateRequest $request, Product $product)
 {
@@ -135,10 +163,12 @@ public function update(ProductUpdateRequest $request, Product $product)
     try {
         $data = $request->validated();
 
-        $this->crudRepository->update(
-            collect($data)->except(['units', 'image'])->toArray(),
-            $product->id
-        );
+  $this->crudRepository->update(
+    collect($data)->except(['units', 'image', 'warehouse_ids', 'branch_ids'])->toArray(),
+    $product->id
+);
+
+$this->linkWarehouses($product, $data['warehouse_ids'] ?? null);
 
         if ($request->has('image') && $request->input('image') !== null) {
             $this->crudRepository->AddMediaCollection('image', $product);
@@ -307,26 +337,38 @@ public function update(ProductUpdateRequest $request, Product $product)
     }
 
   public function getProductsByBranch(Request $request)
-    {
-        $data = $request->validate([
-            'branch_id' => 'nullable|exists:branches,id',
-            'category_id' => 'nullable|exists:categories,id',
-        ]);
+{
+    $data = $request->validate([
+        'branch_id' => ['required', 'exists:branches,id'],
+        'category_id' => ['nullable', 'exists:categories,id'],
+    ]);
 
-        $products = Product::with('category')
-            ->when($data['branch_id'] ?? null, function ($query) use ($data) {
-                $query->whereHas('purchaseInvoiceItems.invoice', function ($q) use ($data) {
-                    $q->where('branch_id', $data['branch_id']);
-                });
-            })
-            ->when($data['category_id'] ?? null, function ($query) use ($data) {
+    $branchId = (int) $data['branch_id'];
+
+    $products = Product::query()
+        ->with([
+            'category',
+            'units.colors',
+        ])
+
+        // هات المنتجات المسجلة في مخازن هذا الفرع فقط
+        ->whereHas('warehouses', function ($query) use ($branchId) {
+            $query->where('branch_id', $branchId);
+        })
+
+        // فلتر التصنيف لو موجود
+        ->when(
+            !empty($data['category_id']),
+            function ($query) use ($data) {
                 $query->where('category_id', $data['category_id']);
-            })
-            ->distinct()
-            ->get();
+            }
+        )
 
-        return ProductResource::collection($products);
-    }
+        ->distinct()
+        ->get();
+
+    return ProductResource::collection($products);
+}
 
     public function warehouseStock(Request $request)
     {
@@ -550,6 +592,44 @@ public function update(ProductUpdateRequest $request, Product $product)
             ], 500);
         }
     }
+private function linkWarehouses(Product $product, ?array $warehouseIds): void
+{
+    $tenantId = $product->tenant_id;
 
+    if (empty($warehouseIds)) {
+        // لو المنتج مربوط بمخزن بالفعل، متعملش حاجة
+        if (ProductWarehouse::where('product_id', $product->id)->exists()) {
+            return;
+        }
+
+        // ✅ اختار المخزن الرئيسي لنفس الـ tenant فقط
+        $main = \App\Models\Warehouse::where('tenant_id', $tenantId)
+            ->whereNull('deleted_at')
+            ->orderByDesc('main_branch')
+            ->orderBy('id')
+            ->first();
+
+        $warehouseIds = $main ? [$main->id] : [];
+    }
+
+    if (empty($warehouseIds)) {
+        \Log::warning("No warehouse found for product {$product->id} (tenant {$tenantId})");
+        return;
+    }
+
+    foreach ($warehouseIds as $warehouseId) {
+        ProductWarehouse::firstOrCreate(
+            [
+                'product_id'   => $product->id,
+                'warehouse_id' => (int) $warehouseId,
+            ],
+            [
+                'stock'     => 0,   // ✅ متحطش stock وهمي
+                'cost'      => $product->cost ?? 0,
+                'tenant_id' => $tenantId,
+            ]
+        );
+    }
+}
 
 }
