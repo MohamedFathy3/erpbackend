@@ -34,7 +34,13 @@ class CustomerController extends BaseController
                 $branchId = $user instanceof \App\Models\Employee
                     ? (int) ($user->branch_id ?? 0)
                     : $requestedBranchId;
-                if ($branchId > 0) $query->where('branch_id', $branchId);
+                if ($branchId > 0) {
+                    // Customers created before branch assignment remain tenant-wide and
+                    // should still be selectable in POS; branch-specific customers stay isolated.
+                    $query->where(function ($branchQuery) use ($branchId) {
+                        $branchQuery->where('branch_id', $branchId)->orWhereNull('branch_id');
+                    });
+                }
                 else $query->whereRaw('1 = 0');
             } else {
                 $branchId = $user instanceof \App\Models\Employee && $user->branch_id

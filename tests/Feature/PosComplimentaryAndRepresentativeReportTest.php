@@ -135,6 +135,10 @@ class PosComplimentaryAndRepresentativeReportTest extends TestCase
             'name' => 'Local customer', 'branch_id' => $branchA, 'tenant_id' => $tenant->id,
             'created_at' => now(), 'updated_at' => now(),
         ]);
+        $sharedCustomer = DB::table('customers')->insertGetId([
+            'name' => 'Legacy shared customer', 'branch_id' => null, 'tenant_id' => $tenant->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
         DB::table('customers')->insert([
             'name' => 'Foreign branch customer', 'branch_id' => $branchB, 'tenant_id' => $tenant->id,
             'created_at' => now(), 'updated_at' => now(),
@@ -154,7 +158,10 @@ class PosComplimentaryAndRepresentativeReportTest extends TestCase
             Auth::forgetGuards();
         }
 
-        $this->assertSame([$customerA], collect($response->response()->getData(true)['data'])->pluck('id')->all());
+        $this->assertEqualsCanonicalizing(
+            [$customerA, $sharedCustomer],
+            collect($response->response()->getData(true)['data'])->pluck('id')->all(),
+        );
     }
 
     public function test_complimentary_pos_invoice_notifies_tenant_admin_with_warning(): void
