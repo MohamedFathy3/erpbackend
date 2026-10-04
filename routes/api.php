@@ -863,6 +863,23 @@ Route::middleware([
         ProductController::class,
         'addStock'
     ]);
+     Route::post('/products/update-stock', [
+        ProductController::class,
+        'updateStock'
+    ]);
+    Route::post('/products/stock-details', [
+    ProductController::class,
+    'stockDetails'
+]);
+
+
+Route::post('/products/warehouses', [
+    ProductController::class,
+    'productWarehouses'
+]);
+
+
+  Route::post('/warehouse/index', [WarehouseController::class, 'index']);
 });
 
 

@@ -584,7 +584,7 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null);
                 'message' => 'Stock added successfully'
             ]);
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             DB::rollBack();
 
             return response()->json([
@@ -592,6 +592,381 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null);
             ], 500);
         }
     }
+
+
+
+    public function updateStock(Request $request)
+    {
+        $request->validate([
+            'product_id'       => 'required|exists:products,id',
+
+            'warehouse_id'     => 'required|exists:warehouses,id',
+            'unit_id'          => 'nullable|exists:units,id',
+            'color_id'         => 'nullable|exists:colors,id',
+
+            'stock'            => 'required|numeric|min:1',
+            'cost'             => 'required|numeric|min:0',
+
+            'old_stock'        => 'required|numeric|min:0',
+            'old_warehouse_id' => 'required|exists:warehouses,id',
+            'old_unit_id'      => 'nullable|exists:units,id',
+            'old_color_id'     => 'nullable|exists:colors,id',
+        ]);
+
+        DB::beginTransaction();
+
+        try {
+
+            $productId = $request->product_id;
+
+            $oldStock = (float) $request->old_stock;
+            $newStock = (float) $request->stock;
+
+            /*
+            |--------------------------------------------------------------------------
+            | 1. Product
+            |--------------------------------------------------------------------------
+            */
+
+            $product = Product::findOrFail($productId);
+
+            if ($product->stock < $oldStock) {
+                throw new Exception(
+                    'Product stock is less than the old stock quantity.'
+                );
+            }
+
+            // إزالة الكمية القديمة
+            $product->decrement('stock', $oldStock);
+
+            /*
+            |--------------------------------------------------------------------------
+            | 2. Old Warehouse
+            |--------------------------------------------------------------------------
+            */
+
+            $oldProductWarehouse = ProductWarehouse::where([
+                'product_id'   => $productId,
+                'warehouse_id' => $request->old_warehouse_id,
+            ])->first();
+
+            if (!$oldProductWarehouse) {
+                throw new Exception(
+                    'Old product warehouse record not found.'
+                );
+            }
+
+            if ($oldProductWarehouse->stock < $oldStock) {
+                throw new Exception(
+                    'Old warehouse stock is less than the old stock quantity.'
+                );
+            }
+
+            // إزالة الكمية القديمة من المخزن القديم
+            $oldProductWarehouse->decrement('stock', $oldStock);
+
+            /*
+            |--------------------------------------------------------------------------
+            | 3. Old Unit + Color
+            |--------------------------------------------------------------------------
+            |
+            | لو old_unit_id و old_color_id موجودين:
+            | نطرح الكمية من اللون القديم.
+            |
+            */
+
+            if ($request->filled('old_unit_id') && $request->filled('old_color_id')) {
+
+                $oldProductUnit = ProductUnit::where([
+                    'product_id' => $productId,
+                    'unit_id'    => $request->old_unit_id,
+                ])->first();
+
+                if (!$oldProductUnit) {
+                    throw new Exception(
+                        'Old product unit not found.'
+                    );
+                }
+
+                $oldUnitColor = ProductUnitColor::where([
+                    'product_unit_id' => $oldProductUnit->id,
+                    'color_id'        => $request->old_color_id,
+                ])->first();
+
+                if (!$oldUnitColor) {
+                    throw new Exception(
+                        'Old product color not found.'
+                    );
+                }
+
+                if ($oldUnitColor->stock < $oldStock) {
+                    throw new Exception(
+                        'Old color stock is less than the old stock quantity.'
+                    );
+                }
+
+                // إزالة الكمية القديمة من اللون
+                $oldUnitColor->decrement('stock', $oldStock);
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | 4. New Product Stock
+            |--------------------------------------------------------------------------
+            */
+
+            $product->increment('stock', $newStock);
+
+            $product->cost = $request->cost;
+            $product->beginning_balance = 1;
+            $product->save();
+
+            /*
+            |--------------------------------------------------------------------------
+            | 5. New Warehouse
+            |--------------------------------------------------------------------------
+            */
+
+            $productWarehouse = ProductWarehouse::firstOrCreate(
+                [
+                    'product_id'   => $productId,
+                    'warehouse_id' => $request->warehouse_id,
+                ],
+                [
+                    'stock' => 0,
+                    'cost'  => $request->cost,
+                ]
+            );
+
+            $productWarehouse->increment('stock', $newStock);
+
+            /*
+            |--------------------------------------------------------------------------
+            | 6. New Unit
+            |--------------------------------------------------------------------------
+            */
+
+            $productUnit = null;
+
+            if ($request->filled('unit_id')) {
+
+                $productUnit = ProductUnit::firstOrCreate([
+                    'product_id' => $productId,
+                    'unit_id'    => $request->unit_id,
+                ]);
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | 7. New Color
+            |--------------------------------------------------------------------------
+            */
+
+            if ($productUnit && $request->filled('color_id')) {
+
+                $unitColor = ProductUnitColor::firstOrCreate([
+                    'product_unit_id' => $productUnit->id,
+                    'color_id'        => $request->color_id,
+                ], [
+                    'stock' => 0,
+                ]);
+
+                $unitColor->increment('stock', $newStock);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Stock updated successfully'
+            ]);
+
+        } catch (Exception $e) {
+
+            DB::rollBack();
+
+            return response()->json([
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+public function stockDetails(Request $request)
+{
+    $request->validate([
+        'product_id'   => 'required|exists:products,id',
+        'warehouse_id' => 'nullable|exists:warehouses,id',
+    ]);
+
+    try {
+        $productId = (int) $request->product_id;
+        $warehouseId = $request->filled('warehouse_id')
+            ? (int) $request->warehouse_id
+            : null;
+
+        $product = Product::findOrFail($productId);
+
+        // ✅ الـ ProductWarehouse
+        if ($warehouseId) {
+            $productWarehouse = ProductWarehouse::with(['warehouse.branch'])
+                ->where('product_id', $productId)
+                ->where('warehouse_id', $warehouseId)
+                ->first();
+        } else {
+            $productWarehouse = ProductWarehouse::with(['warehouse.branch'])
+                ->where('product_id', $productId)
+                ->where('stock', '>', 0)
+                ->first();
+
+            if (!$productWarehouse) {
+                $productWarehouse = ProductWarehouse::with(['warehouse.branch'])
+                    ->where('product_id', $productId)
+                    ->first();
+            }
+        }
+
+        // ✅ الـ ProductUnit + Color
+        $productUnit = ProductUnit::where('product_id', $productId)->first();
+        $productUnitColor = $productUnit
+            ? ProductUnitColor::where('product_unit_id', $productUnit->id)->first()
+            : null;
+
+        // ✅ احسب الكميات
+        $productStock = (float) $product->stock;
+        $warehouseStock = (float) ($productWarehouse?->stock ?? 0);
+        $unitColorStock = (float) ($productUnitColor?->stock ?? 0);
+
+        // ✅ الكمية الصح: 
+        // 1. لو فيه unit_color_stock > 0 → استخدمها
+        // 2. لو مفيش → استخدم warehouse_stock
+        // 3. لو مفيش → استخدم product_stock
+        $displayStock = 0;
+        if ($unitColorStock > 0) {
+            $displayStock = $unitColorStock;
+        } elseif ($warehouseStock > 0) {
+            $displayStock = $warehouseStock;
+        } else {
+            $displayStock = $productStock;
+        }
+
+        // ✅ Fallback لو مفيش warehouse
+        if (!$productWarehouse) {
+            $fallbackWarehouse = \App\Models\Warehouse::where('tenant_id', $product->tenant_id)
+                ->whereNull('deleted_at')
+                ->orderByDesc('main_branch')
+                ->orderBy('id')
+                ->first();
+
+            return response()->json([
+                'result' => 'Success',
+                'message' => 'Stock details fetched (no warehouse record yet)',
+                'data' => [
+                    'record_id'         => null,
+                    'product_id'        => $product->id,
+                    'warehouse_id'      => $fallbackWarehouse?->id,
+                    'branch_id'         => $fallbackWarehouse?->branch_id,
+                    'branch_name'       => $fallbackWarehouse?->branch?->name,
+                    'branch_name_ar'    => $fallbackWarehouse?->branch?->name_ar,
+                    'warehouse_name'    => $fallbackWarehouse?->name,
+                    'warehouse_name_ar' => $fallbackWarehouse?->name_ar,
+                    'unit_id'           => $productUnit?->unit_id,
+                    'color_id'          => $productUnitColor?->color_id,
+
+                    'product_stock'     => $productStock,
+                    'warehouse_stock'   => 0,
+                    'unit_color_stock'  => $unitColorStock,
+                    'stock'             => $displayStock,
+
+                    'cost'              => $product->cost,
+                    'price'             => $product->price,
+                    'warehouse'         => $fallbackWarehouse,
+                ],
+            ]);
+        }
+
+        return response()->json([
+            'result' => 'Success',
+            'message' => 'Stock details fetched successfully',
+            'data' => [
+                'record_id'         => $productWarehouse->id,
+                'product_id'        => $productWarehouse->product_id,
+                'warehouse_id'      => $productWarehouse->warehouse_id,
+                'branch_id'         => $productWarehouse->warehouse?->branch_id,
+                'branch_name'       => $productWarehouse->warehouse?->branch?->name,
+                'branch_name_ar'    => $productWarehouse->warehouse?->branch?->name_ar,
+                'warehouse_name'    => $productWarehouse->warehouse?->name,
+                'warehouse_name_ar' => $productWarehouse->warehouse?->name_ar,
+                'unit_id'           => $productUnit?->unit_id,
+                'color_id'          => $productUnitColor?->color_id,
+
+                'product_stock'     => $productStock,
+                'warehouse_stock'   => $warehouseStock,
+                'unit_color_stock'  => $unitColorStock,
+                'stock'             => $displayStock,  // ✅ الكمية الصح
+
+                'cost'              => $productWarehouse->cost ?? $product->cost,
+                'price'             => $product->price,
+                'warehouse'         => $productWarehouse->warehouse,
+            ],
+        ]);
+    } catch (Exception $e) {
+        return response()->json([
+            'result' => 'Error',
+            'message' => $e->getMessage(),
+        ], 500);
+    }
+}
+
+public function productWarehouses(Request $request)
+{
+    $request->validate([
+        'product_id' => 'required|exists:products,id',
+    ]);
+
+    try {
+        $productId = (int) $request->product_id;
+        $product = Product::findOrFail($productId);
+
+        // ✅ كل مخازن الـ tenant مع الـ branch
+        $tenantWarehouses = \App\Models\Warehouse::where('tenant_id', $product->tenant_id)
+            ->whereNull('deleted_at')
+            ->with('branch')
+            ->orderByDesc('main_branch')
+            ->orderBy('id')
+            ->get();
+
+        // ✅ الـ ProductWarehouse مرتبطة بالمنتج
+        $productWarehouseMap = ProductWarehouse::where('product_id', $productId)
+            ->get()
+            ->keyBy('warehouse_id');
+
+        $data = $tenantWarehouses->map(function ($w) use ($productWarehouseMap) {
+            $pw = $productWarehouseMap->get($w->id);
+
+            return [
+                'record_id'         => $pw?->id,
+                'warehouse_id'      => $w->id,
+                'warehouse_name'    => $w->name,
+                'warehouse_name_ar' => $w->name_ar,
+                'branch_id'         => $w->branch_id,              // ✅
+                'branch_name'       => $w->branch?->name,          // ✅
+                'branch_name_ar'    => $w->branch?->name_ar,       // ✅
+                'stock'             => (float) ($pw?->stock ?? 0),
+                'cost'              => (float) ($pw?->cost ?? 0),
+                'has_stock'         => $pw !== null && (float) $pw->stock > 0,
+            ];
+        });
+
+        return response()->json([
+            'result' => 'Success',
+            'data' => $data,
+        ]);
+    } catch (Exception $e) {
+        return response()->json([
+            'result' => 'Error',
+            'message' => $e->getMessage(),
+        ], 500);
+    }
+}
 private function linkWarehouses(Product $product, ?array $warehouseIds): void
 {
     $tenantId = $product->tenant_id;
