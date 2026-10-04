@@ -598,195 +598,87 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null);
     public function updateStock(Request $request)
     {
         $request->validate([
-            'product_id'       => 'required|exists:products,id',
-
-            'warehouse_id'     => 'required|exists:warehouses,id',
-            'unit_id'          => 'nullable|exists:units,id',
-            'color_id'         => 'nullable|exists:colors,id',
-
-            'stock'            => 'required|numeric|min:1',
-            'cost'             => 'required|numeric|min:0',
-
-            'old_stock'        => 'required|numeric|min:0',
-            'old_warehouse_id' => 'required|exists:warehouses,id',
-            'old_unit_id'      => 'nullable|exists:units,id',
-            'old_color_id'     => 'nullable|exists:colors,id',
+            'product_id' => 'required|exists:products,id',
+            'warehouse_id' => 'required|exists:warehouses,id',
+            'unit_id' => 'nullable|exists:units,id',
+            'color_id' => 'nullable|exists:colors,id',
+            'stock' => 'required|numeric|min:0',
+            'cost' => 'required|numeric|min:0',
+            'old_warehouse_id' => 'nullable|exists:warehouses,id',
+            'old_unit_id' => 'nullable|exists:units,id',
+            'old_color_id' => 'nullable|exists:colors,id',
         ]);
 
-        DB::beginTransaction();
-
         try {
+            $result = DB::transaction(function () use ($request) {
+                $productId = (int) $request->product_id;
+                $newStock = (float) $request->stock;
+                $targetWarehouseId = (int) $request->warehouse_id;
+                $oldWarehouseId = (int) ($request->old_warehouse_id ?: $targetWarehouseId);
+                $product = Product::query()->lockForUpdate()->findOrFail($productId);
 
-            $productId = $request->product_id;
+                $oldWarehouse = ProductWarehouse::query()
+                    ->where('product_id', $productId)
+                    ->where('warehouse_id', $oldWarehouseId)
+                    ->lockForUpdate()
+                    ->first();
+                $targetWarehouse = ProductWarehouse::query()
+                    ->where('product_id', $productId)
+                    ->where('warehouse_id', $targetWarehouseId)
+                    ->lockForUpdate()
+                    ->first();
 
-            $oldStock = (float) $request->old_stock;
-            $newStock = (float) $request->stock;
-
-            /*
-            |--------------------------------------------------------------------------
-            | 1. Product
-            |--------------------------------------------------------------------------
-            */
-
-            $product = Product::findOrFail($productId);
-
-            if ($product->stock < $oldStock) {
-                throw new Exception(
-                    'Product stock is less than the old stock quantity.'
-                );
-            }
-
-            // إزالة الكمية القديمة
-            $product->decrement('stock', $oldStock);
-
-            /*
-            |--------------------------------------------------------------------------
-            | 2. Old Warehouse
-            |--------------------------------------------------------------------------
-            */
-
-            $oldProductWarehouse = ProductWarehouse::where([
-                'product_id'   => $productId,
-                'warehouse_id' => $request->old_warehouse_id,
-            ])->first();
-
-            if (!$oldProductWarehouse) {
-                throw new Exception(
-                    'Old product warehouse record not found.'
-                );
-            }
-
-            if ($oldProductWarehouse->stock < $oldStock) {
-                throw new Exception(
-                    'Old warehouse stock is less than the old stock quantity.'
-                );
-            }
-
-            // إزالة الكمية القديمة من المخزن القديم
-            $oldProductWarehouse->decrement('stock', $oldStock);
-
-            /*
-            |--------------------------------------------------------------------------
-            | 3. Old Unit + Color
-            |--------------------------------------------------------------------------
-            |
-            | لو old_unit_id و old_color_id موجودين:
-            | نطرح الكمية من اللون القديم.
-            |
-            */
-
-            if ($request->filled('old_unit_id') && $request->filled('old_color_id')) {
-
-                $oldProductUnit = ProductUnit::where([
+                // The entered number is the final quantity, never an increment.
+                if ($oldWarehouseId !== $targetWarehouseId && $oldWarehouse) {
+                    $oldWarehouse->update(['stock' => 0]);
+                }
+                $targetWarehouse ??= ProductWarehouse::create([
                     'product_id' => $productId,
-                    'unit_id'    => $request->old_unit_id,
-                ])->first();
-
-                if (!$oldProductUnit) {
-                    throw new Exception(
-                        'Old product unit not found.'
-                    );
-                }
-
-                $oldUnitColor = ProductUnitColor::where([
-                    'product_unit_id' => $oldProductUnit->id,
-                    'color_id'        => $request->old_color_id,
-                ])->first();
-
-                if (!$oldUnitColor) {
-                    throw new Exception(
-                        'Old product color not found.'
-                    );
-                }
-
-                if ($oldUnitColor->stock < $oldStock) {
-                    throw new Exception(
-                        'Old color stock is less than the old stock quantity.'
-                    );
-                }
-
-                // إزالة الكمية القديمة من اللون
-                $oldUnitColor->decrement('stock', $oldStock);
-            }
-
-            /*
-            |--------------------------------------------------------------------------
-            | 4. New Product Stock
-            |--------------------------------------------------------------------------
-            */
-
-            $product->increment('stock', $newStock);
-
-            $product->cost = $request->cost;
-            $product->beginning_balance = 1;
-            $product->save();
-
-            /*
-            |--------------------------------------------------------------------------
-            | 5. New Warehouse
-            |--------------------------------------------------------------------------
-            */
-
-            $productWarehouse = ProductWarehouse::firstOrCreate(
-                [
-                    'product_id'   => $productId,
-                    'warehouse_id' => $request->warehouse_id,
-                ],
-                [
+                    'warehouse_id' => $targetWarehouseId,
                     'stock' => 0,
-                    'cost'  => $request->cost,
-                ]
-            );
-
-            $productWarehouse->increment('stock', $newStock);
-
-            /*
-            |--------------------------------------------------------------------------
-            | 6. New Unit
-            |--------------------------------------------------------------------------
-            */
-
-            $productUnit = null;
-
-            if ($request->filled('unit_id')) {
-
-                $productUnit = ProductUnit::firstOrCreate([
-                    'product_id' => $productId,
-                    'unit_id'    => $request->unit_id,
+                    'cost' => $request->cost,
                 ]);
-            }
-
-            /*
-            |--------------------------------------------------------------------------
-            | 7. New Color
-            |--------------------------------------------------------------------------
-            */
-
-            if ($productUnit && $request->filled('color_id')) {
-
-                $unitColor = ProductUnitColor::firstOrCreate([
-                    'product_unit_id' => $productUnit->id,
-                    'color_id'        => $request->color_id,
-                ], [
-                    'stock' => 0,
+                $targetWarehouse->update([
+                    'stock' => $newStock,
+                    'cost' => $request->cost,
                 ]);
 
-                $unitColor->increment('stock', $newStock);
-            }
+                if ($request->filled('old_unit_id') && $request->filled('old_color_id')) {
+                    $oldUnit = ProductUnit::where('product_id', $productId)
+                        ->where('unit_id', $request->old_unit_id)->first();
+                    if ($oldUnit) {
+                        ProductUnitColor::where('product_unit_id', $oldUnit->id)
+                            ->where('color_id', $request->old_color_id)
+                            ->update(['stock' => 0]);
+                    }
+                }
+                if ($request->filled('unit_id') && $request->filled('color_id')) {
+                    $unit = ProductUnit::firstOrCreate([
+                        'product_id' => $productId,
+                        'unit_id' => $request->unit_id,
+                    ]);
+                    ProductUnitColor::updateOrCreate(
+                        ['product_unit_id' => $unit->id, 'color_id' => $request->color_id],
+                        ['stock' => $newStock]
+                    );
+                }
 
-            DB::commit();
+                $product->update([
+                    'stock' => $newStock,
+                    'cost' => $request->cost,
+                    'beginning_balance' => true,
+                ]);
+
+                return ['stock' => $newStock, 'warehouse_id' => $targetWarehouseId];
+            });
 
             return response()->json([
-                'message' => 'Stock updated successfully'
+                'result' => 'Success',
+                'message' => 'Opening balance updated to the exact quantity.',
+                'data' => $result,
             ]);
-
         } catch (Exception $e) {
-
-            DB::rollBack();
-
-            return response()->json([
-                'error' => $e->getMessage()
-            ], 500);
+            return response()->json(['result' => 'Error', 'message' => $e->getMessage()], 422);
         }
     }
 
