@@ -13,7 +13,8 @@ class ProductWarehouse extends Model
     protected $fillable = [
         'product_id',
         'warehouse_id',
-        'stock'
+        'stock',
+        'cost',
     ];
 
     // المنتج

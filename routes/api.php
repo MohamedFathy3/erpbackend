@@ -867,6 +867,10 @@ Route::middleware([
         ProductController::class,
         'updateStock'
     ]);
+    Route::delete('/products/opening-balance/{product}', [
+        ProductController::class,
+        'deleteOpeningBalance'
+    ]);
     Route::post('/products/stock-details', [
     ProductController::class,
     'stockDetails'

@@ -54,6 +54,9 @@ class ProductController extends BaseController
         if (array_key_exists('active', $filters)) {
             $query->where('active', filter_var($filters['active'], FILTER_VALIDATE_BOOLEAN));
         }
+        if (array_key_exists('beginning_balance', $filters)) {
+            $query->where('beginning_balance', filter_var($filters['beginning_balance'], FILTER_VALIDATE_BOOLEAN));
+        }
 
         $orderBy = $request->input('orderBy', 'id');
         $direction = strtolower($request->input('orderByDirection', 'asc')) === 'desc' ? 'desc' : 'asc';
@@ -682,6 +685,36 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null);
             ]);
         } catch (Exception $e) {
             return response()->json(['result' => 'Error', 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    public function deleteOpeningBalance(Product $product): \Illuminate\Http\JsonResponse
+    {
+        try {
+            DB::transaction(function () use ($product): void {
+                $product->update([
+                    'stock' => 0,
+                    'beginning_balance' => false,
+                ]);
+
+                ProductWarehouse::withoutGlobalScopes()
+                    ->where('product_id', $product->id)
+                    ->update(['stock' => 0]);
+
+                ProductUnitColor::whereHas('productUnit', function ($query) use ($product): void {
+                    $query->where('product_id', $product->id);
+                })->update(['stock' => 0]);
+            });
+
+            return response()->json([
+                'result' => 'Success',
+                'message' => 'Opening balance deleted successfully.',
+            ]);
+        } catch (Exception $e) {
+            return response()->json([
+                'result' => 'Error',
+                'message' => $e->getMessage(),
+            ], 422);
         }
     }
 
