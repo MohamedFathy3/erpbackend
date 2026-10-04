@@ -14,7 +14,8 @@ class EmployeeRequest extends FormRequest
 
     public function rules(): array
     {
-        $id = $this->route('employee') ? $this->route('employee')->id : null;
+        $routeEmployee = $this->route('employee');
+        $id = is_object($routeEmployee) ? $routeEmployee->id : $routeEmployee;
 
         return [
             'employee_code' => 'required|string|max:100|unique:employees,employee_code,' . $id,
@@ -29,7 +30,10 @@ class EmployeeRequest extends FormRequest
             })],
             'permissions'   => 'nullable|array',
             'permissions.*' => 'integer|exists:permissions,id',
-            'branch_id'     => 'required|exists:branches,id', // ✅ إضافة
+            'branch_id'     => ['required', Rule::exists('branches', 'id')->where(function ($query): void {
+                $tenantId = auth()->user()?->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
+                if ($tenantId) $query->where('tenant_id', $tenantId);
+            })],
             'treasury_id'   => 'required|exists:treasuries,id', // ✅ إضافة
             'phone'         => 'nullable|string|max:20',
             'email'         => 'nullable|email|unique:employees,email,' . $id,
@@ -44,7 +48,7 @@ class EmployeeRequest extends FormRequest
             'employee_code.required' => 'كود الموظف مطلوب',
             'employee_code.unique'   => 'كود الموظف مستخدم بالفعل',
             'role_id.exists'         => 'الصلاحية غير موجودة',
-            'branch_id.exists'       => 'الفرع غير موجود', // ✅ إضافة
+            'branch_id.exists'       => 'الفرع غير موجود أو لا ينتمي إلى مساحة العمل',
             'treasury_id.exists'     => 'الخزينة غير موجودة', // ✅ إضافة
             'email.unique'           => 'البريد الإلكتروني مستخدم بالفعل',
             'salary.numeric'         => 'الراتب يجب أن يكون رقمًا',

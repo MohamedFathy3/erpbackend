@@ -66,7 +66,7 @@ class EmployeeController extends BaseController
         }
     }
 
-    public function update(EmployeeRequest $request, Employee $employee)
+    public function update(EmployeeRequest $request, int $id)
     {
         try {
             $data = $request->validated();
@@ -78,8 +78,10 @@ class EmployeeController extends BaseController
                 $data['password'] = Hash::make($request->password);
             }
 
-            // تحديث الموظف
-            $this->crudRepository->update($data, $employee->id);
+            // Employee management is tenant-scoped, not branch-scoped: an
+            // admin may move an employee from one branch to another.
+            $employee = Employee::withoutGlobalScope('branch')->findOrFail($id);
+            $employee->update($data);
             if ($permissions !== null) $employee->permissions()->sync($permissions);
 
             // تسجيل النشاط
