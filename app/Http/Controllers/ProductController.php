@@ -617,12 +617,15 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null);
                 $oldWarehouseId = (int) ($request->old_warehouse_id ?: $targetWarehouseId);
                 $product = Product::query()->lockForUpdate()->findOrFail($productId);
 
-                $oldWarehouse = ProductWarehouse::query()
+                // This update must find legacy rows even when their tenant_id
+                // was added after the row was created. The authenticated
+                // tenant is already resolved by the route middleware.
+                $oldWarehouse = ProductWarehouse::withoutGlobalScopes()
                     ->where('product_id', $productId)
                     ->where('warehouse_id', $oldWarehouseId)
                     ->lockForUpdate()
                     ->first();
-                $targetWarehouse = ProductWarehouse::query()
+                $targetWarehouse = ProductWarehouse::withoutGlobalScopes()
                     ->where('product_id', $productId)
                     ->where('warehouse_id', $targetWarehouseId)
                     ->lockForUpdate()
@@ -632,7 +635,7 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null);
                 if ($oldWarehouseId !== $targetWarehouseId && $oldWarehouse) {
                     $oldWarehouse->update(['stock' => 0]);
                 }
-                $targetWarehouse ??= ProductWarehouse::create([
+                $targetWarehouse ??= ProductWarehouse::withoutGlobalScopes()->create([
                     'product_id' => $productId,
                     'warehouse_id' => $targetWarehouseId,
                     'stock' => 0,
