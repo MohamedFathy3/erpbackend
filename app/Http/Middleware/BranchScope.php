@@ -13,14 +13,23 @@ class BranchScope
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
-        if (!$user instanceof Employee || !$user->branch_id) {
-            return $next($request);
-        }
+        if ($response = $this->apply($request, $user)) return $response;
+        return $next($request);
+    }
 
-        $branchId = (int) $user->branch_id;
+    public function apply(Request $request, $user): ?Response
+    {
+        if (!$user) return null;
+
         $requestedBranchId = (int) ($request->input('branch_id') ?: $request->input('filters.branch_id'));
-        if ($requestedBranchId && $requestedBranchId !== $branchId) {
+        $assignedBranchId = (int) ($user->branch_id ?? 0);
+        if ($assignedBranchId && $requestedBranchId && $requestedBranchId !== $assignedBranchId) {
             return response()->json(['message' => 'You are not allowed to access another branch'], 403);
+        }
+        $branchId = $assignedBranchId ?: $requestedBranchId;
+        if (!$branchId) return null;
+        if (!$assignedBranchId && !($user->super_admin ?? false) && !DB::table('branches')->where('id', $branchId)->where('tenant_id', $user->tenant_id)->exists()) {
+            return response()->json(['message' => 'Branch does not belong to your workspace'], 403);
         }
 
         foreach (['warehouse_id', 'from_warehouse_id', 'to_warehouse_id'] as $field) {
@@ -37,12 +46,13 @@ class BranchScope
         }
 
         $request->merge(['branch_id' => $branchId]);
+        app()->instance('currentBranchId', $branchId);
         $filters = $request->input('filters');
         if (is_array($filters)) {
             $filters['branch_id'] = $branchId;
             $request->merge(['filters' => $filters]);
         }
 
-        return $next($request);
+        return null;
     }
 }

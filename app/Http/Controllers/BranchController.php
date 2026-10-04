@@ -23,11 +23,12 @@ class BranchController extends BaseController
     public function index()
     {
         try {
-            $branch = BranchResource::collection($this->crudRepository->all(
-                [],
-                [],
-                ['*']
-            ));
+            $user = request()->user();
+            $query = Branch::query();
+            if ($user && !($user->super_admin ?? false) && $user->branch_id) {
+                $query->whereKey((int) $user->branch_id);
+            }
+            $branch = BranchResource::collection($query->get());
             return $branch->additional(JsonResponse::success());
         } catch (Exception $e) {
             return JsonResponse::respondError($e->getMessage());

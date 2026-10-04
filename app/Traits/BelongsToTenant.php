@@ -28,6 +28,15 @@ trait BelongsToTenant
                 ? $builder->where($model->qualifyColumn('tenant_id'), $tenantId)
                 : $builder->whereRaw('1 = 0');
         });
+        static::addGlobalScope('branch', function (Builder $builder): void {
+            $model = $builder->getModel();
+            if (!Schema::hasColumn($model->getTable(), 'branch_id')) return;
+            $user = auth()->user();
+            $branchId = $user?->branch_id ?: (app()->bound('currentBranchId') ? app('currentBranchId') : null);
+            if ($user && !($user->super_admin ?? false) && $branchId) {
+                $builder->where($model->qualifyColumn('branch_id'), (int) $branchId);
+            }
+        });
 
         static::creating(function (Model $model): void {
             if (!Schema::hasColumn($model->getTable(), 'tenant_id') || $model->tenant_id) return;
@@ -47,6 +56,14 @@ trait BelongsToTenant
                 throw new LogicException('Cannot create a tenant-owned record without a tenant.');
             } elseif ($user && (bool) ($user->super_admin ?? false)) {
                 throw new LogicException('Super admin must select a tenant before creating this record.');
+            }
+        });
+        static::creating(function (Model $model): void {
+            if (!Schema::hasColumn($model->getTable(), 'branch_id') || $model->branch_id) return;
+            $user = auth()->user();
+            $branchId = $user?->branch_id ?: (app()->bound('currentBranchId') ? app('currentBranchId') : null);
+            if ($user && !($user->super_admin ?? false) && $branchId) {
+                $model->branch_id = (int) $branchId;
             }
         });
     }

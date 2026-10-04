@@ -2,6 +2,7 @@
 namespace App\Http\Middleware;
 
 use App\Models\Tenant;
+use App\Http\Middleware\BranchScope;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -43,6 +44,12 @@ class ResolveTenant
             app()->instance('currentTenant',$tenant);
         } elseif ($user && !($user->super_admin ?? false)) {
             return response()->json(['message'=>'Tenant subdomain is required for workspace requests.','code'=>'tenant_subdomain_required'],403);
+        }
+        // Apply the branch boundary after tenant resolution for every
+        // authenticated tenant endpoint, not only legacy route groups that
+        // explicitly listed branch.scope.
+        if ($user) {
+            if ($response = app(BranchScope::class)->apply($request, $user)) return $response;
         }
         return $next($request);
     }
