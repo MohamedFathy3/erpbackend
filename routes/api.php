@@ -816,6 +816,10 @@ Route::middleware([
         ProductController::class,
         'index'
     ]);
+    Route::get('/product/low-stock-alerts', [
+        ProductController::class,
+        'lowStockAlerts'
+    ]);
 
     Route::post('product/restore', [
         ProductController::class,

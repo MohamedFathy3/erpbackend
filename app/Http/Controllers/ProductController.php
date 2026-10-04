@@ -71,6 +71,33 @@ class ProductController extends BaseController
     }
 }
 
+public function lowStockAlerts(Request $request)
+{
+    try {
+        $products = Product::query()
+            ->whereColumn('stock', '<=', DB::raw('CASE WHEN reorder_level > 0 THEN reorder_level ELSE 5 END'))
+            ->orderBy('stock')
+            ->orderBy('name')
+            ->get(['id', 'name', 'sku', 'stock', 'reorder_level', 'updated_at']);
+
+        $data = $products->map(function (Product $product): array {
+            $threshold = (int) ($product->reorder_level > 0 ? $product->reorder_level : 5);
+            return [
+                'id' => $product->id,
+                'product' => ['id' => $product->id, 'name' => $product->name, 'name_ar' => $product->name_ar, 'sku' => $product->sku],
+                'current_quantity' => (int) ($product->stock ?? 0),
+                'threshold_quantity' => $threshold,
+                'alert_type' => (int) ($product->stock ?? 0) <= 0 ? 'out_of_stock' : 'low_stock',
+                'created_at' => $product->updated_at,
+            ];
+        })->values();
+
+        return response()->json(['status' => true, 'data' => $data]);
+    } catch (Exception $e) {
+        return JsonResponse::respondError($e->getMessage());
+    }
+}
+
 public function show(Product $product): ?\Illuminate\Http\JsonResponse
 {
     try {
