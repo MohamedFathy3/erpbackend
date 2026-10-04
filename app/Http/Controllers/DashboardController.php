@@ -5,6 +5,12 @@ use App\Models\Customer;
 use App\Models\Product;
 use App\Models\PurchaseInvoice;
 use App\Models\SalesInvoice;
+use App\Models\Invoice;
+use App\Models\PurchaseReturn;
+use App\Models\Finance;
+use App\Models\Revenue;
+use App\Models\JournalEntry;
+use App\Models\Employee;
 use App\Models\WorkflowTransaction;
 use App\Models\Project;
 use App\Models\ProjectClaim;
@@ -16,6 +22,61 @@ use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
+    public function unifiedFinancialReport(Request $request)
+    {
+        $from = $request->input('from', now()->startOfMonth()->toDateString());
+        $to = $request->input('to', now()->toDateString());
+        $branchId = $request->integer('branch_id') ?: null;
+        $user = auth()->user();
+        $isAdmin = (bool) ($user?->super_admin ?? false) || strtolower((string) ($user?->role ?? '')) === 'admin';
+
+        $scoped = function ($query, ?string $dateColumn = null) use ($isAdmin, $branchId, $from, $to) {
+            if ($isAdmin) $query->withoutGlobalScope('branch');
+            if ($branchId) $query->where('branch_id', $branchId);
+            if ($dateColumn) $query->whereDate($dateColumn, '>=', $from)->whereDate($dateColumn, '<=', $to);
+            return $query;
+        };
+
+        $sales = $scoped(SalesInvoice::with('items.product'), 'invoice_date')->get();
+        $posSales = $scoped(Invoice::with('items.product'), 'created_at')->get();
+        $purchases = $scoped(PurchaseInvoice::with('items.product'), 'invoice_date')->get();
+        $purchaseReturns = $scoped(PurchaseReturn::query(), 'return_date')->get();
+        $expenses = $scoped(Finance::query()->whereNotIn('category', ['revenue', 'income']), 'date')->get();
+        $revenues = $scoped(Revenue::query(), 'date')->get();
+        $journals = $scoped(JournalEntry::with('lines'), 'entry_date')->get();
+        $employeesQuery = Employee::query();
+        if ($isAdmin) $employeesQuery->withoutGlobalScope('branch');
+        if ($branchId) $employeesQuery->where('branch_id', $branchId);
+        $employees = $employeesQuery->where('active', true)->orderBy('name')->get(['id', 'name', 'branch_id']);
+
+        $salesTotal = (float) $sales->sum(fn ($invoice) => $invoice->net_total ?? $invoice->total_amount ?? 0) + (float) $posSales->sum('total_amount');
+        $salesCost = (float) $sales->sum(fn ($invoice) => $invoice->items->sum(fn ($item) => (float) $item->quantity * (float) ($item->product?->cost ?? 0))) + (float) $posSales->sum(fn ($invoice) => $invoice->items->sum(fn ($item) => (float) $item->quantity * (float) ($item->product?->cost ?? 0)));
+        $purchaseTotal = (float) $purchases->sum('total_amount');
+        $purchaseReturnTotal = (float) $purchaseReturns->sum('total_amount');
+        $expenseTotal = (float) $expenses->sum('amount');
+        $revenueTotal = (float) $revenues->sum('amount');
+        $grossProfit = $salesTotal - $salesCost;
+        $netProfit = $grossProfit + $revenueTotal - $expenseTotal;
+
+        return response()->json(['status' => true, 'data' => [
+            'filters' => ['from' => $from, 'to' => $to, 'branch_id' => $branchId],
+            'summary' => [
+                'sales' => round($salesTotal, 2), 'sales_cost' => round($salesCost, 2),
+                'gross_profit' => round($grossProfit, 2), 'purchases' => round($purchaseTotal, 2),
+                'purchase_returns' => round($purchaseReturnTotal, 2), 'expenses' => round($expenseTotal, 2),
+                'revenues' => round($revenueTotal, 2), 'net_profit' => round($netProfit, 2),
+                'sales_count' => $sales->count() + $posSales->count(), 'purchase_count' => $purchases->count(),
+                'expense_count' => $expenses->count(), 'revenue_count' => $revenues->count(),
+                'journal_count' => $journals->count(), 'employee_count' => $employees->count(),
+            ],
+            'breakdown' => [
+                'sales' => ['regular' => round((float) $sales->sum(fn ($i) => $i->net_total ?? $i->total_amount ?? 0), 2), 'pos' => round((float) $posSales->sum('total_amount'), 2)],
+                'journal' => ['debit' => round((float) $journals->sum(fn ($j) => $j->lines->sum('debit')), 2), 'credit' => round((float) $journals->sum(fn ($j) => $j->lines->sum('credit')), 2)],
+            ],
+            'employees' => $employees->map(fn ($employee) => ['id' => $employee->id, 'name' => $employee->name, 'branch_id' => $employee->branch_id])->values(),
+        ]]);
+    }
+
     public function summary(Request $request)
     {
         $branchId = $request->integer('branch_id') ?: null;

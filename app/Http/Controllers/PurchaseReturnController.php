@@ -37,6 +37,12 @@ class PurchaseReturnController extends Controller
                 'warehouse',
             ]);
 
+            $user = auth()->user();
+            $isAdmin = (bool) ($user?->super_admin ?? false) || strtolower((string) ($user?->role ?? '')) === 'admin';
+            if ($isAdmin) $query->withoutGlobalScope('branch');
+            $branchId = $filters['branch_id'] ?? $request->input('branch_id');
+            if ($branchId) $query->where('branch_id', (int) $branchId);
+
             // filters
             if (!empty($filters['return_number'])) {
                 $query->where('return_number', 'like', '%' . $filters['return_number'] . '%');
@@ -245,6 +251,7 @@ public function store(
                 'treasury_id' => $paymentMethod === 'cash' ? $invoice->treasury_id : null,
                 'currency_id' => $invoice->currency_id,
                 'warehouse_id' => $warehouseId,
+                'branch_id' => $invoice->branch_id,
             ]);
 
             foreach ($returnItems as $item) {

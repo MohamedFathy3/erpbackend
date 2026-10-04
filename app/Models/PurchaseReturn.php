@@ -20,6 +20,7 @@ class PurchaseReturn extends BaseModel
         'treasury_id',        // ✅ جديد
         'currency_id',        // ✅ جديد
         'warehouse_id',       // ✅ جديد
+        'branch_id',
     ];
 
     public function items()

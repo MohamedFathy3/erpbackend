@@ -23,14 +23,21 @@ class InventoryLogController extends BaseController
         $this->crudRepository = $pattern;
     }
 
-    public function index()
+    public function index(Request $request)
     {
         try {
-            $Inventory = InventoryLogResource::collection($this->crudRepository->all(
-                ['warehouse', 'product'],
-                [],
-                ['*']
-            ));
+            $filters = (array) $request->input('filters', []);
+            $query = InventoryLog::query()->with(['warehouse', 'product']);
+            $user = auth()->user();
+            $isAdmin = (bool) ($user?->super_admin ?? false) || strtolower((string) ($user?->role ?? '')) === 'admin';
+            if ($isAdmin) $query->withoutGlobalScope('branch');
+            $branchId = $filters['branch_id'] ?? $request->input('branch_id');
+            if ($branchId) $query->where('branch_id', (int) $branchId);
+            if (!empty($filters['warehouse_id'])) $query->where('warehouse_id', (int) $filters['warehouse_id']);
+            if (!empty($filters['product_id'])) $query->where('product_id', (int) $filters['product_id']);
+            if (!empty($filters['date_from'])) $query->whereDate('created_at', '>=', $filters['date_from']);
+            if (!empty($filters['date_to'])) $query->whereDate('created_at', '<=', $filters['date_to']);
+            $Inventory = InventoryLogResource::collection($query->latest('id')->get());
             return $Inventory->additional(JsonResponse::success());
         } catch (Exception $e) {
             return JsonResponse::respondError($e->getMessage());

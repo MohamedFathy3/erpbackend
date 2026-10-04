@@ -1019,6 +1019,7 @@ Route::middleware([
         DashboardController::class,
         'summary'
     ]);
+    Route::get('/reports/unified-financial', [DashboardController::class, 'unifiedFinancialReport']);
 });
 
 
