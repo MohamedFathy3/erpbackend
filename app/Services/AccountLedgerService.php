@@ -60,7 +60,10 @@ class AccountLedgerService
             $tenantId = auth()->user()?->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
             if ($tenantId) $code .= '-T' . $tenantId;
         }
-        return Account::query()->firstOrCreate(
+        // Control/default accounts are tenant-wide, not branch-specific. The
+        // branch scope could hide an existing account and make firstOrCreate
+        // attempt a duplicate insert against the globally unique code index.
+        return Account::query()->withoutGlobalScope('branch')->firstOrCreate(
             ['code' => $code],
             [
                 'name' => $nameEn,
