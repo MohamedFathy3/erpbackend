@@ -139,7 +139,11 @@ class PosAccountingPostingService
 
     private function receivableAccount(Invoice $invoice): Account
     {
-        if ($invoice->customer) return app(SubledgerPostingService::class)->customerAccount($invoice->customer);
+        // A POS invoice without a customer must always use the shared POS
+        // receivables account; never resolve a stale customer account link.
+        if ($invoice->customer_id && $invoice->customer) {
+            return app(SubledgerPostingService::class)->customerAccount($invoice->customer);
+        }
         return app(SubledgerPostingService::class)->detailAccount('asset', '1100-POS-CUSTOMERS', 'ذمم عملاء مبيعات POS', 'POS customer receivables', '1100', 'حسابات العملاء', 'Accounts receivable');
     }
 
