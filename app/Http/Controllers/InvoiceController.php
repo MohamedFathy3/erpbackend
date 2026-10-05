@@ -182,6 +182,18 @@ public function store(Request $request)
         'items.*.meter_quantity' => 'nullable|numeric|min:0.001',
     ]);
 
+    // POS invoices without a selected customer are posted to the default
+    // customer (ID 1) instead of leaving the customer link null.
+    if (!$request->filled('customer_id')) {
+        if (!Customer::query()->whereKey(1)->exists()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'العميل الافتراضي رقم 1 غير موجود في مساحة العمل الحالية.',
+            ], 400);
+        }
+        $request->merge(['customer_id' => 1]);
+    }
+
     $isComplimentary = $request->boolean('is_complimentary');
     $user = $request->user();
     $hasDiscount = $isComplimentary || (float) $request->input('discount_percentage', 0) > 0
