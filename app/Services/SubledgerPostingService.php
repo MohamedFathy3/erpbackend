@@ -83,7 +83,10 @@ class SubledgerPostingService
             // Party subledger accounts are tenant-wide. A branch scope can hide
             // a valid linked account and make an existing account look missing.
             if ($party->account_id) {
-                $linked = Account::query()->withoutGlobalScope('branch')->find($party->account_id);
+                // The party itself is already tenant-scoped. Use its explicit
+                // account link even for legacy accounts created before tenant
+                // or branch scopes were introduced.
+                $linked = Account::query()->withoutGlobalScopes()->find($party->account_id);
                 if ($linked) return $linked;
                 $party->forceFill(['account_id' => null])->save();
             }
@@ -91,7 +94,7 @@ class SubledgerPostingService
             $parent = $this->controlAccount($type, $parentCode, $parentAr, $parentEn);
             $code = $parentCode . '-' . str_pad((string) $party->id, 6, '0', STR_PAD_LEFT);
             $name = $party->name ?: ucfirst($kind) . ' ' . $party->id;
-            $account = Account::query()->withoutGlobalScope('branch')->firstOrCreate(
+            $account = Account::query()->withoutGlobalScopes()->firstOrCreate(
                 ['code' => $code],
                 [
                     'name' => $name,

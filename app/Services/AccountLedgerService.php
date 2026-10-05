@@ -45,7 +45,9 @@ class AccountLedgerService
 
     public function updateTotals(Account $account, float $debit, float $credit): void
     {
-        $account = Account::query()->lockForUpdate()->findOrFail($account->id);
+        // Ledger accounts are tenant-wide and may be legacy rows without the
+        // current branch metadata; update the explicitly supplied account.
+        $account = Account::query()->withoutGlobalScopes()->lockForUpdate()->findOrFail($account->id);
         $normal = $account->normal_balance ?: (in_array($account->account_type, ['liability', 'equity', 'revenue'], true) ? 'credit' : 'debit');
         $balanceDelta = $normal === 'credit' ? $credit - $debit : $debit - $credit;
 
