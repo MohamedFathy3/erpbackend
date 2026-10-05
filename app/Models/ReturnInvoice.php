@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class ReturnInvoice extends Model
 {
@@ -24,8 +25,28 @@ class ReturnInvoice extends Model
     protected static function booted()
     {
         static::creating(function ($model) {
-            $last = self::max('id') ?? 0;
-            $model->return_number = 'RET-' . str_pad($last + 1, 6, '0', STR_PAD_LEFT);
+            // The auto-increment id is not available until after INSERT. Use a
+            // collision-proof placeholder so concurrent inserts never calculate
+            // the same number from max(id).
+            $model->return_number = 'RET-TEMP-' . (string) Str::uuid();
+        });
+
+        static::created(function (self $model) {
+            $returnNumber = 'RET-' . str_pad((string) $model->getKey(), 6, '0', STR_PAD_LEFT);
+
+            // Older tenant-scoped rows can already own the number that matches
+            // this row's id. Keep the readable format, but make that legacy
+            // collision unique without relying on a non-atomic max(id) query.
+            $numberAlreadyUsed = self::withoutGlobalScopes()
+                ->where('return_number', $returnNumber)
+                ->where($model->getKeyName(), '!=', $model->getKey())
+                ->exists();
+
+            if ($numberAlreadyUsed) {
+                $returnNumber .= '-' . (string) Str::ulid();
+            }
+
+            $model->forceFill(['return_number' => $returnNumber])->saveQuietly();
         });
     }
 
