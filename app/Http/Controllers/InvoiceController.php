@@ -174,6 +174,7 @@ public function store(Request $request)
         'payments.*.method' => 'required|in:cash,card,wallet',
         'payments.*.amount' => 'required|numeric|gt:0',
         'discount_percentage' => 'nullable|numeric|min:0|max:100',
+        'extra_charge' => 'nullable|numeric|min:0',
         'is_complimentary' => 'sometimes|boolean',
         'sales_representative_id' => 'nullable|integer|exists:sales_representatives,id',
         'items.*.discount_percentage' => 'nullable|numeric|min:0|max:100',
@@ -262,6 +263,7 @@ public function store(Request $request)
             $request->input('items', []),
             (float) ($request->input('discount_percentage') ?? 0),
             $isComplimentary,
+            (float) ($request->input('extra_charge') ?? 0),
         );
         $total = $pricing['gross_total'];
         $itemDiscountTotal = $pricing['item_discount_total'];
@@ -308,6 +310,7 @@ public function store(Request $request)
             'total_amount'     => $netTotal,
             'discount_percentage' => $effectiveDiscountPercentage,
             'discount_amount'  => $totalDiscountAmount,
+            'extra_charge'     => $pricing['extra_charge'],
             'is_complimentary' => $isComplimentary,
             'commission_rate_snapshot' => $commissionRate,
             'commission_amount_snapshot' => round($netTotal * $commissionRate / 100, 2),

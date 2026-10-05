@@ -59,6 +59,7 @@ class InvoiceResource extends JsonResource
             'commission_journal_entry_id' => $this->commission_journal_entry_id,
             'discount_percentage' => (float) $this->discount_percentage,
             'discount_amount' => (float) $this->discount_amount,
+            'extra_charge' => (float) ($this->extra_charge ?? 0),
             'is_complimentary' => (bool) $this->is_complimentary,
             'commission_rate' => $this->commission_rate_snapshot !== null
                 ? (float) $this->commission_rate_snapshot
