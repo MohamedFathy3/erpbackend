@@ -80,12 +80,18 @@ class SubledgerPostingService
     public function partyAccount(Model $party, string $kind, string $type, string $parentCode, string $parentAr, string $parentEn): Account
     {
         return DB::transaction(function () use ($party, $kind, $type, $parentCode, $parentAr, $parentEn) {
-            if ($party->account_id) return Account::findOrFail($party->account_id);
+            // Party subledger accounts are tenant-wide. A branch scope can hide
+            // a valid linked account and make an existing account look missing.
+            if ($party->account_id) {
+                $linked = Account::query()->withoutGlobalScope('branch')->find($party->account_id);
+                if ($linked) return $linked;
+                $party->forceFill(['account_id' => null])->save();
+            }
 
             $parent = $this->controlAccount($type, $parentCode, $parentAr, $parentEn);
             $code = $parentCode . '-' . str_pad((string) $party->id, 6, '0', STR_PAD_LEFT);
             $name = $party->name ?: ucfirst($kind) . ' ' . $party->id;
-            $account = Account::firstOrCreate(
+            $account = Account::query()->withoutGlobalScope('branch')->firstOrCreate(
                 ['code' => $code],
                 [
                     'name' => $name,
