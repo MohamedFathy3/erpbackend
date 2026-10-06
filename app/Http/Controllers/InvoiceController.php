@@ -236,7 +236,7 @@ public function store(Request $request)
             ->latest('opened_at')
             ->first();
 
-        if (!$shift) {
+        if (!$shift && !($user instanceof Admin)) {
             DB::rollBack();
             return response()->json([
                 'status' => false,
@@ -244,17 +244,32 @@ public function store(Request $request)
             ], 400);
         }
 
-        $cashierId = $shift->employee_id;
-        $employee = Employee::with('treasury')->find($shift->employee_id);
-        $treasuryId = $employee?->treasury_id;
+        $cashierId = $shift?->employee_id;
+        $employee = $cashierId ? Employee::with('treasury')->find($cashierId) : null;
 
-        if (!$treasuryId || !$employee?->treasury) {
-            DB::rollBack();
-            return response()->json([
-                'status' => false,
-                'message' => 'الموظف المرتبط بالوردية ليس لديه خزينة مخصصة.'
-            ], 400);
+        if ($user instanceof Admin) {
+            $treasury = Treasury::query()->where('is_main', true)->first();
+            if (!$treasury) {
+                DB::rollBack();
+                return response()->json([
+                    'status' => false,
+                    'message' => 'لا توجد خزنة رئيسية مفعلة لمساحة العمل الحالية.'
+                ], 400);
+            }
+            $treasuryId = $treasury->id;
+        } else {
+            $treasury = $employee?->treasury;
+            $treasuryId = $employee?->treasury_id;
+            if (!$treasuryId || !$treasury) {
+                DB::rollBack();
+                return response()->json([
+                    'status' => false,
+                    'message' => 'الموظف المرتبط بالوردية ليس لديه خزينة مخصصة.'
+                ], 400);
+            }
         }
+        $branchId = (int) ($employee?->branch_id ?? $request->input('branch_id') ?? $treasury->branch_id ?? 0);
+        $tenantId = $user?->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
 
         // ============================================================
         // ✅ حساب المجاميع
@@ -273,19 +288,35 @@ public function store(Request $request)
         $totalDiscountAmount = $pricing['total_discount_amount'];
         $effectiveDiscountPercentage = $pricing['effective_discount_percentage'];
 
-        $payments = $isComplimentary ? [] : $request->input('payments', []);
+        $invoiceNumber = 'INV-' . now()->format('Ymd') . '-' . rand(1000, 9999);
+        $netTotal = $pricing['net_total'];
+        $submittedPayments = $isComplimentary ? collect() : collect($request->input('payments', []));
+        $nonCashPaid = $submittedPayments
+            ->whereIn('method', ['card', 'wallet'])
+            ->sum('amount');
+        if ($nonCashPaid > $netTotal) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['payments' => 'إجمالي المدفوعات الإلكترونية أكبر من صافي الفاتورة.']);
+        }
+
+        // Cash handed over may exceed the amount due. Record only the amount
+        // actually owed; the POS receipt displays the tendered amount/change.
+        $cashCapacity = max(0, $netTotal - $nonCashPaid);
+        $payments = [];
+        foreach ($submittedPayments as $payment) {
+            $amount = (float) $payment['amount'];
+            if ($payment['method'] === 'cash') {
+                $amount = min($amount, $cashCapacity);
+                $cashCapacity -= $amount;
+            }
+            if ($amount > 0) {
+                $payments[] = ['method' => $payment['method'], 'amount' => $amount];
+            }
+        }
+
         $paid = collect($payments)->sum('amount');
         $cashPaid = collect($payments)->where('method', 'cash')->sum('amount');
         $cardPaid = collect($payments)->where('method', 'card')->sum('amount');
-        $walletPaid = collect($payments)
-            ->where('method', 'wallet')
-            ->sum('amount');
-
-        $invoiceNumber = 'INV-' . now()->format('Ymd') . '-' . rand(1000, 9999);
-        $netTotal = $pricing['net_total'];
-        if ($paid > $netTotal) {
-            throw \Illuminate\Validation\ValidationException::withMessages(['payments' => 'إجمالي المدفوعات أكبر من صافي الفاتورة.']);
-        }
+        $walletPaid = collect($payments)->where('method', 'wallet')->sum('amount');
 
         // ============================================================
         // ✅ إنشاء الفاتورة
@@ -304,9 +335,9 @@ public function store(Request $request)
             'customer_id'      => $request->customer_id,
             'sales_representative_id' => $request->sales_representative_id,
             'cashier_id'       => $cashierId,
-            'branch_id'        => $employee?->branch_id,
+            'branch_id'        => $branchId ?: null,
             'treasury_id'      => $treasuryId,
-            'cashier_shift_id' => $shift->id,
+            'cashier_shift_id' => $shift?->id,
             'total_amount'     => $netTotal,
             'discount_percentage' => $effectiveDiscountPercentage,
             'discount_amount'  => $totalDiscountAmount,
@@ -334,13 +365,33 @@ public function store(Request $request)
             }
 
             $stockUsage = (float) $item['quantity'] * (float) ($item['meter_quantity'] ?? 1);
-            if ($product->stock < $stockUsage) {
+            $warehouseStocks = DB::table('product_warehouse')
+                ->join('warehouses', 'warehouses.id', '=', 'product_warehouse.warehouse_id')
+                ->where('product_warehouse.product_id', $product->id)
+                ->where('warehouses.branch_id', $branchId)
+                ->where('warehouses.tenant_id', $tenantId)
+                ->whereNull('warehouses.deleted_at')
+                ->orderBy('warehouses.id')
+                ->lockForUpdate()
+                ->get(['product_warehouse.warehouse_id', 'product_warehouse.stock']);
+            $availableStock = (float) $warehouseStocks->sum(fn ($warehouse) => (float) $warehouse->stock);
+
+            if ($availableStock < $stockUsage) {
                 DB::rollBack();
                 return response()->json([
                     'status' => false,
-                    'message' => "الكمية المتوفرة في المخزون للمنتج '{$product->name}' أقل من المطلوبة"
+                    'message' => "الكمية المتوفرة في مخازن الفرع للمنتج '{$product->name}' أقل من المطلوبة. المتاح: {$availableStock}، المطلوب: {$stockUsage}."
                 ], 400);
             }
+
+            $tenantWarehouseStock = (float) DB::table('product_warehouse')
+                ->join('warehouses', 'warehouses.id', '=', 'product_warehouse.warehouse_id')
+                ->where('product_warehouse.product_id', $product->id)
+                ->where('warehouses.tenant_id', $tenantId)
+                ->whereNull('warehouses.deleted_at')
+                ->sum('product_warehouse.stock');
+            $product->stock = $tenantWarehouseStock;
+            $product->save();
 
             $invoice->items()->create([
                 'product_id'   => $item['product_id'],
@@ -354,7 +405,30 @@ public function store(Request $request)
                 'discount_amount' => round(((float) $item['price'] * (float) $item['quantity']) * (float) ($item['discount_percentage'] ?? 0) / 100, 2),
             ]);
 
-            $product->decrement('stock', $stockUsage);
+            $remainingStock = $stockUsage;
+            foreach ($warehouseStocks as $warehouseStock) {
+                $quantityFromWarehouse = min($remainingStock, (float) $warehouseStock->stock);
+                if ($quantityFromWarehouse <= 0) {
+                    continue;
+                }
+
+                app(\App\Services\InventoryMovementService::class)->apply([
+                    'product_id' => $product->id,
+                    'branch_id' => $branchId,
+                    'warehouse_id' => (int) $warehouseStock->warehouse_id,
+                    'movement_type' => 'sale',
+                    'quantity_delta' => -$quantityFromWarehouse,
+                    'reference_type' => Invoice::class,
+                    'reference_id' => $invoice->id,
+                    'unit_cost' => (float) ($product->cost ?? 0),
+                    'notes' => "POS invoice {$invoice->invoice_number}",
+                ]);
+
+                $remainingStock -= $quantityFromWarehouse;
+                if ($remainingStock <= 0) {
+                    break;
+                }
+            }
             if ($product->automotiveService) {
                 $product->automotiveService->decrement('stock_quantity', $stockUsage);
             }
@@ -411,11 +485,13 @@ public function store(Request $request)
         // ============================================================
         // ✅ تحديث مبيعات الوردية
         // ============================================================
-        $shift->update([
-            'cash_sales'   => ($shift->cash_sales ?? 0) + $cashPaid,
-            'card_sales'   => ($shift->card_sales ?? 0) + $cardPaid,
-            'wallet_sales' => ($shift->wallet_sales ?? 0) + $walletPaid,
-        ]);
+        if ($shift) {
+            $shift->update([
+                'cash_sales'   => ($shift->cash_sales ?? 0) + $cashPaid,
+                'card_sales'   => ($shift->card_sales ?? 0) + $cardPaid,
+                'wallet_sales' => ($shift->wallet_sales ?? 0) + $walletPaid,
+            ]);
+        }
 
         $accounting = app(PosAccountingPostingService::class);
         $invoiceForPosting = $invoice->fresh(['customer', 'salesRepresentative', 'items.product']);

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Http\Controllers\InventoryTransferRequestController;
 use App\Http\Controllers\ProductLedgerController;
+use App\Http\Controllers\ProductController;
 use App\Models\Admin;
 use App\Models\Branch;
 use App\Models\Employee;
@@ -28,6 +29,76 @@ class SystemNotificationsTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_branch_pos_hides_transfer_product_until_destination_stock_arrives(): void
+    {
+        $tenant = Tenant::create(['name' => 'Branch catalog tenant', 'slug' => 'branch-catalog-test']);
+        $otherTenant = Tenant::create(['name' => 'Other catalog tenant', 'slug' => 'other-branch-catalog-test']);
+        $adminRole = Role::create(['name' => 'Admin']);
+        $sourceBranch = Branch::create(['name' => 'Source', 'tenant_id' => $tenant->id]);
+        $destinationBranch = Branch::create(['name' => 'Destination', 'tenant_id' => $tenant->id]);
+        $otherBranch = Branch::create(['name' => 'Other tenant branch', 'tenant_id' => $otherTenant->id]);
+        $sourceWarehouse = Warehouse::create(['name' => 'Source warehouse', 'branch_id' => $sourceBranch->id, 'tenant_id' => $tenant->id]);
+        $destinationWarehouse = Warehouse::create(['name' => 'Destination warehouse', 'branch_id' => $destinationBranch->id, 'tenant_id' => $tenant->id]);
+        $otherWarehouse = Warehouse::create(['name' => 'Other warehouse', 'branch_id' => $otherBranch->id, 'tenant_id' => $otherTenant->id]);
+        $employee = Employee::create([
+            'name' => 'Destination cashier',
+            'role_id' => $adminRole->id,
+            'branch_id' => $destinationBranch->id,
+            'tenant_id' => $tenant->id,
+        ]);
+        $product = Product::create([
+            'name' => 'Source-only product',
+            'stock' => 5,
+            'branch_id' => $sourceBranch->id,
+            'tenant_id' => $tenant->id,
+        ]);
+        $otherProduct = Product::create([
+            'name' => 'Foreign-tenant product',
+            'stock' => 9,
+            'branch_id' => $otherBranch->id,
+            'tenant_id' => $otherTenant->id,
+        ]);
+        foreach ([[$product, $sourceWarehouse, 5], [$product, $destinationWarehouse, 0], [$otherProduct, $otherWarehouse, 9]] as [$linkedProduct, $warehouse, $stock]) {
+            \Illuminate\Support\Facades\DB::table('product_warehouse')->insert([
+                'product_id' => $linkedProduct->id,
+                'warehouse_id' => $warehouse->id,
+                'stock' => $stock,
+                'cost' => 4,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        $this->actingAs($employee);
+        $catalogRequest = Request::create('/api/products/by-branch', 'POST', ['branch_id' => $destinationBranch->id]);
+        $catalogRequest->setUserResolver(fn () => $employee);
+        $catalog = app(ProductController::class)->getProductsByBranch($catalogRequest)->response()->getData(true)['data'];
+        $this->assertCount(1, $catalog);
+        $this->assertSame($product->id, $catalog[0]['id']);
+        $this->assertSame(0.0, (float) $catalog[0]['stock']);
+
+        $branchesRequest = Request::create('/api/inventory-transfer-requests/branches', 'GET');
+        $branchesRequest->setUserResolver(fn () => $employee);
+        $branches = app(InventoryTransferRequestController::class)->branches($branchesRequest)->getData(true)['data'];
+        $this->assertSame([$sourceBranch->id], array_column($branches, 'id'));
+
+        $sourceProductsRequest = Request::create('/api/inventory-transfer-requests/products', 'POST', [
+            'source_branch_id' => $sourceBranch->id,
+        ]);
+        $sourceProductsRequest->setUserResolver(fn () => $employee);
+        $sourceProducts = app(InventoryTransferRequestController::class)->products($sourceProductsRequest)->getData(true)['data'];
+        $this->assertCount(1, $sourceProducts);
+        $this->assertSame($product->id, $sourceProducts[0]['id']);
+        $this->assertSame(5.0, (float) $sourceProducts[0]['stock']);
+
+        \Illuminate\Support\Facades\DB::table('product_warehouse')
+            ->where('product_id', $product->id)
+            ->where('warehouse_id', $destinationWarehouse->id)
+            ->update(['stock' => 2]);
+        $arrivedCatalog = app(ProductController::class)->getProductsByBranch($catalogRequest)->response()->getData(true)['data'];
+        $this->assertSame(2.0, (float) $arrivedCatalog[0]['stock']);
+    }
+
     public function test_transfer_request_works_without_employees_is_active_column_and_notifies_tenant_admin(): void
     {
         Notification::fake();
@@ -49,6 +120,7 @@ class SystemNotificationsTest extends TestCase
             'stock' => 10,
             'cost' => 8,
             'reorder_level' => 2,
+            'branch_id' => $sourceBranch->id,
             'tenant_id' => $tenant->id,
         ]);
         \Illuminate\Support\Facades\DB::table('product_warehouse')->insert([
@@ -60,6 +132,7 @@ class SystemNotificationsTest extends TestCase
             'updated_at' => now(),
         ]);
 
+        $this->actingAs($employee);
         $request = Request::create('/api/inventory-transfer-requests', 'POST', [
             'product_id' => $product->id,
             'from_branch_id' => $sourceBranch->id,
@@ -73,6 +146,8 @@ class SystemNotificationsTest extends TestCase
         $response = app(InventoryTransferRequestController::class)->store($request);
 
         $this->assertSame(201, $response->getStatusCode());
+        $this->assertSame($product->id, $response->getData(true)['data']['product']['id']);
+        $this->assertSame($sourceWarehouse->id, $response->getData(true)['data']['from_warehouse']['id']);
         $this->assertDatabaseHas('inventory_transfer_requests', [
             'product_id' => $product->id,
             'from_warehouse_id' => $sourceWarehouse->id,

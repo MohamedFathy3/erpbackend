@@ -20,10 +20,14 @@ class InventoryMovementService
      * Updates aggregate, warehouse, legacy color and exact variant balances
      * inside one transaction, then records an auditable movement.
      */
-    public function apply(array $data): InventoryMovement
+    public function apply(array $data, ?int $crossBranchTenantId = null): InventoryMovement
     {
-        return $this->database->transaction(function () use ($data) {
-            $product = Product::query()->lockForUpdate()->findOrFail($data['product_id']);
+        return $this->database->transaction(function () use ($data, $crossBranchTenantId) {
+            $productQuery = Product::query();
+            if ($crossBranchTenantId !== null) {
+                $productQuery->withoutGlobalScope('branch')->where('tenant_id', $crossBranchTenantId);
+            }
+            $product = $productQuery->lockForUpdate()->findOrFail($data['product_id']);
             $previousProductStock = (float) $product->stock;
             $delta = (float) $data['quantity_delta'];
             $productUnitId = $data['product_unit_id'] ?? null;
@@ -83,7 +87,7 @@ class InventoryMovementService
                 'notes' => $data['notes'] ?? null,
             ]);
             if ($delta < 0) {
-                app(SystemNotificationService::class)->lowStock($product->fresh(), $movement, $previousProductStock);
+                app(SystemNotificationService::class)->lowStock($product->refresh(), $movement, $previousProductStock);
             }
             return $movement;
         });

@@ -626,6 +626,7 @@ Route::middleware([
 
     Route::get('/reports/warehouse-inventory', [ReportController::class, 'warehouseInventory']);
     Route::get('/reports/warehouse-movements', [ReportController::class, 'warehouseMovements']);
+    Route::post('/reports/inventory-movements', [ReportController::class, 'inventoryMovements']);
 
 
     Route::get('warehouses/{warehouse}/products', [
@@ -668,6 +669,7 @@ Route::middleware([
     'auth:sanctum',
     'resolve.tenant',
 ])->prefix('inventory-transfer-requests')->group(function () {
+    Route::get('/branches', [InventoryTransferRequestController::class, 'branches']);
     Route::post('/products', [InventoryTransferRequestController::class, 'products']);
     Route::get('/', [InventoryTransferRequestController::class, 'index']);
     Route::post('/', [InventoryTransferRequestController::class, 'store']);
@@ -843,7 +845,7 @@ Route::middleware([
 
     Route::post('/products/by-branch', [
         ProductController::class,
-        'index'
+        'getProductsByBranch'
     ]);
 
     Route::post('/warehouse-stock/index', [

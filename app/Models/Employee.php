@@ -35,7 +35,7 @@ class Employee extends BaseModel implements Authenticatable
     // ✅ إضافة علاقة الخزينة
     public function treasury()
     {
-        return $this->belongsTo(Treasury::class);
+        return $this->belongsTo(Treasury::class)->withoutGlobalScope('branch');
     }
 
     public function permissions(): BelongsToMany

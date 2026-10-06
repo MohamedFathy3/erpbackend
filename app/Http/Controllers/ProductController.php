@@ -9,10 +9,12 @@ use App\Http\Resources\ProductResource;
 use App\Imports\ProductImport;
 use App\Interfaces\ProductRepositoryInterface;
 use App\Models\Category;
+use App\Models\Employee;
 use App\Models\Product;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Carbon\Carbon;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Models\InvoiceItem;
@@ -369,21 +371,57 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null);
   public function getProductsByBranch(Request $request)
 {
     $data = $request->validate([
-        'branch_id' => ['required', 'exists:branches,id'],
+          'branch_id' => ['required', 'integer'],
         'category_id' => ['nullable', 'exists:categories,id'],
     ]);
 
     $branchId = (int) $data['branch_id'];
+      $user = $request->user();
+      $tenantId = $user?->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
 
-    $products = Product::query()
-        ->with([
-            'category',
-            'units.colors',
-        ])
+      abort_unless($user && $tenantId, 403, 'A tenant context is required.');
+      if ($user instanceof Employee) {
+          abort_unless((int) $user->branch_id > 0 && (int) $user->branch_id === $branchId, 403, 'You may only view your assigned branch catalog.');
+      } elseif (!($user->super_admin ?? false) && $user->branch_id) {
+          abort_unless((int) $user->branch_id === $branchId, 403, 'You may only view your assigned branch catalog.');
+      }
+
+      // Warehouses are branch-scoped by BaseModel. POS may only access its own
+      // branch, but admins can select a branch explicitly; tenant ownership is
+      // always applied explicitly when bypassing the branch scope.
+      $branchQuery = DB::table('branches')
+          ->join('warehouses', 'warehouses.branch_id', '=', 'branches.id')
+          ->where('branches.id', $branchId)
+          ->where('branches.active', true)
+          ->whereNull('branches.deleted_at')
+          ->where('warehouses.tenant_id', $tenantId)
+          ->where('warehouses.branch_id', $branchId);
+      $branchQuery->where('warehouses.active', true)->whereNull('warehouses.deleted_at');
+      if (Schema::hasColumn('branches', 'tenant_id')) {
+          $branchQuery->where('branches.tenant_id', $tenantId);
+      }
+      $branchIsAvailable = $branchQuery->exists();
+      abort_unless($branchIsAvailable, 404, 'Branch not found.');
+
+      $products = Product::query()
+          ->withoutGlobalScope('branch')
+          ->where('products.tenant_id', $tenantId)
+          ->with([
+              'category',
+              'units.colors',
+              'warehouses' => function ($query) use ($branchId, $tenantId) {
+                  $query->withoutGlobalScope('branch')
+                      ->where('warehouses.tenant_id', $tenantId)
+                      ->where('warehouses.branch_id', $branchId)
+                      ->withPivot(['stock']);
+              },
+          ])
 
         // هات المنتجات المسجلة في مخازن هذا الفرع فقط
-        ->whereHas('warehouses', function ($query) use ($branchId) {
-            $query->where('branch_id', $branchId);
+        ->whereHas('warehouses', function ($query) use ($branchId, $tenantId) {
+            $query->withoutGlobalScope('branch')
+                ->where('warehouses.tenant_id', $tenantId)
+                ->where('warehouses.branch_id', $branchId);
         })
 
         // فلتر التصنيف لو موجود
@@ -396,6 +434,15 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null);
 
         ->distinct()
         ->get();
+
+    // The POS must use stock for the selected branch, not the tenant-wide
+    // product aggregate, so a pending transfer cannot make stock sellable.
+    $products->each(function (Product $product): void {
+        $product->setAttribute(
+            'stock',
+            (float) $product->warehouses->sum(fn ($warehouse) => (float) $warehouse->pivot->stock)
+        );
+    });
 
     return ProductResource::collection($products);
 }

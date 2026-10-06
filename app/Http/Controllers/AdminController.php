@@ -339,7 +339,10 @@ public function store(AdminRequest $request)
 
             return response()->json([
                 'type' => 'employee',
-                'data' => new EmployeeResource($employee),
+                'data' => array_merge(
+                    (new EmployeeResource($employee))->resolve(),
+                    ['company_profile' => $this->companyProfileForTenant($employee->tenant_id)]
+                ),
                 'token' => $token,
             ]);
         }
@@ -394,7 +397,10 @@ public function store(AdminRequest $request)
         if ($user instanceof \App\Models\Employee) {
             return response()->json([
                 'type' => 'employee',
-                'data' => new EmployeeResource($user)
+                'data' => array_merge(
+                    (new EmployeeResource($user))->resolve(),
+                    ['company_profile' => $this->companyProfileForTenant($user->tenant_id)]
+                ),
             ]);
         }
 
@@ -410,6 +416,36 @@ public function store(AdminRequest $request)
                 'message' => $e->getMessage()
             ], 500);
         }
+    }
+
+    private function companyProfileForTenant(?int $tenantId): ?array
+    {
+        if (!$tenantId) {
+            return null;
+        }
+
+        $admin = Admin::query()
+            ->where('tenant_id', $tenantId)
+            ->orderBy('id')
+            ->first();
+
+        if (!$admin) {
+            return null;
+        }
+
+        return [
+            'name' => $admin->name,
+            'name_ar' => $admin->name_ar,
+            'logo_url' => $admin->getFirstMediaUrl('logo'),
+            'logo_icon_url' => $admin->getFirstMediaUrl('logo_icon'),
+            'address' => $admin->address,
+            'phone' => $admin->phone,
+            'email' => $admin->email,
+            'tax_id' => $admin->tax_id,
+            'commercial_register' => $admin->commercial_register,
+            'website' => $admin->website,
+            'currency' => $admin->currency,
+        ];
     }
 
 
