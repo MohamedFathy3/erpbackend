@@ -46,7 +46,20 @@ public function returns()
     
     public function getRemainingAmountAttribute()
     {
-        return $this->total_amount - $this->paid_amount;
+        return max(0, (float) $this->total_amount - (float) $this->paid_amount - $this->returned_amount);
+    }
+
+    public function getReturnedAmountAttribute(): float
+    {
+        if ($this->relationLoaded('returns')) {
+            return (float) $this->returns
+                ->reject(fn (PurchaseReturn $return) => $return->workflow_status === 'cancelled')
+                ->sum('total_amount');
+        }
+
+        return (float) $this->returns()
+            ->where(fn ($query) => $query->whereNull('workflow_status')->orWhere('workflow_status', '!=', 'cancelled'))
+            ->sum('total_amount');
     }
 
        public function treasury()

@@ -397,9 +397,10 @@ class PurchaseInvoiceController extends Controller
         try {
             $invoice = PurchaseInvoice::query()->lockForUpdate()->findOrFail($invoice->id);
             $amount = (float) $data['amount'];
+            $remaining = (float) $invoice->remaining_amount;
             $newPaid = (float) $invoice->paid_amount + $amount;
-            if ($newPaid > (float) $invoice->total_amount) {
-                throw new \RuntimeException('Amount exceeds total invoice value');
+            if ($amount > $remaining) {
+                throw new \RuntimeException('Amount exceeds the remaining invoice value after returns');
             }
             $treasuryId = $data['treasury_id'];
             if (!$treasuryId) throw new \RuntimeException('Treasury is required for a purchase payment');
@@ -422,7 +423,11 @@ class PurchaseInvoiceController extends Controller
                 'notes' => $data['notes'] ?? null,
             ]);
             $posting->postPurchasePayment($invoice, $payment);
-            $invoice->update(['treasury_id' => $treasury->id, 'paid_amount' => $newPaid, 'remaining_amount' => (float) $invoice->total_amount - $newPaid]);
+            $invoice->update([
+                'treasury_id' => $treasury->id,
+                'paid_amount' => $newPaid,
+                'remaining_amount' => max(0, (float) $invoice->total_amount - $newPaid - (float) $invoice->returned_amount),
+            ]);
             DB::commit();
             $updatedInvoice = $invoice->fresh()->load(['supplier', 'branch', 'warehouse', 'currency', 'tax', 'treasury', 'items.product', 'items.unit', 'items.color', 'items.size', 'payments.treasury']);
             return response()->json([

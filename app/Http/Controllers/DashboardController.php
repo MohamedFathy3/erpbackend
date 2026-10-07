@@ -38,9 +38,12 @@ class DashboardController extends Controller
         };
 
         $sales = $scoped(SalesInvoice::with('items.product'), 'invoice_date')->get();
-        $posSales = $scoped(Invoice::with('items.product'), 'created_at')->get();
+        $posSales = $scoped(Invoice::with(['items.product', 'returns.items.product']), 'created_at')->get();
         $purchases = $scoped(PurchaseInvoice::with('items.product'), 'invoice_date')->get();
-        $purchaseReturns = $scoped(PurchaseReturn::query(), 'return_date')->get();
+        $purchaseReturns = $scoped(
+            PurchaseReturn::query()->where(fn ($query) => $query->whereNull('workflow_status')->orWhere('workflow_status', '!=', 'cancelled')),
+            'return_date'
+        )->get();
         $expenses = $scoped(Finance::query()->whereNotIn('category', ['revenue', 'income']), 'date')->get();
         $revenues = $scoped(Revenue::query(), 'date')->get();
         $journals = $scoped(JournalEntry::with('lines'), 'entry_date')->get();
@@ -49,14 +52,54 @@ class DashboardController extends Controller
         if ($branchId) $employeesQuery->where('branch_id', $branchId);
         $employees = $employeesQuery->where('active', true)->orderBy('name')->get(['id', 'name', 'branch_id']);
 
-        $salesTotal = (float) $sales->sum(fn ($invoice) => $invoice->net_total ?? $invoice->total_amount ?? 0) + (float) $posSales->sum('total_amount');
-        $salesCost = (float) $sales->sum(fn ($invoice) => $invoice->items->sum(fn ($item) => (float) $item->quantity * (float) ($item->product?->cost ?? 0))) + (float) $posSales->sum(fn ($invoice) => $invoice->items->sum(fn ($item) => (float) $item->quantity * (float) ($item->product?->cost ?? 0)));
-        $purchaseTotal = (float) $purchases->sum('total_amount');
+        $posNetSales = (float) $posSales->sum(fn ($invoice) => (float) $invoice->net_amount);
+        $salesTotal = (float) $sales->sum(fn ($invoice) => $invoice->net_total ?? $invoice->total_amount ?? 0) + $posNetSales;
+        $salesCost = (float) $sales->sum(fn ($invoice) => $invoice->items->sum(fn ($item) => (float) $item->quantity * (float) ($item->product?->cost ?? 0))) + (float) $posSales->sum(function ($invoice) {
+            $invoiceCost = $invoice->items->sum(fn ($item) => (float) $item->quantity * (float) ($item->product?->cost ?? 0));
+            $returnedCost = $invoice->returns->reject(fn ($return) => $return->workflow_status === 'cancelled')
+                ->sum(fn ($return) => $return->items->sum(fn ($item) => (float) $item->quantity * (float) ($item->product?->cost ?? 0)));
+            return max(0, $invoiceCost - $returnedCost);
+        });
         $purchaseReturnTotal = (float) $purchaseReturns->sum('total_amount');
+        $purchaseTotal = (float) $purchases->sum('total_amount') - $purchaseReturnTotal;
         $expenseTotal = (float) $expenses->sum('amount');
         $revenueTotal = (float) $revenues->sum('amount');
         $grossProfit = $salesTotal - $salesCost;
         $netProfit = $grossProfit + $revenueTotal - $expenseTotal;
+
+        $daily = [];
+        $addDaily = function ($date, string $key, float $amount, int $count = 0) use (&$daily): void {
+            if (!$date) return;
+            $day = \Illuminate\Support\Carbon::parse($date)->toDateString();
+            $daily[$day] ??= ['sales' => 0.0, 'sales_cost' => 0.0, 'invoice_count' => 0];
+            $daily[$day][$key] += $amount;
+            $daily[$day]['invoice_count'] += $count;
+        };
+
+        foreach ($sales as $invoice) {
+            $date = $invoice->invoice_date ?? $invoice->created_at;
+            $addDaily($date, 'sales', (float) ($invoice->net_total ?? $invoice->total_amount ?? 0), 1);
+            $addDaily($date, 'sales_cost', (float) $invoice->items->sum(fn ($item) => (float) $item->quantity * (float) ($item->product?->cost ?? 0)));
+        }
+        foreach ($posSales as $invoice) {
+            $date = $invoice->created_at;
+            $invoiceCost = (float) $invoice->items->sum(fn ($item) => (float) $item->quantity * (float) ($item->product?->cost ?? 0));
+            $returns = $invoice->returns->reject(fn ($return) => $return->workflow_status === 'cancelled');
+            $returnedCost = (float) $returns->sum(fn ($return) => $return->items->sum(fn ($item) => (float) $item->quantity * (float) ($item->product?->cost ?? 0)));
+            $addDaily($date, 'sales', (float) $invoice->net_amount, 1);
+            $addDaily($date, 'sales_cost', max(0, $invoiceCost - $returnedCost));
+        }
+        $dailyRows = collect($daily)->sortKeys()->map(function (array $day, string $date): array {
+            $revenue = round($day['sales'], 2);
+            $cost = round($day['sales_cost'], 2);
+            return [
+                'date' => $date,
+                'revenue' => $revenue,
+                'cost' => $cost,
+                'result' => round($revenue - $cost, 2),
+                'invoice_count' => $day['invoice_count'],
+            ];
+        })->values();
 
         return response()->json(['status' => true, 'data' => [
             'filters' => ['from' => $from, 'to' => $to, 'branch_id' => $branchId],
@@ -70,9 +113,10 @@ class DashboardController extends Controller
                 'journal_count' => $journals->count(), 'employee_count' => $employees->count(),
             ],
             'breakdown' => [
-                'sales' => ['regular' => round((float) $sales->sum(fn ($i) => $i->net_total ?? $i->total_amount ?? 0), 2), 'pos' => round((float) $posSales->sum('total_amount'), 2)],
+                'sales' => ['regular' => round((float) $sales->sum(fn ($i) => $i->net_total ?? $i->total_amount ?? 0), 2), 'pos' => round($posNetSales, 2)],
                 'journal' => ['debit' => round((float) $journals->sum(fn ($j) => $j->lines->sum('debit')), 2), 'credit' => round((float) $journals->sum(fn ($j) => $j->lines->sum('credit')), 2)],
             ],
+            'daily' => $dailyRows,
             'employees' => $employees->map(fn ($employee) => ['id' => $employee->id, 'name' => $employee->name, 'branch_id' => $employee->branch_id])->values(),
         ]]);
     }
@@ -87,6 +131,13 @@ class DashboardController extends Controller
         $purchases = PurchaseInvoice::query()->when($branchId, fn ($q) => $q->where('branch_id', $branchId));
         $monthSales = (clone $sales)->whereDate('invoice_date', '>=', $monthStart);
         $monthPurchases = (clone $purchases)->whereDate('invoice_date', '>=', $monthStart);
+        $monthPurchaseReturns = PurchaseReturn::query()
+            ->where(fn ($query) => $query->whereNull('workflow_status')->orWhere('workflow_status', '!=', 'cancelled'))
+            ->whereDate('return_date', '>=', $monthStart)
+            ->whereDate('return_date', '<=', $today)
+            ->when($branchId, fn ($query) => $query->where('branch_id', $branchId))
+            ->sum('total_amount');
+        $monthPurchaseTotal = (float) $monthPurchases->sum('total_amount') - (float) $monthPurchaseReturns;
         $todaySales = (clone $sales)->whereDate('invoice_date', $today);
         $lowStock = Product::whereColumn('stock', '<=', DB::raw('CASE WHEN reorder_level > 0 THEN reorder_level ELSE 5 END'))->count();
         $projects = Project::query();
@@ -98,8 +149,8 @@ class DashboardController extends Controller
             'month_sales' => (float) $monthSales->sum('net_total'),
             'total_sales' => (float) $sales->sum('net_total'),
             'total_sales_amount' => (float) $sales->sum('net_total'),
-            'month_purchases' => (float) $monthPurchases->sum('total_amount'),
-            'net_profit_before_overheads' => (float) $monthSales->sum('net_total') - (float) $monthPurchases->sum('total_amount'),
+            'month_purchases' => $monthPurchaseTotal,
+            'net_profit_before_overheads' => (float) $monthSales->sum('net_total') - $monthPurchaseTotal,
             'sales_invoices_count' => (int) $sales->count(),
             'purchase_invoices_count' => (int) $purchases->count(),
             'customers_count' => Customer::count(),

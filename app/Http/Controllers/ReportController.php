@@ -168,7 +168,7 @@ class ReportController extends Controller
     public function shifts(Request $request)
     {
         $filters = $request->input('filters', []);
-        $query = CashierShift::query()->with(['employee', 'admin', 'invoices.items.product', 'invoices.salesRepresentative', 'invoices.cashier']);
+        $query = CashierShift::query()->with(['employee', 'admin', 'invoices.items.product', 'invoices.returns.items.product', 'invoices.salesRepresentative', 'invoices.cashier']);
 
         if (!empty($filters['employee_id'])) {
             $query->where('employee_id', $filters['employee_id']);
@@ -196,7 +196,12 @@ class ReportController extends Controller
                 $cost = (float) $invoice->items->sum(function ($item) {
                     return (float) ($item->quantity ?? 0) * (float) ($item->product?->cost ?? 0);
                 });
-                $sale = (float) ($invoice->total_amount ?? 0);
+                $returns = $invoice->returns->reject(fn ($return) => $return->workflow_status === 'cancelled');
+                $returnedCost = (float) $returns->sum(fn ($return) => $return->items->sum(fn ($item) => (float) $item->quantity * (float) ($item->product?->cost ?? 0)));
+                $cost = max(0, $cost - $returnedCost);
+                $sale = $invoice->is_complimentary
+                    ? 0
+                    : max(0, (float) ($invoice->total_amount ?? 0) - (float) $returns->sum('total_amount'));
                 return ['id'=>$invoice->id,'number'=>$invoice->invoice_number,'date'=>$invoice->created_at,'seller'=>$invoice->salesRepresentative?->only(['id','name']),'cashier'=>$invoice->cashier?->only(['id','name']),'sale'=>$sale,'cost'=>round($cost,2),'profit'=>round($sale-$cost,2),'items'=>$invoice->items->map(fn($item)=>['product'=>$item->product?->only(['id','name','sku']),'quantity'=>(float)$item->quantity,'price'=>(float)$item->price,'total'=>(float)$item->total])->values()];
             })->values();
             return array_merge($shift->toArray(), ['invoices'=>$invoices,'invoices_count'=>$invoices->count(),'sales_total'=>(float)$invoices->sum('sale'),'cost_total'=>(float)$invoices->sum('cost'),'profit_total'=>(float)$invoices->sum('profit')]);

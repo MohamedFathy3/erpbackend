@@ -112,9 +112,9 @@ class CustomerController extends BaseController
             if ($to) { $posQuery->where('invoices.created_at', '<=', $to); $salesQuery->where('sales_invoices.invoice_date', '<=', $to->toDateString()); }
             $posInvoices = $posQuery->latest()->get()->map(fn ($invoice) => [
                 'id'=>$invoice->id,'source'=>'pos','type'=>'sale','number'=>$invoice->invoice_number,'date'=>$invoice->created_at?->toDateString(),
-                'branch'=>$invoice->branch?->only(['id','name','name_ar']),'total'=>(float)($invoice->total_amount??0),'paid'=>(float)($invoice->paid_amount??0),'due'=>(float)($invoice->remaining_amount??0),'status'=>$invoice->status,
+                'branch'=>$invoice->branch?->only(['id','name','name_ar']),'total'=>(float)$invoice->net_amount,'paid'=>(float)$invoice->net_paid_amount,'due'=>(float)$invoice->remaining_amount,'status'=>$invoice->status,
                 'products'=>$invoice->items->map(fn($item)=>['id'=>$item->product?->id,'name'=>$item->product?->name ?? $item->product_name,'quantity'=>(float)$item->quantity,'total'=>(float)$item->total])->values(),
-                'payments'=>$invoice->payments->map(fn($payment)=>['id'=>$payment->id,'method'=>$payment->method,'amount'=>(float)$payment->amount,'date'=>$payment->created_at?->toDateString(),'employee'=>$payment->employee?->only(['id','name'])])->values(),
+                'payments'=>$invoice->is_complimentary ? collect() : $invoice->payments->map(fn($payment)=>['id'=>$payment->id,'method'=>$payment->method,'amount'=>(float)$payment->amount,'date'=>$payment->created_at?->toDateString(),'employee'=>$payment->employee?->only(['id','name'])])->values(),
             ]);
             $salesInvoices = $salesQuery->latest('invoice_date')->get()->map(fn ($invoice) => [
                 'id'=>$invoice->id,'source'=>'sales','type'=>'sale','number'=>$invoice->invoice_number,'date'=>($invoice->invoice_date??$invoice->created_at)?->toDateString(),

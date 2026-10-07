@@ -127,10 +127,8 @@ class SalesRepresentativeReportService
     private function normalizePosInvoice(Invoice $invoice, float $fallbackRate): array
     {
         $rate = $invoice->commission_rate_snapshot !== null ? (float) $invoice->commission_rate_snapshot : $fallbackRate;
-        $total = (float) ($invoice->total_amount ?? 0);
-        $commission = $invoice->commission_amount_snapshot !== null
-            ? (float) $invoice->commission_amount_snapshot
-            : round($total * $rate / 100, 2);
+        $total = $invoice->is_complimentary ? 0 : (float) ($invoice->total_amount ?? 0);
+        $commission = (float) $invoice->net_commission_amount;
         $costTotal = (float) $invoice->items->sum(fn ($item) => (float) ($item->cost ?? $item->product?->cost ?? 0) * (float) ($item->quantity ?? 0));
 
         return [

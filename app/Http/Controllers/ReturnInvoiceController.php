@@ -10,13 +10,13 @@ use App\Models\Invoice;
 use App\Models\Product;
 use App\Models\ReturnInvoice;
 use App\Models\ReturnItem;
-use App\Services\WorkflowPostingService;
+use App\Services\PosAccountingPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class ReturnInvoiceController extends Controller
 {
-    public function storeReturn(Request $request, WorkflowPostingService $posting)
+    public function storeReturn(Request $request, PosAccountingPostingService $posting)
     {
         DB::beginTransaction();
 
@@ -173,7 +173,7 @@ class ReturnInvoiceController extends Controller
                 ]);
             }
 
-            $journal = $posting->postReturn($return, 'sales_return', (float) $paymentsTotal, $invoice->treasury_id ?? null);
+            $journal = $posting->postReturn($return);
             $return->update(['posting_journal_entry_id' => $journal?->id, 'workflow_status' => $journal ? 'posted' : 'pending_finance']);
             DB::commit();
 

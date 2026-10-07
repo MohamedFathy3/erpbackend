@@ -1398,6 +1398,7 @@ Route::middleware([
         InvoiceController::class,
         'store'
     ]);
+    Route::post('/invoices/{invoice}/complimentary', [InvoiceController::class, 'makeComplimentary']);
 
     Route::post('/invoice-return/store', [
         ReturnInvoiceController::class,

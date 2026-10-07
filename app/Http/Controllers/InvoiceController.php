@@ -70,7 +70,8 @@ class InvoiceController extends Controller
                 'cashier',
                 'treasury',
                 'salesRepresentative',
-                'shift'
+                'shift',
+                'returns'
             ]);
 
             // =========================
@@ -181,6 +182,8 @@ public function store(Request $request)
         'items.*.discount_amount' => 'nullable|numeric|min:0',
         'items.*.vehicle_size' => 'nullable|in:small,large',
         'items.*.meter_quantity' => 'nullable|numeric|min:0.001',
+        'items.*.product_unit_id' => 'nullable|integer|exists:product_units,id',
+        'items.*.color_id' => 'nullable|integer|exists:colors,id',
     ]);
 
     // POS invoices without a selected customer are posted to the default
@@ -414,6 +417,8 @@ public function store(Request $request)
 
                 app(\App\Services\InventoryMovementService::class)->apply([
                     'product_id' => $product->id,
+                    'product_unit_id' => $item['product_unit_id'] ?? null,
+                    'color_id' => $item['color_id'] ?? null,
                     'branch_id' => $branchId,
                     'warehouse_id' => (int) $warehouseStock->warehouse_id,
                     'movement_type' => 'sale',
@@ -449,20 +454,21 @@ public function store(Request $request)
         // ✅ إيداع المدفوعات النقدية في الخزينة
         // ============================================================
         if ($cashPaid > 0 && $treasuryId) {
-            $treasury = Treasury::query()->lockForUpdate()->find($treasuryId);
-            if ($treasury) {
-                $treasury->increment('balance', $cashPaid);
+            $treasury = Treasury::query()
+                ->withoutGlobalScope('branch')
+                ->lockForUpdate()
+                ->findOrFail($treasuryId);
+            $treasury->increment('balance', $cashPaid);
 
-                TreasuryTransaction::create([
-                    'treasury_id' => $treasuryId,
-                    'reference_type' => Invoice::class,
-                    'reference_id' => $invoice->id,
-                    'type' => 'in',
-                    'amount' => $cashPaid,
-                    'description' => "فاتورة مبيعات رقم {$invoice->invoice_number}",
-                    'created_by' => $user instanceof User ? $user->id : null,
-                ]);
-            }
+            TreasuryTransaction::create([
+                'treasury_id' => $treasuryId,
+                'reference_type' => Invoice::class,
+                'reference_id' => $invoice->id,
+                'type' => 'in',
+                'amount' => $cashPaid,
+                'description' => "فاتورة مبيعات رقم {$invoice->invoice_number}",
+                'created_by' => $user instanceof User ? $user->id : null,
+            ]);
         }
 
         // ============================================================
@@ -610,6 +616,30 @@ public function store(Request $request)
                 'status' => false,
                 'message' => $e->getMessage()
             ], 500);
+        }
+    }
+
+    public function makeComplimentary(Request $request, Invoice $invoice, PosAccountingPostingService $posting)
+    {
+        abort_unless($this->mayApplyPosDiscount($request->user()), 403, 'لا تملك صلاحية تحويل الفاتورة إلى مجاملة.');
+
+        try {
+            $updatedInvoice = $posting->makeComplimentary($invoice);
+            return response()->json([
+                'status' => true,
+                'message' => 'تم تحويل الفاتورة إلى مجاملة ورد المبالغ المسددة.',
+                'data' => new InvoiceResource($updatedInvoice->load([
+                    'items', 'payments', 'customer', 'branch', 'shift', 'salesRepresentative', 'cashier', 'treasury', 'returns',
+                ])),
+            ]);
+        } catch (\RuntimeException $error) {
+            return response()->json(['status' => false, 'message' => $error->getMessage()], 422);
+        } catch (\Throwable $error) {
+            Log::error('POS complimentary conversion failed', [
+                'invoice_id' => $invoice->id,
+                'error' => $error->getMessage(),
+            ]);
+            return response()->json(['status' => false, 'message' => 'تعذر تحويل الفاتورة إلى مجاملة.'], 500);
         }
     }
 

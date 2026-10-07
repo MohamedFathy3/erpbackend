@@ -52,9 +52,10 @@ class ProductLedgerController extends Controller
             ->get()->map(function ($item) {
                 $invoice = $item->invoice;
                 $total = (float) ($item->total ?? ((float) $item->quantity * (float) $item->price));
-                $invoiceTotal = (float) ($invoice?->total_amount ?? 0);
-                $paid = (float) ($invoice?->paid_amount ?? 0);
-                $due = $invoiceTotal > 0 ? round(max(0, $invoice?->remaining_amount ?? ($invoiceTotal - $paid)) * ($total / $invoiceTotal), 2) : 0;
+                if ($invoice?->is_complimentary) $total = 0;
+                $invoiceTotal = (float) ($invoice?->net_amount ?? 0);
+                $paid = (float) ($invoice?->net_paid_amount ?? 0);
+                $due = $invoiceTotal > 0 ? round((float) ($invoice?->remaining_amount ?? max(0, $invoiceTotal - $paid)) * ($total / $invoiceTotal), 2) : 0;
                 return [
                     'id' => $item->id, 'source' => 'pos', 'type' => 'sale',
                     'date' => $this->dateOnly($invoice?->created_at ?? $item->created_at), 'reference' => $invoice?->invoice_number,

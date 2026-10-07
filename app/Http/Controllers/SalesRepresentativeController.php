@@ -76,20 +76,30 @@ class SalesRepresentativeController extends BaseController
                     ->where('sales_representative_id', $representative->id)
                     ->when($from, fn ($query) => $query->whereDate('invoice_date', '>=', $from))
                     ->when($to, fn ($query) => $query->whereDate('invoice_date', '<=', $to))->get();
-                $posInvoices = Invoice::with(['customer:id,name', 'items.product:id,name,cost'])
+                $posInvoices = Invoice::with(['customer:id,name', 'items.product:id,name,cost', 'returns.items.product:id,cost'])
                     ->where('sales_representative_id', $representative->id)
                     ->when($from, fn ($query) => $query->whereDate('created_at', '>=', $from))
                     ->when($to, fn ($query) => $query->whereDate('created_at', '<=', $to))->get();
                 $invoices = $salesInvoices->concat($posInvoices)->sortByDesc(fn ($invoice) => $invoice->invoice_date ?? $invoice->created_at)->values();
                 $rowsForReport = $invoices->map(function ($invoice) use ($representative) {
                     $invoiceCost = (float) $invoice->items->sum(fn ($item) => (float) ($item->product?->cost ?? 0) * (float) $item->quantity);
-                    $total = (float) ($invoice->net_total ?? $invoice->total_amount ?? $invoice->total ?? 0);
+                    $total = $invoice instanceof Invoice
+                        ? (float) $invoice->net_amount
+                        : (float) ($invoice->net_total ?? $invoice->total_amount ?? $invoice->total ?? 0);
+                    if ($invoice instanceof Invoice) {
+                        $returnedCost = $invoice->returns
+                            ->reject(fn ($return) => $return->workflow_status === 'cancelled')
+                            ->sum(fn ($return) => $return->items->sum(fn ($item) => (float) ($item->product?->cost ?? 0) * (float) $item->quantity));
+                        $invoiceCost = max(0, $invoiceCost - $returnedCost);
+                    }
                     $commissionRate = $invoice->commission_rate_snapshot !== null
                         ? (float) $invoice->commission_rate_snapshot
                         : (float) ($representative->commission_rate ?? 0);
-                    $commission = $invoice->commission_amount_snapshot !== null
-                        ? (float) $invoice->commission_amount_snapshot
-                        : round($total * $commissionRate / 100, 2);
+                    $commission = $invoice instanceof Invoice
+                        ? (float) $invoice->net_commission_amount
+                        : ($invoice->commission_amount_snapshot !== null
+                            ? (float) $invoice->commission_amount_snapshot
+                            : round($total * $commissionRate / 100, 2));
                     return [
                         'id' => $invoice->id,
                         'invoice_number' => $invoice->invoice_number,
@@ -139,9 +149,11 @@ class SalesRepresentativeController extends BaseController
         $salesInvoices = SalesInvoice::where('sales_representative_id', $salesRepresentative->id)->whereDate('invoice_date', $date)->get();
         $posInvoices = Invoice::where('sales_representative_id', $salesRepresentative->id)->whereDate('created_at', $date)->get();
         $rate = (float) $salesRepresentative->commission_rate;
-        $commissionFor = fn ($invoice) => $invoice->commission_amount_snapshot !== null
-            ? (float) $invoice->commission_amount_snapshot
-            : round((float) ($invoice->net_total ?? $invoice->total_amount ?? $invoice->total ?? 0) * $rate / 100, 2);
+        $commissionFor = fn ($invoice) => $invoice instanceof Invoice
+            ? (float) $invoice->net_commission_amount
+            : ($invoice->commission_amount_snapshot !== null
+                ? (float) $invoice->commission_amount_snapshot
+                : round((float) ($invoice->net_total ?? $invoice->total_amount ?? $invoice->total ?? 0) * $rate / 100, 2));
         $amount = round((float) $salesInvoices->concat($posInvoices)->sum($commissionFor), 2);
         if ($amount <= 0) throw ValidationException::withMessages(['bonus' => 'لا توجد عمولة مستحقة لهذا المندوب في هذا اليوم.']);
         $result = DB::transaction(function () use ($data, $salesRepresentative, $date, $amount, $request) {

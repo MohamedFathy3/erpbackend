@@ -17,9 +17,9 @@ class PurchaseInvoiceResource extends JsonResource
         */
 
         $returns = $this->relationLoaded('returns')
-            ? $this->returns->where('workflow_status', '!=', 'cancelled')
+            ? $this->returns->reject(fn ($return) => $return->workflow_status === 'cancelled')
             : $this->returns()
-                ->where('workflow_status', '!=', 'cancelled')
+                ->where(fn ($query) => $query->whereNull('workflow_status')->orWhere('workflow_status', '!=', 'cancelled'))
                 ->with('items')
                 ->get();
 
@@ -236,9 +236,11 @@ class PurchaseInvoiceResource extends JsonResource
 
             'total_amount' => (float) $this->total_amount,
 
+            'net_amount' => max(0, (float) $this->total_amount - $returnedAmount),
+
             'paid_amount' => (float) $this->paid_amount,
 
-            'remaining_amount' => (float) $this->remaining_amount,
+            'remaining_amount' => max(0, (float) $this->total_amount - (float) $this->paid_amount - $returnedAmount),
 
             'posting_journal_entry_id' => $this->posting_journal_entry_id,
 
