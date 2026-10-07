@@ -14,8 +14,8 @@ class ProductIndexFilterTest extends TestCase
 
     public function test_product_index_filters_by_name_in_database(): void
     {
-        $match = Product::create(['name' => 'same product', 'name_ar' => 'منتج سامح', 'sku' => 'SAME-1']);
-        Product::create(['name' => 'different product', 'name_ar' => 'منتج آخر', 'sku' => 'OTHER-1']);
+        $match = Product::create(['name' => 'same product', 'sku' => 'SAME-1']);
+        Product::create(['name' => 'different product', 'sku' => 'OTHER-1']);
 
         $request = Request::create('/api/product/index', 'POST', [
             'filters' => ['name' => 'same'],
@@ -33,13 +33,13 @@ class ProductIndexFilterTest extends TestCase
         $this->assertSame($match->id, $rows[0]['id']);
     }
 
-    public function test_product_index_filters_by_arabic_name(): void
+    public function test_product_index_filters_by_sku(): void
     {
-        $match = Product::create(['name' => 'same product', 'name_ar' => 'صص']);
-        Product::create(['name' => 'another product', 'name_ar' => 'منتج آخر']);
+        $match = Product::create(['name' => 'same product', 'sku' => 'SKU-SAME']);
+        Product::create(['name' => 'another product', 'sku' => 'SKU-OTHER']);
 
         $request = Request::create('/api/product/index', 'POST', [
-            'filters' => ['name' => 'صص'],
+            'filters' => ['sku' => 'SAME'],
             'paginate' => false,
         ]);
 

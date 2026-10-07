@@ -43,9 +43,12 @@ class ProductController extends BaseController
         // ثم يعتمد على الواجهة لفلترتها.
         if (!empty($filters['name'])) {
             $name = trim((string) $filters['name']);
-            $query->where(function ($q) use ($name) {
-                $q->where('name', 'LIKE', '%' . $name . '%')
-                    ->orWhere('name_ar', 'LIKE', '%' . $name . '%');
+            $hasArabicNameColumn = Schema::hasColumn('products', 'name_ar');
+            $query->where(function ($q) use ($name, $hasArabicNameColumn) {
+                $q->where('name', 'LIKE', '%' . $name . '%');
+                if ($hasArabicNameColumn) {
+                    $q->orWhere('name_ar', 'LIKE', '%' . $name . '%');
+                }
             });
         }
 
