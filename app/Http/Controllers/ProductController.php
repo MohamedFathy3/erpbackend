@@ -39,6 +39,30 @@ class ProductController extends BaseController
 
         $query = Product::query()->with(['category', 'units.colors', 'warehouses', 'automotiveService']);
 
+        // البحث النصي يجب أن يطبق على قاعدة البيانات نفسها، وليس أن يعيد كل المنتجات
+        // ثم يعتمد على الواجهة لفلترتها.
+        if (!empty($filters['name'])) {
+            $name = trim((string) $filters['name']);
+            $query->where(function ($q) use ($name) {
+                $q->where('name', 'LIKE', '%' . $name . '%')
+                    ->orWhere('name_ar', 'LIKE', '%' . $name . '%');
+            });
+        }
+
+        if (!empty($filters['sku'])) {
+            $query->where('sku', 'LIKE', '%' . trim((string) $filters['sku']) . '%');
+        }
+
+        if (!empty($filters['barcode'])) {
+            $barcode = trim((string) $filters['barcode']);
+            $query->where(function ($q) use ($barcode) {
+                $q->where('barcode', 'LIKE', '%' . $barcode . '%')
+                    ->orWhereHas('units', function ($unitQuery) use ($barcode) {
+                        $unitQuery->where('barcode', 'LIKE', '%' . $barcode . '%');
+                    });
+            });
+        }
+
         // فلتر المخزن
         if (!empty($filters['warehouse_id'])) {
             $warehouseId = (int) $filters['warehouse_id'];
