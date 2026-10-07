@@ -17,8 +17,8 @@ class InventoryMovementService
     }
 
     /**
-     * Updates aggregate, warehouse, legacy color and exact variant balances
-     * inside one transaction, then records an auditable movement.
+     * Updates aggregate and warehouse balances, and optionally legacy color
+     * and exact variant balances, inside one transaction.
      */
     public function apply(array $data, ?int $crossBranchTenantId = null): InventoryMovement
     {
@@ -51,7 +51,7 @@ class InventoryMovementService
             $this->updateLegacyColorStock($productUnitId, $colorId, $delta);
 
             $variantStock = null;
-            if ($productUnitId || $sizeId || $colorId || $branchId || $warehouseId) {
+            if (($data['track_variant_stock'] ?? true) && ($productUnitId || $sizeId || $colorId || $branchId || $warehouseId)) {
                 $variantStock = $this->updateVariantStock([
                     'product_id' => $product->id,
                     'product_unit_id' => $productUnitId,

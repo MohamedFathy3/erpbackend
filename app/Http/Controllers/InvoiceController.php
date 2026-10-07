@@ -417,10 +417,11 @@ public function store(Request $request)
 
                 app(\App\Services\InventoryMovementService::class)->apply([
                     'product_id' => $product->id,
-                    'product_unit_id' => $item['product_unit_id'] ?? null,
-                    'color_id' => $item['color_id'] ?? null,
                     'branch_id' => $branchId,
                     'warehouse_id' => (int) $warehouseStock->warehouse_id,
+                    // POS sales use product/warehouse stock only; do not
+                    // create or decrement exact variant stock records.
+                    'track_variant_stock' => false,
                     'movement_type' => 'sale',
                     'quantity_delta' => -$quantityFromWarehouse,
                     'reference_type' => Invoice::class,
