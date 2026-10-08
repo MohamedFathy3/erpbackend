@@ -7,6 +7,7 @@ use App\Models\AutomotiveServiceOrder;
 use App\Models\AutomotiveServiceOrderItem;
 use App\Models\AutomotiveVehicle;
 use App\Models\Product;
+use App\Models\Invoice;
 use App\Models\Admin;
 use App\Models\AutomotiveWarranty;
 use App\Models\Employee;
@@ -261,6 +262,44 @@ class AutomotiveController extends BaseController
             'profit' => round((float) $item->quantity * ((float) $item->unit_price - (float) $item->unit_cost), 2),
             'created_at' => $order->created_at?->toDateString(),
         ]))->values();
+        $posInvoices = Invoice::with('items.product.automotiveService')
+            ->whereBetween('created_at', [$from, $to])
+            ->whereHas('items', fn ($query) => $query->where('item_type', 'service'))
+            ->get();
+        $posServiceRows = $posInvoices->flatMap->items->groupBy('product_id')->map(function ($items, $productId) {
+            $first = $items->first();
+            $revenue = $items->sum(fn ($item) => (float) $item->total);
+            $cost = $items->sum(fn ($item) => (float) ($item->product?->cost ?? 0) * (float) $item->quantity);
+            return [
+                'service_id' => null,
+                'product_id' => $productId,
+                'service' => $first->product_name,
+                'orders' => $items->pluck('invoice_id')->unique()->count(),
+                'revenue' => round($revenue, 2),
+                'cost' => round($cost, 2),
+                'profit' => round($revenue - $cost, 2),
+                'meters_sold' => round($items->sum(fn ($item) => (float) $item->quantity * (float) ($item->meter_quantity ?: 1)), 3),
+                'stock_remaining' => (float) ($first->product?->stock ?? 0),
+            ];
+        })->values();
+        $serviceRows = $serviceRows->concat($posServiceRows)->values();
+        $posDetails = $posInvoices->flatMap(fn ($invoice) => $invoice->items->map(fn ($item) => [
+            'order_id' => $invoice->id,
+            'order_number' => $invoice->invoice_number,
+            'customer' => $invoice->customer?->name ?? 'عميل POS',
+            'vehicle' => null,
+            'service' => $item->product_name,
+            'quantity' => (float) $item->quantity,
+            'meter_quantity' => (float) ($item->meter_quantity ?? 0),
+            'unit_price' => (float) $item->price,
+            'unit_cost' => 0,
+            'revenue' => (float) $item->total,
+            'profit' => (float) $item->total,
+            'stock_remaining' => (float) ($item->product?->stock ?? 0),
+            'created_at' => $invoice->created_at?->toDateString(),
+        ]))->values();
+        $details = $details->concat($posDetails)->values();
+        $totalRevenue += $posServiceRows->sum('revenue');
         return response()->json(['status' => true, 'data' => ['from' => $from->toDateString(), 'to' => $to->toDateString(), 'summary' => ['orders' => $orders->count(), 'revenue' => round($totalRevenue, 2), 'cost' => round($totalCost, 2), 'profit' => round($totalRevenue - $totalCost, 2)], 'services' => $serviceRows, 'technicians' => $technicianRows, 'customers' => $customerRows, 'details' => $details]]);
     }
 }

@@ -52,6 +52,8 @@ class ProductResource extends JsonResource
                 'id' => $this->automotiveService->id,
                 'item_type' => $this->automotiveService->item_type,
                 'unit' => $this->automotiveService->unit,
+                'selling_price' => $this->automotiveService->selling_price,
+                'estimated_cost' => $this->automotiveService->estimated_cost,
                 'small_vehicle_quantity' => $this->automotiveService->small_vehicle_quantity,
                 'large_vehicle_quantity' => $this->automotiveService->large_vehicle_quantity,
                 'small_vehicle_price' => $this->automotiveService->small_vehicle_price,
@@ -61,4 +63,3 @@ class ProductResource extends JsonResource
         ];
     }
 }
-

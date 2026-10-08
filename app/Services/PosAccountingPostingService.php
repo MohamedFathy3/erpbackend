@@ -36,7 +36,16 @@ class PosAccountingPostingService
             $amount = round((float) $invoice->total_amount, 2);
             if ($amount <= 0) return null;
             $receivable = $this->receivableAccount($invoice);
-            $revenue = app(SubledgerPostingService::class)->detailAccount('revenue', '4000-SALES', 'إيرادات المبيعات', 'Sales revenue', '4000', 'الإيرادات', 'Revenue');
+            $hasService = $invoice->items()->where('item_type', 'service')->exists();
+            $revenue = app(SubledgerPostingService::class)->detailAccount(
+                'revenue',
+                $hasService ? '4113-SOLD-SERVICES' : '4000-SALES',
+                $hasService ? 'إيرادات الخدمات المباعة' : 'إيرادات المبيعات',
+                $hasService ? 'Sold services revenue' : 'Sales revenue',
+                $hasService ? '4113' : '4000',
+                'الإيرادات',
+                'Revenue'
+            );
             $journal = $this->entry($invoice->created_at, 'فاتورة نقطة بيع #' . $invoice->invoice_number, 'POS invoice #' . $invoice->invoice_number, $invoice, null);
             $lines = [
                 [$receivable, $amount, 0, 'إثبات ذمة فاتورة نقطة البيع'],
@@ -100,7 +109,10 @@ class PosAccountingPostingService
 
             $amount = 0.0;
             foreach ($invoice->items as $item) {
-                $amount += (float) ($item->product?->cost ?? 0) * (float) $item->quantity;
+                if (($item->item_type ?? 'product') === 'service') continue;
+                $amount += (float) ($item->product?->cost ?? 0)
+                    * (float) $item->quantity
+                    * (float) ($item->meter_quantity ?: 1);
             }
             $amount = round($amount, 2);
             if ($amount <= 0) return null;

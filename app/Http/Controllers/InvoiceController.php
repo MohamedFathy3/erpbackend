@@ -184,6 +184,7 @@ public function store(Request $request)
         'items.*.meter_quantity' => 'nullable|numeric|min:0.001',
         'items.*.product_unit_id' => 'nullable|integer|exists:product_units,id',
         'items.*.color_id' => 'nullable|integer|exists:colors,id',
+        'items.*.item_type' => 'nullable|in:product,service',
     ]);
 
     // POS invoices without a selected customer are posted to the default
@@ -369,7 +370,11 @@ public function store(Request $request)
                 ], 400);
             }
 
-            $stockUsage = (float) $item['quantity'] * (float) ($item['meter_quantity'] ?? 1);
+            $itemType = ($item['item_type'] ?? ($product->automotiveService?->item_type ?? 'product')) === 'service'
+                ? 'service'
+                : 'product';
+            $meterQuantity = (float) ($item['meter_quantity'] ?? 1);
+            $stockUsage = $itemType === 'service' ? 0 : (float) $item['quantity'] * $meterQuantity;
             $warehouseStocks = DB::table('product_warehouse')
                 ->join('warehouses', 'warehouses.id', '=', 'product_warehouse.warehouse_id')
                 ->where('product_warehouse.product_id', $product->id)
@@ -381,7 +386,7 @@ public function store(Request $request)
                 ->get(['product_warehouse.warehouse_id', 'product_warehouse.stock']);
             $availableStock = (float) $warehouseStocks->sum(fn ($warehouse) => (float) $warehouse->stock);
 
-            if ($availableStock < $stockUsage) {
+            if ($stockUsage > 0 && $availableStock < $stockUsage) {
                 DB::rollBack();
                 return response()->json([
                     'status' => false,
@@ -404,6 +409,9 @@ public function store(Request $request)
                 'color'        => $item['color'] ?? null,
                 'size'         => $item['size'] ?? ($item['vehicle_size'] ?? null),
                 'quantity'     => $item['quantity'],
+                'meter_quantity' => $item['meter_quantity'] ?? null,
+                'item_type'    => $itemType,
+                'product_unit_id' => $item['product_unit_id'] ?? null,
                 'price'        => $item['price'],
                 'total'        => round(((float) $item['price'] * (float) $item['quantity']) * (1 - (float) ($item['discount_percentage'] ?? 0) / 100), 2),
                 'discount_percentage' => (float) ($item['discount_percentage'] ?? 0),
@@ -412,6 +420,7 @@ public function store(Request $request)
 
             $remainingStock = $stockUsage;
             foreach ($warehouseStocks as $warehouseStock) {
+                if ($itemType === 'service') break;
                 $quantityFromWarehouse = min($remainingStock, (float) $warehouseStock->stock);
                 if ($quantityFromWarehouse <= 0) {
                     continue;
@@ -437,7 +446,7 @@ public function store(Request $request)
                     break;
                 }
             }
-            if ($product->automotiveService) {
+            if ($product->automotiveService && $itemType !== 'service') {
                 $product->automotiveService->decrement('stock_quantity', $stockUsage);
             }
         }

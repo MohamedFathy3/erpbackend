@@ -12,9 +12,12 @@ class InvoiceItemResource extends JsonResource
         return [
             'product_id'   => $this->product_id,
             'product_name' => $this->product_name,
+            'item_type'    => $this->item_type ?? 'product',
             'color'        => $this->color,
             'size'         => $this->size,
             'quantity'     => $this->quantity,
+            'meter_quantity' => $this->meter_quantity,
+            'product_unit_id' => $this->product_unit_id,
             'price'        => $this->price,
             'total'        => $this->total,
             'discount_percentage' => (float) ($this->discount_percentage ?? 0),
