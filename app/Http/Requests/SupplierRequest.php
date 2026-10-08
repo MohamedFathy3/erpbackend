@@ -31,6 +31,7 @@ class SupplierRequest extends FormRequest
             'credit_limit' => 'nullable|numeric|min:0',
             'payment_terms' => 'nullable|integer|min:0',
             'active' => 'nullable|boolean',
+            'branch_id' => 'nullable|integer|exists:branches,id',
         ];
     }
 }

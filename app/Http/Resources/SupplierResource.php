@@ -24,6 +24,7 @@ class SupplierResource extends JsonResource
             'credit_limit' => $this->credit_limit,
             'payment_terms' => $this->payment_terms,
             'active' => $this->active,
+            'branch_id' => $this->branch_id,
 
             'financial_summary' => [
                 'total_purchases' => (float) $totalPurchases,
