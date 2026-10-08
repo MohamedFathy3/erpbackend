@@ -430,11 +430,12 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null);
       $branchIsAvailable = $branchQuery->exists();
       abort_unless($branchIsAvailable, 404, 'Branch not found.');
 
-      $products = Product::query()
+        $products = Product::query()
           ->withoutGlobalScope('branch')
           ->where('products.tenant_id', $tenantId)
           ->with([
               'category',
+              'automotiveService',
               'units.colors',
               'warehouses' => function ($query) use ($branchId, $tenantId) {
                   $query->withoutGlobalScope('branch')
@@ -444,11 +445,17 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null);
               },
           ])
 
-        // هات المنتجات المسجلة في مخازن هذا الفرع فقط
-        ->whereHas('warehouses', function ($query) use ($branchId, $tenantId) {
-            $query->withoutGlobalScope('branch')
-                ->where('warehouses.tenant_id', $tenantId)
-                ->where('warehouses.branch_id', $branchId);
+        // Regular products must be registered in this branch's warehouse.
+        // Automotive services are tenant catalog entries and may not have a
+        // product_warehouse row, so they must remain visible in POS as well.
+        ->where(function ($query) use ($branchId, $tenantId) {
+            $query->whereHas('warehouses', function ($warehouseQuery) use ($branchId, $tenantId) {
+                $warehouseQuery->withoutGlobalScope('branch')
+                    ->where('warehouses.tenant_id', $tenantId)
+                    ->where('warehouses.branch_id', $branchId);
+            })->orWhereHas('automotiveService', function ($serviceQuery) {
+                $serviceQuery->where('active', true);
+            });
         })
 
         // فلتر التصنيف لو موجود
@@ -465,10 +472,11 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null);
     // The POS must use stock for the selected branch, not the tenant-wide
     // product aggregate, so a pending transfer cannot make stock sellable.
     $products->each(function (Product $product): void {
-        $product->setAttribute(
-            'stock',
-            (float) $product->warehouses->sum(fn ($warehouse) => (float) $warehouse->pivot->stock)
-        );
+        if ($product->automotiveService?->item_type === 'service') {
+            $product->setAttribute('stock', 999999);
+            return;
+        }
+        $product->setAttribute('stock', (float) $product->warehouses->sum(fn ($warehouse) => (float) $warehouse->pivot->stock));
     });
 
     return ProductResource::collection($products);
