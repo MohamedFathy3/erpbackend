@@ -294,6 +294,7 @@ public function store(Request $request)
         $invoiceNumber = 'INV-' . now()->format('Ymd') . '-' . rand(1000, 9999);
         $netTotal = $pricing['net_total'];
         $submittedPayments = $isComplimentary ? collect() : collect($request->input('payments', []));
+        $cashReceived = (float) $submittedPayments->where('method', 'cash')->sum('amount');
         $nonCashPaid = $submittedPayments
             ->whereIn('method', ['card', 'wallet'])
             ->sum('amount');
@@ -349,6 +350,7 @@ public function store(Request $request)
             'commission_rate_snapshot' => $commissionRate,
             'commission_amount_snapshot' => round($netTotal * $commissionRate / 100, 2),
             'paid_amount'      => $paid,
+            'cash_received_amount' => $cashReceived > 0 ? $cashReceived : null,
             'remaining_amount' => $netTotal - $paid,
             'status'           => $paid >= $netTotal ? 'paid' : ($paid > 0 ? 'partial' : 'unpaid'),
         ]);

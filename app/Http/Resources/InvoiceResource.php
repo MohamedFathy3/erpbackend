@@ -63,6 +63,7 @@ class InvoiceResource extends JsonResource
                 'paid'      => $netPaid,
                 'remaining' => $remainingAmount,
                 'extra_charge' => (float) ($this->extra_charge ?? 0),
+                'overpaid' => max(0, (float) ($this->cash_received_amount ?? 0) - $netAmount),
             ],
 
             'total_amount' => $netAmount,
@@ -70,6 +71,9 @@ class InvoiceResource extends JsonResource
             'net_amount' => $netAmount,
             'returned_amount' => $returnedAmount,
             'refunded_amount' => $refundedAmount,
+            'cash_received_amount' => (float) ($this->cash_received_amount ?? 0),
+            'overpaid_amount' => max(0, (float) ($this->cash_received_amount ?? 0) - $netAmount),
+            'change_amount' => max(0, (float) ($this->cash_received_amount ?? 0) - $netAmount),
             'return_status' => $returnedAmount <= 0 ? 'none' : ($returnedAmount >= (float) $this->total_amount ? 'full' : 'partial'),
             'journal_entry_id' => $this->journal_entry_id,
             'cogs_journal_entry_id' => $this->cogs_journal_entry_id,
