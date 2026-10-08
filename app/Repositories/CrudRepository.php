@@ -34,6 +34,13 @@ class CrudRepository implements ICrudRepository
 
         $all_conditions = array_merge($conditions, $filters);
         foreach ($filters as $key => $value) {
+            // BranchScope adds branch_id to the request filters globally. Some
+            // shared lookup tables (currencies, taxes, etc.) are tenant-wide and
+            // intentionally have no branch_id column, so ignore that filter for
+            // schemas where the requested field does not exist.
+            if (!Schema::hasColumn($this->model->getTable(), $key)) {
+                continue;
+            }
             if (is_numeric($value)) {
                 $query = $query->where($key, '=', $value);
             } else {
