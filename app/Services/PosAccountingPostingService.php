@@ -212,8 +212,12 @@ class PosAccountingPostingService
                 ], $journal->id);
             }
 
-            $this->postReturnCogs($return);
-            $this->postReturnCommission($return, $invoice);
+            $cogsJournal = $this->postReturnCogs($return);
+            $commissionJournal = $this->postReturnCommission($return, $invoice);
+            $return->update([
+                'cogs_journal_entry_id' => $cogsJournal?->id,
+                'commission_journal_entry_id' => $commissionJournal?->id,
+            ]);
 
             return $journal?->load('lines');
         });
@@ -359,6 +363,7 @@ class PosAccountingPostingService
         $cogs = app(SubledgerPostingService::class)->detailAccount('expense', '5000-COGS', 'تكلفة البضاعة المباعة', 'Cost of goods sold', '5000', 'تكلفة المبيعات', 'Cost of sales');
         $journal = $this->entry($return->created_at, 'عكس تكلفة مرتجع POS #' . $return->return_number, 'POS return COGS reversal #' . $return->return_number, $return, null);
         $this->lines($journal, [[$inventory, $amount, 0, 'إعادة تكلفة المرتجع إلى المخزون'], [$cogs, 0, $amount, 'عكس تكلفة البضاعة المباعة']]);
+        $return->update(['cogs_journal_entry_id' => $journal->id]);
         WorkflowTransaction::capture($eventKey, $return, 'pos_return_cogs_posted', ['amount' => $amount], $journal->id);
         return $journal;
     }
@@ -391,6 +396,7 @@ class PosAccountingPostingService
         $payable = $this->ledger->defaultAccount('liability', 'SALES-COMMISSIONS-PAYABLE', 'عمولات مبيعات مستحقة', 'Sales commissions payable');
         $journal = $this->entry($return->created_at, 'تخفيض عمولة مرتجع POS #' . $return->return_number, 'POS return commission adjustment #' . $return->return_number, $return, null);
         $this->lines($journal, [[$payable, $amount, 0, 'تخفيض عمولة المندوب المستحقة'], [$expense, 0, $amount, 'عكس مصروف عمولة المبيعات']]);
+        $return->update(['commission_journal_entry_id' => $journal->id]);
         WorkflowTransaction::capture($eventKey, $return, 'pos_return_commission_reversed', ['amount' => $amount], $journal->id);
         return $journal;
     }

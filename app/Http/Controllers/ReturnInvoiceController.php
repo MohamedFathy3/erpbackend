@@ -10,6 +10,8 @@ use App\Models\Invoice;
 use App\Models\Product;
 use App\Models\ReturnInvoice;
 use App\Models\ReturnItem;
+use App\Models\Treasury;
+use App\Models\TreasuryTransaction;
 use App\Services\PosAccountingPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -30,7 +32,7 @@ class ReturnInvoiceController extends Controller
                 })
                 ->latest('id')->firstOrFail();
 
-            $total = 0;
+            $itemsTotal = 0;
 
             foreach ($request->items as $item) {
 
@@ -41,11 +43,7 @@ class ReturnInvoiceController extends Controller
                 });
 
                 if (!$invoiceItem) {
-
-                    return response()->json([
-                        'status' => false,
-                        'message' => "المنتج غير موجود في الفاتورة {$invoice->invoice_number}"
-                    ], 404);
+                    throw new \RuntimeException("المنتج غير موجود في الفاتورة {$invoice->invoice_number}");
                 }
 
                 $alreadyReturnedQuery = ReturnItem::where('product_id', $item['product_id'])
@@ -59,15 +57,20 @@ class ReturnInvoiceController extends Controller
                 $remaining = $invoiceItem->quantity - $alreadyReturned;
 
                 if ($item['quantity'] > $remaining) {
-
-                    return response()->json([
-                        'status' => false,
-                        'message' => "الكمية المرتجعة أكبر من المتبقي للمنتج {$invoiceItem->product_name}"
-                    ], 400);
+                    throw new \RuntimeException("الكمية المرتجعة أكبر من المتبقي للمنتج {$invoiceItem->product_name}");
                 }
 
-                $total += $invoiceItem->price * $item['quantity'];
+                $itemsTotal += (float) $invoiceItem->price * (float) $item['quantity'];
             }
+
+            // Allocate the invoice-level increase band proportionally to returned items;
+            // a full return therefore reverses the complete increase band.
+            $invoiceItemsTotal = (float) $invoice->items->sum(fn ($item) => (float) ($item->total ?? 0));
+            $extraCharge = (float) ($invoice->extra_charge ?? 0);
+            $returnedExtraCharge = $invoiceItemsTotal > 0
+                ? min($extraCharge, $extraCharge * $itemsTotal / $invoiceItemsTotal)
+                : ($itemsTotal > 0 ? $extraCharge : 0);
+            $total = round($itemsTotal + $returnedExtraCharge, 2);
 
             /*
             |--------------------------------------------------------------------------
@@ -76,6 +79,9 @@ class ReturnInvoiceController extends Controller
             */
 
             $paymentsTotal = collect($request->payments)->sum('amount');
+            if ($paymentsTotal > $total + 0.01) {
+                throw new \RuntimeException('إجمالي المبلغ المسترد أكبر من قيمة المرتجع المستحقة.');
+            }
 
             /*
             |--------------------------------------------------------------------------
@@ -86,7 +92,7 @@ class ReturnInvoiceController extends Controller
             $return = ReturnInvoice::create([
                 'invoice_id'      => $invoice->id,
                 'total_amount'    => $total,
-                'refunded_amount' => $paymentsTotal,
+                'refunded_amount' => min($paymentsTotal, $total),
                 'refund_method'   => $request->refund_method,
                 'reason'          => $request->reason,
             ]);
@@ -173,8 +179,40 @@ class ReturnInvoiceController extends Controller
                 ]);
             }
 
+            if ($paymentsTotal > 0 && strtolower((string) $return->refund_method) === 'cash') {
+                $treasury = Treasury::query()->lockForUpdate()->find($invoice->treasury_id);
+                if (!$treasury || (float) $treasury->balance < $paymentsTotal) {
+                    throw new \RuntimeException('رصيد الخزينة غير كافٍ لتنفيذ رد المبلغ.');
+                }
+                $treasury->decrement('balance', $paymentsTotal);
+                TreasuryTransaction::create([
+                    'treasury_id' => $treasury->id,
+                    'reference_type' => ReturnInvoice::class,
+                    'reference_id' => $return->id,
+                    'type' => 'out',
+                    'amount' => $paymentsTotal,
+                    'description' => 'رد نقدي لمرتجع فاتورة POS ' . $invoice->invoice_number,
+                ]);
+            }
+
             $journal = $posting->postReturn($return);
             $return->update(['posting_journal_entry_id' => $journal?->id, 'workflow_status' => $journal ? 'posted' : 'pending_finance']);
+
+            // Keep persisted invoice status and remaining amount aligned with
+            // the net values exposed by InvoiceResource after this return.
+            $invoice->refresh();
+            $returnedAmount = (float) $invoice->returns()
+                ->where(fn ($query) => $query->whereNull('workflow_status')->orWhere('workflow_status', '!=', 'cancelled'))
+                ->sum('total_amount');
+            $refundedAmount = (float) $invoice->returns()
+                ->where(fn ($query) => $query->whereNull('workflow_status')->orWhere('workflow_status', '!=', 'cancelled'))
+                ->sum('refunded_amount');
+            $netAmount = $invoice->is_complimentary ? 0 : max(0, (float) $invoice->total_amount - $returnedAmount);
+            $netPaid = $invoice->is_complimentary ? 0 : max(0, (float) $invoice->paid_amount - $refundedAmount);
+            $invoice->update([
+                'remaining_amount' => max(0, $netAmount - $netPaid),
+                'status' => $netPaid >= $netAmount ? 'paid' : ($netPaid > 0 ? 'partial' : 'unpaid'),
+            ]);
             DB::commit();
 
             return response()->json([

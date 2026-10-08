@@ -17,6 +17,9 @@ class ReturnInvoiceResource extends JsonResource
             'total_amount'    => (float) $this->total_amount,
             'refunded_amount' => (float) $this->refunded_amount,
             'refund_method'   => $this->refund_method,
+            'posting_journal_entry_id' => $this->posting_journal_entry_id,
+            'cogs_journal_entry_id' => $this->cogs_journal_entry_id,
+            'commission_journal_entry_id' => $this->commission_journal_entry_id,
 
             'reason' => $this->reason,
 
@@ -27,5 +30,4 @@ class ReturnInvoiceResource extends JsonResource
         ];
     }
 }
-
 
