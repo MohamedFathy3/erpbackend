@@ -176,4 +176,26 @@ class PosAccountingPostingTest extends TestCase
         $this->assertDatabaseCount('journal_entries', $journalCount);
         $this->assertEquals(0, $treasury->fresh()->balance);
     }
+
+    public function test_pos_sale_posts_increase_band_to_separate_revenue_account(): void
+    {
+        $invoice = Invoice::create([
+            'invoice_number' => 'POS-INCREASE-TEST-1',
+            'total_amount' => 125,
+            'extra_charge' => 25,
+            'paid_amount' => 125,
+            'remaining_amount' => 0,
+            'status' => 'paid',
+        ]);
+
+        $journal = app(PosAccountingPostingService::class)->postSale($invoice);
+
+        $this->assertNotNull($journal);
+        $this->assertEquals(125, $journal->lines->sum('debit'));
+        $this->assertEquals(125, $journal->lines->sum('credit'));
+        $this->assertEquals(100, Account::where('code', '4000-SALES')->value('credit'));
+        $this->assertEquals(25, Account::where('code', '4100-SALES-INCREASES')->value('credit'));
+        $workflow = WorkflowTransaction::where('event_key', 'pos-sale:' . $invoice->id)->firstOrFail();
+        $this->assertEquals(25, $workflow->payload['extra_charge']);
+    }
 }

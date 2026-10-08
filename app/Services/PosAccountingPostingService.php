@@ -35,12 +35,25 @@ class PosAccountingPostingService
 
             $amount = round((float) $invoice->total_amount, 2);
             if ($amount <= 0) return null;
+            $extraCharge = round(max(0, (float) ($invoice->extra_charge ?? 0)), 2);
+            $salesAmount = round(max(0, $amount - $extraCharge), 2);
             $receivable = $this->receivableAccount($invoice);
             $revenue = app(SubledgerPostingService::class)->detailAccount('revenue', '4000-SALES', 'إيرادات المبيعات', 'Sales revenue', '4000', 'الإيرادات', 'Revenue');
             $journal = $this->entry($invoice->created_at, 'فاتورة نقطة بيع #' . $invoice->invoice_number, 'POS invoice #' . $invoice->invoice_number, $invoice, null);
-            $this->lines($journal, [[$receivable, $amount, 0, 'إثبات ذمة فاتورة نقطة البيع'], [$revenue, 0, $amount, 'إثبات إيراد المبيعات']]);
+            $lines = [[$receivable, $amount, 0, 'إثبات ذمة فاتورة نقطة البيع']];
+            if ($salesAmount > 0) {
+                $lines[] = [$revenue, 0, $salesAmount, 'إثبات إيراد المبيعات'];
+            }
+            if ($extraCharge > 0) {
+                $increaseRevenue = app(SubledgerPostingService::class)->detailAccount(
+                    'revenue', '4100-SALES-INCREASES', 'إيرادات بند الزيادات', 'Sales increases revenue',
+                    '4000', 'الإيرادات', 'Revenue'
+                );
+                $lines[] = [$increaseRevenue, 0, $extraCharge, 'إثبات إيراد بند الزيادات'];
+            }
+            $this->lines($journal, $lines);
             $invoice->update(['journal_entry_id' => $journal->id]);
-            WorkflowTransaction::capture($eventKey, $invoice, 'pos_sale_posted', ['amount' => $amount], $journal->id);
+            WorkflowTransaction::capture($eventKey, $invoice, 'pos_sale_posted', ['amount' => $amount, 'sales_amount' => $salesAmount, 'extra_charge' => $extraCharge], $journal->id);
             return $journal->load('lines');
         });
     }

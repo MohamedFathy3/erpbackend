@@ -72,6 +72,7 @@ class SalesRepresentativeReportService
         )->values();
 
         $salesTotal = (float) $invoices->sum('total_amount');
+        $extraChargeTotal = (float) $invoices->sum('extra_charge');
         $costTotal = (float) $invoices->sum('cost_total');
         $commissionTotal = (float) $invoices->sum('commission_amount');
         $paidTotal = (float) $invoices->sum('paid_amount');
@@ -82,6 +83,7 @@ class SalesRepresentativeReportService
                 'period' => $day,
                 'invoice_count' => $rows->count(),
                 'sales_total' => round((float) $rows->sum('total_amount'), 2),
+                'extra_charge_total' => round((float) $rows->sum('extra_charge'), 2),
                 'cost_total' => round((float) $rows->sum('cost_total'), 2),
                 'profit_total' => round((float) $rows->sum('profit_total'), 2),
                 'commission' => round((float) $rows->sum('commission_amount'), 2),
@@ -92,6 +94,7 @@ class SalesRepresentativeReportService
                 'period' => $month,
                 'invoice_count' => $rows->count(),
                 'sales_total' => round((float) $rows->sum('total_amount'), 2),
+                'extra_charge_total' => round((float) $rows->sum('extra_charge'), 2),
                 'cost_total' => round((float) $rows->sum('cost_total'), 2),
                 'profit_total' => round((float) $rows->sum('profit_total'), 2),
                 'commission' => round((float) $rows->sum('commission_amount'), 2),
@@ -116,6 +119,7 @@ class SalesRepresentativeReportService
                 'net_sales' => round(max(0, $salesTotal - $returnsTotal), 2),
                 'commission_rate' => $rate,
                 'commission_total' => round($commissionTotal, 2),
+                'extra_charge_total' => round($extraChargeTotal, 2),
             ],
             'periods' => $monthly,
             'daily' => $daily,
@@ -140,6 +144,7 @@ class SalesRepresentativeReportService
             'customer' => $invoice->customer ? ['id' => $invoice->customer->id, 'name' => $invoice->customer->name] : null,
             'total_amount' => $total,
             'net_total' => $total,
+            'extra_charge' => round((float) ($invoice->extra_charge ?? 0), 2),
             'paid_amount' => (float) ($invoice->paid_amount ?? 0),
             'status' => $invoice->status,
             'commission_rate' => $rate,
