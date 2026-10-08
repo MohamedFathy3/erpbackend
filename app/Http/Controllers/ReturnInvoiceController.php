@@ -63,14 +63,8 @@ class ReturnInvoiceController extends Controller
                 $itemsTotal += (float) $invoiceItem->price * (float) $item['quantity'];
             }
 
-            // Allocate the invoice-level increase band proportionally to returned items;
-            // a full return therefore reverses the complete increase band.
-            $invoiceItemsTotal = (float) $invoice->items->sum(fn ($item) => (float) ($item->total ?? 0));
-            $extraCharge = (float) ($invoice->extra_charge ?? 0);
-            $returnedExtraCharge = $invoiceItemsTotal > 0
-                ? min($extraCharge, $extraCharge * $itemsTotal / $invoiceItemsTotal)
-                : ($itemsTotal > 0 ? $extraCharge : 0);
-            $total = round($itemsTotal + $returnedExtraCharge, 2);
+            // extra_charge is display-only and is intentionally excluded from returns.
+            $total = round($itemsTotal, 2);
 
             /*
             |--------------------------------------------------------------------------

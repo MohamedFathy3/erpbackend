@@ -29,7 +29,9 @@ class PosInvoicePricingService
         $effectiveDiscountPercentage = $grossTotal > 0
             ? round($totalDiscountAmount / $grossTotal * 100, 2)
             : 0.0;
-        $netTotal = round(max(0.0, $afterItemDiscounts - $invoiceDiscountAmount) + max(0.0, $extraCharge), 2);
+        // extra_charge is a display-only POS note. It must not affect the
+        // invoice total, payments, sales, commission, workflow, or reports.
+        $netTotal = round(max(0.0, $afterItemDiscounts - $invoiceDiscountAmount), 2);
 
         return [
             'gross_total' => round($grossTotal, 2),
