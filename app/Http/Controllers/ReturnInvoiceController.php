@@ -15,6 +15,7 @@ use App\Models\TreasuryTransaction;
 use App\Services\PosAccountingPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ReturnInvoiceController extends Controller
 {
@@ -23,19 +24,24 @@ class ReturnInvoiceController extends Controller
         DB::beginTransaction();
 
         try {
-
+            // ============================================================
+            // 1. جلب الفاتورة الأصلية
+            // ============================================================
             $invoiceNumber = trim((string) $request->invoice_number);
             $invoice = Invoice::with('items')
                 ->where(function ($query) use ($invoiceNumber) {
                     $query->where('invoice_number', $invoiceNumber)
-                        ->orWhere('invoice_number', 'like', '%' . addcslashes($invoiceNumber, '%_') );
+                        ->orWhere('invoice_number', 'like', '%' . addcslashes($invoiceNumber, '%_'));
                 })
-                ->latest('id')->firstOrFail();
+                ->latest('id')
+                ->firstOrFail();
 
+            // ============================================================
+            // 2. التحقق من الكميات
+            // ============================================================
             $itemsTotal = 0;
 
             foreach ($request->items as $item) {
-
                 $invoiceItem = $invoice->items->first(function ($invoiceItem) use ($item) {
                     return (int) $invoiceItem->product_id === (int) $item['product_id']
                         && ($invoiceItem->color ?? null) === ($item['color'] ?? null)
@@ -46,13 +52,13 @@ class ReturnInvoiceController extends Controller
                     throw new \RuntimeException("المنتج غير موجود في الفاتورة {$invoice->invoice_number}");
                 }
 
-                $alreadyReturnedQuery = ReturnItem::where('product_id', $item['product_id'])
+                $alreadyReturned = ReturnItem::where('product_id', $item['product_id'])
                     ->where('color', $item['color'] ?? null)
                     ->where('size', $item['size'] ?? null)
                     ->whereHas('returnInvoice', function ($q) use ($invoice) {
                         $q->where('invoice_id', $invoice->id);
-                    });
-                $alreadyReturned = $alreadyReturnedQuery->sum('quantity');
+                    })
+                    ->sum('quantity');
 
                 $remaining = $invoiceItem->quantity - $alreadyReturned;
 
@@ -63,26 +69,17 @@ class ReturnInvoiceController extends Controller
                 $itemsTotal += (float) $invoiceItem->price * (float) $item['quantity'];
             }
 
-            // extra_charge is display-only and is intentionally excluded from returns.
             $total = round($itemsTotal, 2);
 
-            /*
-            |--------------------------------------------------------------------------
-            | إجمالي المدفوعات
-            |--------------------------------------------------------------------------
-            */
-
             $paymentsTotal = collect($request->payments)->sum('amount');
+
             if ($paymentsTotal > $total + 0.01) {
                 throw new \RuntimeException('إجمالي المبلغ المسترد أكبر من قيمة المرتجع المستحقة.');
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | إنشاء المرتجع
-            |--------------------------------------------------------------------------
-            */
-
+            // ============================================================
+            // 3. إنشاء المرتجع
+            // ============================================================
             $return = ReturnInvoice::create([
                 'invoice_id'      => $invoice->id,
                 'total_amount'    => $total,
@@ -91,19 +88,16 @@ class ReturnInvoiceController extends Controller
                 'reason'          => $request->reason,
             ]);
 
-            /*
-            |--------------------------------------------------------------------------
-            | حفظ العناصر المرتجعة
-            |--------------------------------------------------------------------------
-            */
-
+            // ============================================================
+            // 4. حفظ البنود + إرجاع المخزون
+            // ============================================================
             foreach ($request->items as $item) {
-
                 $invoiceItem = $invoice->items->first(function ($invoiceItem) use ($item) {
                     return (int) $invoiceItem->product_id === (int) $item['product_id']
                         && ($invoiceItem->color ?? null) === ($item['color'] ?? null)
                         && ($invoiceItem->size ?? null) === ($item['size'] ?? null);
                 });
+
                 if (!$invoiceItem) {
                     abort(404, "المنتج باللون والمقاس المحددين غير موجود في الفاتورة");
                 }
@@ -120,93 +114,130 @@ class ReturnInvoiceController extends Controller
                     'total'        => $invoiceItem->price * $item['quantity'],
                 ]);
 
-                // إعادة الكمية للمخزون
                 $product->increment('stock', $item['quantity']);
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | Audit Log
-            |--------------------------------------------------------------------------
-            */
-
+            // ============================================================
+            // 5. Audit Log
+            // ============================================================
             activity()
                 ->performedOn($return)
-                ->withProperties([
-                    'invoice_id' => $invoice->id
-                ])
+                ->withProperties(['invoice_id' => $invoice->id])
                 ->log('return_created');
 
-            /*
-            |--------------------------------------------------------------------------
-            | تحديث المرتجع داخل الوردية
-            |--------------------------------------------------------------------------
-            */
-
+            // ============================================================
+            // 6. ✅ ربط المرتجع بالوردية
+            //    - أولاً: ابحث عن وردية مفتوحة
+            //    - ثانياً: لو مفيش، ابحث عن آخر وردية للمستخدم
+            // ============================================================
             $user = auth()->user();
 
             $shift = CashierShift::where('status', 'open')
                 ->where(function ($q) use ($user) {
-
                     if ($user instanceof Admin) {
-
                         $q->where('admin_id', $user->id);
-
                     } elseif ($user instanceof Employee) {
-
                         $q->where('employee_id', $user->id);
                     }
                 })
                 ->latest('opened_at')
                 ->first();
 
-            if ($shift) {
+            // لو مفيش وردية مفتوحة، استخدم آخر وردية (حتى لو مقفولة)
+            if (!$shift) {
+                $shift = CashierShift::where(function ($q) use ($user) {
+                        if ($user instanceof Admin) {
+                            $q->where('admin_id', $user->id);
+                        } elseif ($user instanceof Employee) {
+                            $q->where('employee_id', $user->id);
+                        }
+                    })
+                    ->latest('opened_at')
+                    ->first();
 
-                // زيادة قيمة المرتجعات بالمبلغ المدفوع فعلياً
+                Log::warning('No open shift. Attaching return to latest shift', [
+                    'return_id' => $return->id,
+                    'shift_id'  => $shift?->id,
+                    'user_id'   => $user?->id,
+                ]);
+            }
+
+            if ($shift) {
+                // تحديث returns_amount في الوردية
                 $shift->update([
                     'returns_amount' => ($shift->returns_amount ?? 0) + $paymentsTotal,
                 ]);
 
-                // ربط المرتجع بالوردية
-                $return->update([
-                    'shift_id' => $shift->id
+                // ✅ ربط المرتجع بالوردية
+                $return->update(['shift_id' => $shift->id]);
+            } else {
+                Log::error('No shift found at all for return', [
+                    'return_id' => $return->id,
+                    'user_id'   => $user?->id,
                 ]);
             }
 
+            // ============================================================
+            // 7. رد نقدي من الخزينة
+            // ============================================================
             if ($paymentsTotal > 0 && strtolower((string) $return->refund_method) === 'cash') {
                 $treasury = Treasury::query()->lockForUpdate()->find($invoice->treasury_id);
+
                 if (!$treasury || (float) $treasury->balance < $paymentsTotal) {
                     throw new \RuntimeException('رصيد الخزينة غير كافٍ لتنفيذ رد المبلغ.');
                 }
+
                 $treasury->decrement('balance', $paymentsTotal);
+
                 TreasuryTransaction::create([
-                    'treasury_id' => $treasury->id,
+                    'treasury_id'    => $treasury->id,
                     'reference_type' => ReturnInvoice::class,
-                    'reference_id' => $return->id,
-                    'type' => 'out',
-                    'amount' => $paymentsTotal,
-                    'description' => 'رد نقدي لمرتجع فاتورة POS ' . $invoice->invoice_number,
+                    'reference_id'   => $return->id,
+                    'type'           => 'out',
+                    'amount'         => $paymentsTotal,
+                    'description'    => 'رد نقدي لمرتجع فاتورة POS ' . $invoice->invoice_number,
                 ]);
             }
 
+            // ============================================================
+            // 8. القيد المالي
+            // ============================================================
             $journal = $posting->postReturn($return);
-            $return->update(['posting_journal_entry_id' => $journal?->id, 'workflow_status' => $journal ? 'posted' : 'pending_finance']);
+            $return->update([
+                'posting_journal_entry_id' => $journal?->id,
+                'workflow_status'          => $journal ? 'posted' : 'pending_finance',
+            ]);
 
-            // Keep persisted invoice status and remaining amount aligned with
-            // the net values exposed by InvoiceResource after this return.
+            // ============================================================
+            // 9. تحديث حالة الفاتورة الأصلية
+            // ============================================================
             $invoice->refresh();
+
             $returnedAmount = (float) $invoice->returns()
-                ->where(fn ($query) => $query->whereNull('workflow_status')->orWhere('workflow_status', '!=', 'cancelled'))
+                ->where(fn ($query) => $query->whereNull('workflow_status')
+                    ->orWhere('workflow_status', '!=', 'cancelled'))
                 ->sum('total_amount');
+
             $refundedAmount = (float) $invoice->returns()
-                ->where(fn ($query) => $query->whereNull('workflow_status')->orWhere('workflow_status', '!=', 'cancelled'))
+                ->where(fn ($query) => $query->whereNull('workflow_status')
+                    ->orWhere('workflow_status', '!=', 'cancelled'))
                 ->sum('refunded_amount');
-            $netAmount = $invoice->is_complimentary ? 0 : max(0, (float) $invoice->total_amount - $returnedAmount);
-            $netPaid = $invoice->is_complimentary ? 0 : max(0, (float) $invoice->paid_amount - $refundedAmount);
+
+            $netAmount = $invoice->is_complimentary
+                ? 0
+                : max(0, (float) $invoice->total_amount - $returnedAmount);
+
+            $netPaid = $invoice->is_complimentary
+                ? 0
+                : max(0, (float) $invoice->paid_amount - $refundedAmount);
+
             $invoice->update([
                 'remaining_amount' => max(0, $netAmount - $netPaid),
-                'status' => $netPaid >= $netAmount ? 'paid' : ($netPaid > 0 ? 'partial' : 'unpaid'),
+                'status'           => $netPaid >= $netAmount
+                    ? 'paid'
+                    : ($netPaid > 0 ? 'partial' : 'unpaid'),
             ]);
+
             DB::commit();
 
             return response()->json([
@@ -214,12 +245,17 @@ class ReturnInvoiceController extends Controller
                 'message' => 'تم إنشاء فاتورة المرتجع بنجاح',
                 'data'    => new ReturnInvoiceResource(
                     $return->load(['items', 'invoice'])
-                )
+                ),
             ], 201);
 
         } catch (\Exception $e) {
-
             DB::rollBack();
+
+            Log::error('Return creation failed', [
+                'message' => $e->getMessage(),
+                'trace'   => $e->getTraceAsString(),
+                'request' => $request->all(),
+            ]);
 
             return response()->json([
                 'status'  => false,
@@ -227,20 +263,17 @@ class ReturnInvoiceController extends Controller
             ], 500);
         }
     }
+
     public function invoiceReturnIndex(Request $request)
     {
         try {
-            $filters = $request->input('filters', []);
-            $orderBy = $request->input('orderBy', 'id');
+            $filters          = $request->input('filters', []);
+            $orderBy          = $request->input('orderBy', 'id');
             $orderByDirection = $request->input('orderByDirection', 'desc');
-            $perPage = $request->input('perPage', 10);
-            $paginate = $request->boolean('paginate', true);
+            $perPage          = $request->input('perPage', 10);
+            $paginate         = $request->boolean('paginate', true);
 
             $query = ReturnInvoice::with(['invoice.customer']);
-
-            // =========================
-            // FILTERS
-            // =========================
 
             if (!empty($filters['return_number'])) {
                 $query->where('return_number', 'like', '%' . $filters['return_number'] . '%');
@@ -264,64 +297,51 @@ class ReturnInvoiceController extends Controller
                 $query->whereDate('created_at', '<=', $filters['date_to']);
             }
 
-            // =========================
-            // SORT
-            // =========================
             $query->orderBy($orderBy, $orderByDirection);
 
-            // =========================
-            // PAGINATION MODE
-            // =========================
             if ($paginate) {
                 $returns = $query->paginate($perPage);
 
                 return response()->json([
-                    'data' => ReturnInvoiceResource::collection($returns->items()),
-                    'links' => [
+                    'data'   => ReturnInvoiceResource::collection($returns->items()),
+                    'links'  => [
                         'first' => $returns->url(1),
-                        'last' => $returns->url($returns->lastPage()),
-                        'prev' => $returns->previousPageUrl(),
-                        'next' => $returns->nextPageUrl(),
+                        'last'  => $returns->url($returns->lastPage()),
+                        'prev'  => $returns->previousPageUrl(),
+                        'next'  => $returns->nextPageUrl(),
                     ],
-                    'meta' => [
+                    'meta'   => [
                         'current_page' => $returns->currentPage(),
-                        'from' => $returns->firstItem(),
-                        'last_page' => $returns->lastPage(),
-                        'path' => $returns->path(),
-                        'per_page' => $returns->perPage(),
-                        'to' => $returns->lastItem(),
-                        'total' => $returns->total(),
+                        'from'         => $returns->firstItem(),
+                        'last_page'    => $returns->lastPage(),
+                        'path'         => $returns->path(),
+                        'per_page'     => $returns->perPage(),
+                        'to'           => $returns->lastItem(),
+                        'total'        => $returns->total(),
                     ],
-                    'result' => 'Success',
+                    'result'  => 'Success',
                     'message' => 'Return invoices fetched successfully',
-                    'status' => 200,
+                    'status'  => 200,
                 ]);
             }
 
-            // =========================
-            // NON PAGINATED MODE
-            // =========================
             $returns = $query->get();
 
             return response()->json([
-                'data' => ReturnInvoiceResource::collection($returns),
-                'links' => null,
-                'meta' => null,
-                'result' => 'Success',
+                'data'    => ReturnInvoiceResource::collection($returns),
+                'links'   => null,
+                'meta'    => null,
+                'result'  => 'Success',
                 'message' => 'Return invoices fetched successfully',
-                'status' => 200,
+                'status'  => 200,
             ]);
 
         } catch (\Exception $e) {
             return response()->json([
-                'result' => 'Error',
+                'result'  => 'Error',
                 'message' => $e->getMessage(),
-                'status' => 500,
+                'status'  => 500,
             ], 500);
         }
     }
-
-
-
-
 }
