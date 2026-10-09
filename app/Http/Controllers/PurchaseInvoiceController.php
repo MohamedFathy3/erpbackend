@@ -20,180 +20,218 @@ use Illuminate\Support\Facades\Log;
 class PurchaseInvoiceController extends Controller
 {
 
+
     public function store(PurchaseInvoiceRequest $request, WorkflowPostingService $posting)
     {
         DB::beginTransaction();
-    
+
         try {
-    
-            // Generate invoice number
-            $invoiceNumber = 'PI-' . now()->format('Ymd') . '-' . rand(1000, 9999);
-    
-            /*
-            =============================
-            حساب المجاميع
-            =============================
-            */
-    
-            $subtotal = 0;
+            // ============================================================
+            // رقم الفاتورة (مع التأكد إنه مش مكرر)
+            // ============================================================
+            do {
+                $invoiceNumber = 'PI-' . now()->format('Ymd') . '-' . rand(1000, 9999);
+            } while (PurchaseInvoice::where('invoice_number', $invoiceNumber)->exists());
+
+            // ============================================================
+            // حساب المجاميع
+            // ============================================================
+            $subtotal      = 0;
             $discountTotal = 0;
-            $taxTotal = 0;
-    
+            $taxTotal      = 0;
+
             foreach ($request->items as $item) {
-    
                 $lineSubtotal = $item['quantity'] * $item['price'];
-    
-                // ✅ الخصم كنسبة مئوية (القيمة مش النسبة)
-                $lineDiscount = $lineSubtotal * (($item['discount'] ?? 0) / 100);
-    
-                // الضريبة (مبلغ ثابت)
-                $lineTax = $item['tax'] ?? 0;
-    
-                $subtotal += $lineSubtotal;
-                $discountTotal += $lineDiscount;  // ✅ مجموع الخصومات بالقيمة
-                $taxTotal += $lineTax;
+                $lineDiscount = $lineSubtotal * (($item['discount'] ?? 0) / 100); // الخصم نسبة مئوية
+                $lineTax      = $item['tax'] ?? 0;                                 // الضريبة مبلغ ثابت
+
+                $subtotal      += $lineSubtotal;
+                $discountTotal += $lineDiscount;
+                $taxTotal      += $lineTax;
             }
-    
-            // Compare and persist money at currency precision to avoid
-            // floating-point false positives for exact payments.
-            $subtotal = round($subtotal, 2);
+
+            $subtotal      = round($subtotal, 2);
             $discountTotal = round($discountTotal, 2);
-            $taxTotal = round($taxTotal, 2);
-            $total = round($subtotal - $discountTotal + $taxTotal, 2);
-            $paidAmount = round((float) ($request->paid_amount ?? 0), 2);
-            $remaining = round($total - $paidAmount, 2);
-    
-            /*
-            =============================
-            إنشاء الفاتورة
-            =============================
-            */
-    
+            $taxTotal      = round($taxTotal, 2);
+            $total         = round($subtotal - $discountTotal + $taxTotal, 2);
+            $paidAmount    = round((float) ($request->paid_amount ?? 0), 2);
+            $remaining     = round($total - $paidAmount, 2);
+
+            // ============================================================
+            // فحوصات الدفع قبل ما نعمل أي حاجة
+            // ============================================================
+            $isCashPayment = $request->payment_method === 'cash' && $paidAmount > 0;
+
+            if ($paidAmount > $total) {
+                throw new \Exception('المبلغ المدفوع أكبر من إجمالي الفاتورة');
+            }
+
+            if ($isCashPayment && !$request->treasury_id) {
+                // من غير الخزينة الفاتورة كانت بتتسجل "مدفوعة" بدون أي حركة خزينة
+                throw new \Exception('يجب اختيار الخزينة عند الدفع النقدي');
+            }
+
+            // ============================================================
+            // إنشاء الفاتورة
+            // ============================================================
             $invoice = PurchaseInvoice::create([
-                'invoice_number' => $invoiceNumber,
-                'supplier_id' => $request->supplier_id,
-                'branch_id' => $request->branch_id,
-                'warehouse_id' => $request->warehouse_id,
-                'currency_id' => $request->currency_id,
-                'tax_id' => $request->tax_id,
-                'treasury_id' => $request->treasury_id,
-                'invoice_date' => $request->invoice_date,
-                'due_date' => $request->due_date,
-                'payment_method' => $request->payment_method,
-                'note' => $request->note,
-                'paid_amount' => $paidAmount,
+                'invoice_number'   => $invoiceNumber,
+                'supplier_id'      => $request->supplier_id,
+                'branch_id'        => $request->branch_id,
+                'warehouse_id'     => $request->warehouse_id,
+                'currency_id'      => $request->currency_id,
+                'tax_id'           => $request->tax_id,
+                'treasury_id'      => $request->treasury_id,
+                'invoice_date'     => $request->invoice_date,
+                'due_date'         => $request->due_date,
+                'payment_method'   => $request->payment_method,
+                'note'             => $request->note,
+                'paid_amount'      => $paidAmount,
                 'remaining_amount' => $remaining,
-                'subtotal' => $subtotal,
-                'discount_total' => $discountTotal,  // ✅ القيمة مش النسبة
-                'tax_total' => $taxTotal,
-                'total_amount' => $total,
+                'subtotal'         => $subtotal,
+                'discount_total'   => $discountTotal,
+                'tax_total'        => $taxTotal,
+                'total_amount'     => $total,
             ]);
-    
+
+            // ============================================================
+            // البنود + حركة المخزون + تحديث متوسط التكلفة
+            // ============================================================
             foreach ($request->items as $item) {
-    
                 $lineSubtotal = $item['quantity'] * $item['price'];
                 $lineDiscount = $lineSubtotal * (($item['discount'] ?? 0) / 100);
-                $lineTax = $item['tax'] ?? 0;
-                $lineTotal = $lineSubtotal - $lineDiscount + $lineTax;
+                $lineTax      = $item['tax'] ?? 0;
+                $lineTotal    = $lineSubtotal - $lineDiscount + $lineTax;
+
                 $productUnitId = null;
                 if (!empty($item['unit_id'])) {
                     $productUnitId = DB::table('product_units')
                         ->where('product_id', $item['product_id'])
                         ->where('unit_id', $item['unit_id'])
                         ->value('id');
+
                     if (!$productUnitId) {
                         throw new \RuntimeException('الوحدة المحددة غير مهيأة لهذا المنتج. اترك الوحدة فارغة أو أضفها من إعدادات المنتج.');
                     }
                 }
-    
+
                 PurchaseInvoiceItem::create([
                     'purchase_invoice_id' => $invoice->id,
-                    'product_id' => $item['product_id'],
-                    'product_variant_id' => $item['product_variant_id'] ?? null,
-                    'size_id' => $item['size_id'] ?? null,
-                    'quantity' => $item['quantity'],
-                    'product_unit_id' => $productUnitId,
-                    'color_id' => $item['color_id'] ?? null,
-                    'price' => $item['price'],
-                    'discount' => $item['discount'] ?? 0,  // ✅ النسبة المئوية
-                    'tax' => $item['tax'] ?? 0,
-                    'total' => $lineTotal,  // ✅ القيمة بعد الخصم والضريبة
+                    'product_id'          => $item['product_id'],
+                    'product_variant_id'  => $item['product_variant_id'] ?? null,
+                    'size_id'             => $item['size_id'] ?? null,
+                    'quantity'            => $item['quantity'],
+                    'product_unit_id'     => $productUnitId,
+                    'color_id'            => $item['color_id'] ?? null,
+                    'price'               => $item['price'],
+                    'discount'            => $item['discount'] ?? 0, // النسبة المئوية
+                    'tax'                 => $item['tax'] ?? 0,
+                    'total'               => $lineTotal,             // بعد الخصم والضريبة
                 ]);
-    
-                $productUnit = DB::table('product_units')
-                    ->where('product_id', $item['product_id'])
-                    ->where('unit_id', $item['unit_id'] ?? $item['product_unit_id'] ?? null)
-                    ->first();
 
-                $movement = app(InventoryMovementService::class)->apply([
-                    'product_id' => $item['product_id'],
-                    'product_unit_id' => $productUnit?->id,
-                    'size_id' => $item['size_id'] ?? null,
-                    'color_id' => $item['color_id'] ?? null,
-                    'branch_id' => $request->branch_id,
-                    'warehouse_id' => $request->warehouse_id,
-                    'movement_type' => 'purchase',
-                    'quantity_delta' => $item['quantity'],
-                    'reference_type' => PurchaseInvoice::class,
-                    'reference_id' => $invoice->id,
-                    'notes' => "Purchase invoice {$invoice->invoice_number}",
+                app(InventoryMovementService::class)->apply([
+                    'product_id'      => $item['product_id'],
+                    'product_unit_id' => $productUnitId,
+                    'size_id'         => $item['size_id'] ?? null,
+                    'color_id'        => $item['color_id'] ?? null,
+                    'branch_id'       => $request->branch_id,
+                    'warehouse_id'    => $request->warehouse_id,
+                    'movement_type'   => 'purchase',
+                    'quantity_delta'  => $item['quantity'],
+                    'reference_type'  => PurchaseInvoice::class,
+                    'reference_id'    => $invoice->id,
+                    'notes'           => "Purchase invoice {$invoice->invoice_number}",
                 ]);
 
                 $product = Product::lockForUpdate()->find($item['product_id']);
                 if ($product) {
-                    $oldStock = max(0, (float) $product->stock - (float) $item['quantity']);
-                    $oldCost = (float) ($product->cost ?? 0);
+                    $oldStock     = max(0, (float) $product->stock - (float) $item['quantity']);
+                    $oldCost      = (float) ($product->cost ?? 0);
                     $purchaseCost = (float) $item['price'];
-                    $newCost = $oldStock > 0
+                    $newCost      = $oldStock > 0
                         ? (($oldStock * $oldCost) + ((float) $item['quantity'] * $purchaseCost)) / ($oldStock + (float) $item['quantity'])
                         : $purchaseCost;
+
                     $product->update(['cost' => round($newCost, 4)]);
                 }
-
-
-            }        
-            
-            /*
-            =============================
-            ✅ الخزنة
-            =============================
-            */
-            if (
-                $request->payment_method === 'cash' &&
-                $request->paid_amount > 0 &&
-                $request->treasury_id
-            ) {
-    
-                $treasury = Treasury::lockForUpdate()->find($request->treasury_id);
-    
-                if (!$treasury || $treasury->balance < $request->paid_amount) {
-                    throw new \Exception('رصيد الخزنة غير كافي');
-                }
-    
-                if ($paidAmount > $total) {
-                    throw new \Exception('المبلغ المدفوع أكبر من إجمالي الفاتورة');
-                }
-    
-                $treasury->decrement('balance', $paidAmount);
-    
-                TreasuryTransaction::create([
-                    'treasury_id' => $request->treasury_id,
-                    'reference_type' => PurchaseInvoice::class,
-                    'reference_id' => $invoice->id,
-                    'type' => 'out',
-                    'amount' => $paidAmount,
-                    'description' => "دفعة لفاتورة مشتريات رقم {$invoice->invoice_number}",
-                    'created_by' => auth()->user() instanceof User ? auth()->user()->id : null,
-                ]);
-                $actor=auth()->user(); $payment = PurchaseInvoicePayment::create(['purchase_invoice_id'=>$invoice->id,'treasury_id'=>$request->treasury_id,'amount'=>$paidAmount,'payment_date'=>$request->invoice_date ?? now()->toDateString(),'payment_method'=>'cash','created_by'=>$actor?->id,'created_by_type'=>$actor ? $actor::class : null,'notes'=>'دفعة عند إنشاء الفاتورة']);
-                $posting->postPurchasePayment($invoice, $payment);
-
             }
 
+            // ============================================================
+            // ✅ الخزينة: خصم الرصيد + تسجيل حركة الخزينة + دفعة الفاتورة
+            // ============================================================
+            $treasuryTransaction = null;
+
+            if ($isCashPayment) {
+                $treasury = Treasury::lockForUpdate()->find($request->treasury_id);
+
+                if (!$treasury) {
+                    throw new \Exception('الخزينة غير موجودة');
+                }
+
+                if ((float) $treasury->balance < $paidAmount) {
+                    throw new \Exception('رصيد الخزنة غير كافي');
+                }
+
+                $balanceBefore = round((float) $treasury->balance, 2);
+                $treasury->decrement('balance', $paidAmount);
+                $balanceAfter = round($balanceBefore - $paidAmount, 2);
+
+                $actor = auth()->user();
+
+                $txData = [
+                    'treasury_id'    => $treasury->id,
+                    'reference_type' => PurchaseInvoice::class,
+                    'reference_id'   => $invoice->id,
+                    'type'           => 'out',
+                    'amount'         => $paidAmount,
+                    'description'    => "دفعة لفاتورة مشتريات رقم {$invoice->invoice_number}",
+                    'created_by'     => $actor instanceof User ? $actor->id : null,
+                ];
+
+                // أعمدة اختيارية: بتتسجل بس لو موجودة فعلاً في جدول treasury_transactions
+                $txTable  = (new TreasuryTransaction())->getTable();
+                $optional = [
+                    'balance_before'   => $balanceBefore,
+                    'balance_after'    => $balanceAfter,
+                    'branch_id'        => $request->branch_id,
+                    'supplier_id'      => $request->supplier_id,
+                    'payment_method'   => 'cash',
+                    'transaction_date' => $request->invoice_date ?? now()->toDateString(),
+                    'date'             => $request->invoice_date ?? now()->toDateString(),
+                ];
+                foreach ($optional as $column => $value) {
+                    if (\Illuminate\Support\Facades\Schema::hasColumn($txTable, $column)) {
+                        $txData[$column] = $value;
+                    }
+                }
+
+                $treasuryTransaction = TreasuryTransaction::create($txData);
+
+                $payment = PurchaseInvoicePayment::create([
+                    'purchase_invoice_id' => $invoice->id,
+                    'treasury_id'         => $treasury->id,
+                    'amount'              => $paidAmount,
+                    'payment_date'        => $request->invoice_date ?? now()->toDateString(),
+                    'payment_method'      => 'cash',
+                    'created_by'          => $actor?->id,
+                    'created_by_type'     => $actor ? $actor::class : null,
+                    'notes'               => 'دفعة عند إنشاء الفاتورة',
+                ]);
+
+                $posting->postPurchasePayment($invoice, $payment);
+            }
+
+            // ============================================================
+            // القيد المحاسبي
+            // ============================================================
             $journal = $posting->postPurchase($invoice);
-            $invoice->update(['posting_journal_entry_id' => $journal?->id, 'workflow_status' => $journal ? 'posted' : 'pending_finance']);
+            $invoice->update([
+                'posting_journal_entry_id' => $journal?->id,
+                'workflow_status'          => $journal ? 'posted' : 'pending_finance',
+            ]);
+
             DB::commit();
-    
+
             return response()->json([
                 'data' => new PurchaseInvoiceResource(
                     $invoice->load(
@@ -209,28 +247,30 @@ class PurchaseInvoiceController extends Controller
                         'items.size',
                     )
                 ),
-                'result' => 'Success',
+                // للتأكد إن الحركة اتسجلت فعلاً
+                'treasury_transaction_id' => $treasuryTransaction?->id,
+                'result'  => 'Success',
                 'message' => 'Purchase invoice created successfully',
-                'status' => 200,
+                'status'  => 200,
             ]);
-    
-        } catch (\Exception $e) {
-    
+        } catch (\Throwable $e) {
             DB::rollBack();
-    
+
             Log::error('Purchase invoice creation failed', [
                 'error' => $e->getMessage(),
+                'file'  => $e->getFile(),
+                'line'  => $e->getLine(),
                 'trace' => $e->getTraceAsString(),
             ]);
-    
+
             return response()->json([
-                'result' => 'Error',
+                'result'  => 'Error',
                 'message' => 'Failed to create purchase invoice',
-                'error' => config('app.debug') ? $e->getMessage() : null,
+                'error'   => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
-    
+ 
     // ========== show ==========
     public function show($id)
     {

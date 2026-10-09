@@ -80,16 +80,19 @@ class TransferController extends Controller
         }
     }
 
+ 
     public function treasuryMovements(Request $request)
     {
         try {
-            $filters   = $request->input('filters', []);
-            $orderBy   = $request->input('orderBy', 'id');
-            $orderDir  = $request->input('orderByDirection', 'desc');
-            $perPage   = $request->input('perPage', 10);
-            $paginate  = $request->boolean('paginate', true);
+            $filters  = $request->input('filters', []);
+            $orderDir = strtolower($request->input('orderByDirection', 'desc')) === 'asc' ? 'asc' : 'desc';
+            $perPage  = max(1, (int) $request->input('perPage', 10));
+            $page     = max(1, (int) $request->input('page', 1));
+            $paginate = $request->boolean('paginate', true);
 
-            // الحركات الخاصة بالخزنة
+            // ============================================================
+            // 1) التحويلات (جدول transfers) - زي ما كانت
+            // ============================================================
             $treasuryTypes = [
                 'treasury_to_treasury',
                 'treasury_to_bank',
@@ -98,55 +101,166 @@ class TransferController extends Controller
                 'treasury_withdraw',
             ];
 
-            $query = Transfer::with([
-                'fromTreasury',
-                'toTreasury',
-                'fromBank',
-                'toBank'
-            ])
-            ->whereIn('type', $treasuryTypes);
+            $transfersQuery = Transfer::with(['fromTreasury', 'toTreasury', 'fromBank', 'toBank'])
+                ->whereIn('type', $treasuryTypes);
 
-            // ================= FILTERS =================
             if (!empty($filters['treasury_id'])) {
-                $query->where(function ($q) use ($filters) {
+                $transfersQuery->where(function ($q) use ($filters) {
                     $q->where('from_treasury_id', $filters['treasury_id'])
-                    ->orWhere('to_treasury_id', $filters['treasury_id']);
+                      ->orWhere('to_treasury_id', $filters['treasury_id']);
                 });
             }
-
             if (!empty($filters['type'])) {
-                $query->where('type', $filters['type']);
+                $transfersQuery->where('type', $filters['type']);
             }
-
             if (!empty($filters['date_from'])) {
-                $query->whereDate('created_at', '>=', $filters['date_from']);
+                $transfersQuery->whereDate('created_at', '>=', $filters['date_from']);
             }
-
             if (!empty($filters['date_to'])) {
-                $query->whereDate('created_at', '<=', $filters['date_to']);
+                $transfersQuery->whereDate('created_at', '<=', $filters['date_to']);
             }
 
-            // ================= SORT =================
-            $query->orderBy($orderBy, $orderDir);
+            // ============================================================
+            // 2) حركات الخزينة (جدول treasury_transactions): مشتريات، مبيعات، سندات...
+            //    بنستبعد اللي مرجعه Transfer عشان ما يتكررش مع الجدول الأول.
+            // ============================================================
+            $txQuery = \App\Models\TreasuryTransaction::with(['treasury', 'createdBy'])
+                ->where(function ($q) {
+                    $q->whereNull('reference_type')
+                      ->orWhere('reference_type', '!=', Transfer::class);
+                });
 
-            // ================= PAGINATION =================
+            if (!empty($filters['treasury_id'])) {
+                $txQuery->where('treasury_id', $filters['treasury_id']);
+            }
+
+            // فلتر النوع: withdraw = حركة صادرة، deposit = حركة واردة، وباقي الأنواع خاصة بالتحويلات بس
+            $includeTransactions = true;
+            if (!empty($filters['type'])) {
+                if ($filters['type'] === 'treasury_withdraw') {
+                    $txQuery->where('type', 'out');
+                } elseif ($filters['type'] === 'treasury_deposit') {
+                    $txQuery->where('type', 'in');
+                } else {
+                    $includeTransactions = false;
+                }
+            }
+            if (!empty($filters['date_from'])) {
+                $txQuery->whereDate('created_at', '>=', $filters['date_from']);
+            }
+            if (!empty($filters['date_to'])) {
+                $txQuery->whereDate('created_at', '<=', $filters['date_to']);
+            }
+
+            // ============================================================
+            // 3) توحيد الشكل (نفس شكل TransferResource عشان الفرونت ما يتغيرش)
+            // ============================================================
+            $referenceLabels = [
+                \App\Models\PurchaseInvoice::class => 'فاتورة مشتريات',
+            ];
+
+            $items = [];
+
+            foreach ($transfersQuery->get() as $row) {
+                $data = (new TransferResource($row))->resolve($request);
+                $data['source'] = 'transfer';
+
+                $items[] = [
+                    'ts'   => optional($row->created_at)->getTimestamp() ?? 0,
+                    'id'   => (int) $row->id,
+                    'data' => $data,
+                ];
+            }
+
+            if ($includeTransactions) {
+                foreach ($txQuery->get() as $tx) {
+                    $isIn = $tx->type === 'in';
+
+                    // نبني Transfer مؤقت (مش بيتحفظ) عشان نستخدم نفس الـ Resource
+                    $fake = new Transfer();
+                    $fake->forceFill([
+                        'id'               => 'tx-' . $tx->id,
+                        'type'             => $isIn ? 'treasury_deposit' : 'treasury_withdraw',
+                        'from_treasury_id' => $isIn ? null : $tx->treasury_id,
+                        'to_treasury_id'   => $isIn ? $tx->treasury_id : null,
+                        'from_bank_id'     => null,
+                        'to_bank_id'       => null,
+                        'amount'           => $tx->amount,
+                        'currency'         => $tx->currency ?? null,
+                        'notes'            => $tx->description,
+                        'created_by'       => $tx->created_by,
+                        'created_at'       => $tx->created_at,
+                        'updated_at'       => $tx->updated_at,
+                    ]);
+                    $fake->setRelation('fromTreasury', $isIn ? null : $tx->treasury);
+                    $fake->setRelation('toTreasury', $isIn ? $tx->treasury : null);
+                    $fake->setRelation('fromBank', null);
+                    $fake->setRelation('toBank', null);
+                    $fake->setRelation('createdBy', $tx->createdBy);
+
+                    $data = (new TransferResource($fake))->resolve($request);
+
+                    $refNumber = null;
+                    try {
+                        $refNumber = $tx->reference?->invoice_number
+                            ?? $tx->reference?->number
+                            ?? null;
+                    } catch (\Throwable $e) {
+                        $refNumber = null;
+                    }
+
+                    $data['source']          = 'treasury_transaction';
+                    $data['reference_type']  = $tx->reference_type ? class_basename($tx->reference_type) : null;
+                    $data['reference_id']    = $tx->reference_id;
+                    $data['reference_label'] = $referenceLabels[$tx->reference_type] ?? null;
+                    $data['reference_number'] = $refNumber;
+
+                    $items[] = [
+                        'ts'   => optional($tx->created_at)->getTimestamp() ?? 0,
+                        'id'   => (int) $tx->id,
+                        'data' => $data,
+                    ];
+                }
+            }
+
+            // ============================================================
+            // 4) الترتيب (الأحدث أولاً افتراضياً)
+            // ============================================================
+            usort($items, function ($a, $b) use ($orderDir) {
+                $cmp = [$a['ts'], $a['id']] <=> [$b['ts'], $b['id']];
+                return $orderDir === 'asc' ? $cmp : -$cmp;
+            });
+
+            $all = array_map(fn ($i) => $i['data'], $items);
+
+            // ============================================================
+            // 5) الـ Pagination
+            // ============================================================
             if ($paginate) {
-                $rows = $query->paginate($perPage);
+                $total = count($all);
+
+                $paginator = new \Illuminate\Pagination\LengthAwarePaginator(
+                    array_slice($all, ($page - 1) * $perPage, $perPage),
+                    $total,
+                    $perPage,
+                    $page,
+                    ['path' => $request->url(), 'query' => $request->query()]
+                );
 
                 return response()->json([
-                    'data' => TransferResource::collection($rows->items()),
+                    'data'  => $paginator->items(),
                     'links' => [
-                        'first' => $rows->url(1),
-                        'last'  => $rows->url($rows->lastPage()),
-                        'prev'  => $rows->previousPageUrl(),
-                        'next'  => $rows->nextPageUrl(),
+                        'first' => $paginator->url(1),
+                        'last'  => $paginator->url($paginator->lastPage()),
+                        'prev'  => $paginator->previousPageUrl(),
+                        'next'  => $paginator->nextPageUrl(),
                     ],
                     'meta' => [
-                        'current_page' => $rows->currentPage(),
-                        'from'         => $rows->firstItem(),
-                        'last_page'    => $rows->lastPage(),
-                        'per_page'     => $rows->perPage(),
-                        'total'        => $rows->total(),
+                        'current_page' => $paginator->currentPage(),
+                        'from'         => $paginator->firstItem(),
+                        'last_page'    => $paginator->lastPage(),
+                        'per_page'     => $paginator->perPage(),
+                        'total'        => $paginator->total(),
                     ],
                     'result'  => 'Success',
                     'message' => 'Treasury movements fetched successfully',
@@ -154,20 +268,17 @@ class TransferController extends Controller
                 ]);
             }
 
-            $rows = $query->get();
-
             return response()->json([
-                'data' => TransferResource::collection($rows),
+                'data'    => $all,
                 'result'  => 'Success',
                 'message' => 'Treasury movements fetched successfully',
                 'status'  => 200,
             ]);
-
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             return response()->json([
-                'result' => 'Error',
+                'result'  => 'Error',
                 'message' => $e->getMessage(),
-                'status' => 500,
+                'status'  => 500,
             ]);
         }
     }
