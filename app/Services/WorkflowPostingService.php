@@ -238,7 +238,10 @@ class WorkflowPostingService
             $debit = (float) $line->credit;
             $credit = (float) $line->debit;
             $journal->lines()->create(['account_id' => $line->account_id, 'debit' => $debit, 'credit' => $credit, 'description' => 'عكس القيد الأصلي']);
-            $this->ledger->updateTotals(Account::findOrFail($line->account_id), $debit, $credit);
+            // Ledger accounts are shared across branches. A branch-scoped
+            // lookup can hide a valid legacy account used by the old entry.
+            $account = Account::query()->withoutGlobalScopes()->findOrFail($line->account_id);
+            $this->ledger->updateTotals($account, $debit, $credit);
         }
         $original->update(['status' => 'cancelled']);
         return $journal;
