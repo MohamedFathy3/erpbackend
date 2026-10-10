@@ -9,7 +9,7 @@ trait HasAdvancedPermissions
     {
         if ($this->super_admin ?? false) return true;
 
-        $roleName = strtolower((string) ($this->role?->name ?? ''));
+        $roleName = $this->advancedPermissionRoleName();
         if (in_array($roleName, ['admin', 'administrator', 'tenant_admin', 'company_admin'], true)) {
             return true;
         }
@@ -30,7 +30,7 @@ trait HasAdvancedPermissions
     public function permissionKeys(): array
     {
         $column = Permission::identifierColumn();
-        if (($this->super_admin ?? false) || in_array(strtolower((string) ($this->role?->name ?? '')), ['admin', 'administrator', 'tenant_admin', 'company_admin'], true)) {
+        if (($this->super_admin ?? false) || in_array($this->advancedPermissionRoleName(), ['admin', 'administrator', 'tenant_admin', 'company_admin'], true)) {
             return Permission::query()->pluck($column)->all();
         }
 
@@ -42,5 +42,11 @@ trait HasAdvancedPermissions
             : collect();
 
         return $rolePermissions->merge($directPermissions)->unique()->values()->all();
+    }
+
+    private function advancedPermissionRoleName(): string
+    {
+        $role = $this->getAttribute('role');
+        return strtolower(trim(is_object($role) ? (string) ($role->name ?? '') : (string) ($role ?? '')));
     }
 }

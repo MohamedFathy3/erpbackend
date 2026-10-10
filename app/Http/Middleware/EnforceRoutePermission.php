@@ -17,8 +17,10 @@ class EnforceRoutePermission
         $user = $request->user() ?: auth('sanctum')->user();
         // Admin accounts are the tenant owners. AdminResource exposes role=admin,
         // but the role relation may not be loaded (or may be null) on the token user.
+        $role = $user?->getAttribute('role');
+        $roleName = is_object($role) ? (string) ($role->name ?? '') : (string) ($role ?? '');
         $isAdmin = $user instanceof Admin
-            || ($user && str_contains(strtolower((string) $user->role?->name), 'admin'));
+            || str_contains(strtolower(trim($roleName)), 'admin');
         // A user may have only direct permissions and no role. Do not bypass
         // authorization in that case; hasPermission() checks both sources.
         if (!$user || $user instanceof AutomotiveCustomerAccount || (bool) ($user->super_admin ?? false) || $isAdmin) {

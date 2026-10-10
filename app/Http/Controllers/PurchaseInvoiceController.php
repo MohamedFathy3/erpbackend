@@ -495,8 +495,12 @@ class PurchaseInvoiceController extends Controller
     public function update(PurchaseInvoiceRequest $request, $id, WorkflowPostingService $posting)
     {
         $actor = $request->user() ?: auth()->user();
+        $role = $actor?->getAttribute('role');
+        $roleName = is_object($role) ? (string) ($role->name ?? '') : (string) ($role ?? '');
+        $isAdmin = (bool) ($actor?->super_admin ?? false)
+            || str_contains(strtolower(trim($roleName)), 'admin');
         abort_unless(
-            $actor && method_exists($actor, 'hasPermission') && $actor->hasPermission('purchases-invoices.update'),
+            $actor && ($isAdmin || (method_exists($actor, 'hasPermission') && $actor->hasPermission('purchases-invoices.update'))),
             403,
             'ليس لديك صلاحية تعديل فواتير المشتريات المرحّلة.'
         );
