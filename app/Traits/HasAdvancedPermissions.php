@@ -46,7 +46,9 @@ trait HasAdvancedPermissions
 
     private function advancedPermissionRoleName(): string
     {
-        $role = $this->getAttribute('role');
+        $role = $this->relationLoaded('role')
+            ? $this->getRelation('role')
+            : (method_exists($this, 'role') ? $this->role()->first() : $this->getAttribute('role'));
         return strtolower(trim(is_object($role) ? (string) ($role->name ?? '') : (string) ($role ?? '')));
     }
 }
