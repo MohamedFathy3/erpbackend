@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\PurchaseInvoiceRequest;
 use App\Http\Resources\PurchaseInvoiceResource;
+use App\Models\Admin;
 use App\Models\Product;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseInvoiceItem;
@@ -497,7 +498,8 @@ class PurchaseInvoiceController extends Controller
         $actor = $request->user() ?: auth()->user();
         $role = $actor?->getAttribute('role');
         $roleName = is_object($role) ? (string) ($role->name ?? '') : (string) ($role ?? '');
-        $isAdmin = (bool) ($actor?->super_admin ?? false)
+        $isAdmin = $actor instanceof Admin
+            || (bool) ($actor?->super_admin ?? false)
             || str_contains(strtolower(trim($roleName)), 'admin');
         abort_unless(
             $actor && ($isAdmin || (method_exists($actor, 'hasPermission') && $actor->hasPermission('purchases-invoices.update'))),
