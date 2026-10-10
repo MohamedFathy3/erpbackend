@@ -157,12 +157,16 @@ class WarehouseController extends BaseController
                 app(\App\Services\InventoryMovementService::class)->apply([
                     'product_id' => $productId, 'warehouse_id' => $fromWarehouse->id,
                     'branch_id' => $fromWarehouse->branch_id, 'movement_type' => 'warehouse_transfer_out',
+                    // Transfers move aggregate/warehouse stock; variant stock
+                    // is not authoritative for this operation.
+                    'track_variant_stock' => false,
                     'quantity_delta' => -$qty, 'reference_type' => \App\Models\Warehouse::class,
                     'reference_id' => $toWarehouse->id, 'notes' => "تحويل إلى مخزن {$toWarehouse->name}",
                 ]);
                 app(\App\Services\InventoryMovementService::class)->apply([
                     'product_id' => $productId, 'warehouse_id' => $toWarehouse->id,
                     'branch_id' => $toWarehouse->branch_id, 'movement_type' => 'warehouse_transfer_in',
+                    'track_variant_stock' => false,
                     'quantity_delta' => $qty, 'reference_type' => \App\Models\Warehouse::class,
                     'reference_id' => $fromWarehouse->id, 'notes' => "تحويل من مخزن {$fromWarehouse->name}",
                 ]);
