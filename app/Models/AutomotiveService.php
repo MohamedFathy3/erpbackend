@@ -20,7 +20,15 @@ class AutomotiveService extends BaseModel
         'estimated_minutes' => 'integer',
         'warranty_eligible' => 'boolean',
         'active' => 'boolean',
+        'has_fixed_price' => 'boolean',
     ];
+
+    protected $appends = ['is_custom_priced'];
+
+    public function getIsCustomPricedAttribute(): bool
+    {
+        return !$this->has_fixed_price;
+    }
 
     public function product()
     {
@@ -30,5 +38,10 @@ class AutomotiveService extends BaseModel
     public function orderItems(): HasMany
     {
         return $this->hasMany(AutomotiveServiceOrderItem::class, 'service_id');
+    }
+
+    public function stockMovements(): HasMany
+    {
+        return $this->hasMany(AutomotiveStockMovement::class, 'service_id');
     }
 }

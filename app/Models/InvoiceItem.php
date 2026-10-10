@@ -14,7 +14,10 @@ class InvoiceItem extends Model
     {
         return $this->belongsTo(Invoice::class);
     }
-
+public function automotiveService()
+{
+    return $this->belongsTo(\App\Models\AutomotiveService::class, 'automotive_service_id');
+}
     public function product()
     {
         return $this->belongsTo(Product::class, 'product_id');

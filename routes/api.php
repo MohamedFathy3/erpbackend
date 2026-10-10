@@ -1481,24 +1481,26 @@ Route::middleware([
     Route::apiResource('employee', EmployeeController::class);
 });
 
-/* Automotive Service — phase one */
-Route::middleware(['auth:sanctum', 'resolve.tenant'])->group(function () {
-    Route::get('/automotive/vehicles', [AutomotiveController::class, 'vehicles']);
-    Route::post('/automotive/vehicles', [AutomotiveController::class, 'storeVehicle']);
-    Route::get('/automotive/vehicles/{vehicle}', [AutomotiveController::class, 'showVehicle']);
-    Route::patch('/automotive/vehicles/{vehicle}', [AutomotiveController::class, 'updateVehicle']);
-    Route::get('/automotive/services', [AutomotiveController::class, 'services']);
-    Route::post('/automotive/services', [AutomotiveController::class, 'storeService']);
-    Route::patch('/automotive/services/{service}', [AutomotiveController::class, 'updateService']);
-    Route::get('/automotive/service-orders', [AutomotiveController::class, 'orders']);
-    Route::post('/automotive/service-orders', [AutomotiveController::class, 'storeOrder']);
-    Route::get('/automotive/service-orders/{order}', [AutomotiveController::class, 'showOrder']);
-    Route::patch('/automotive/service-orders/{order}/status', [AutomotiveController::class, 'updateOrderStatus']);
-    Route::patch('/automotive/service-orders/{order}/items/{item}/status', [AutomotiveController::class, 'updateItemStatus']);
-    Route::put('/automotive/service-orders/{order}/technicians', [AutomotiveController::class, 'assignTechnicians']);
-    Route::get('/automotive/reports/profitability', [AutomotiveController::class, 'profitabilityReport']);
-    Route::get('/automotive/reports/technician-performance', [AutomotiveController::class, 'technicianPerformanceReport']);
-});
+    /* Automotive Service — phase one */
+    Route::middleware(['auth:sanctum', 'resolve.tenant'])->group(function () {
+        Route::get('/automotive/vehicles', [AutomotiveController::class, 'vehicles']);
+        Route::post('/automotive/vehicles', [AutomotiveController::class, 'storeVehicle']);
+        Route::get('/automotive/vehicles/{vehicle}', [AutomotiveController::class, 'showVehicle']);
+        Route::patch('/automotive/vehicles/{vehicle}', [AutomotiveController::class, 'updateVehicle']);
+        Route::get('/automotive/services', [AutomotiveController::class, 'services']);
+        Route::post('/automotive/services', [AutomotiveController::class, 'storeService']);
+        Route::patch('/automotive/services/{service}', [AutomotiveController::class, 'updateService']);
+        Route::get('/automotive/service-orders', [AutomotiveController::class, 'orders']);
+        Route::post('/automotive/service-orders', [AutomotiveController::class, 'storeOrder']);
+        Route::get('/automotive/service-orders/{order}', [AutomotiveController::class, 'showOrder']);
+        Route::patch('/automotive/service-orders/{order}/status', [AutomotiveController::class, 'updateOrderStatus']);
+        Route::patch('/automotive/service-orders/{order}/items/{item}/status', [AutomotiveController::class, 'updateItemStatus']);
+        Route::put('/automotive/service-orders/{order}/technicians', [AutomotiveController::class, 'assignTechnicians']);
+        Route::get('/automotive/reports/profitability', [AutomotiveController::class, 'profitabilityReport']);
+        Route::get('/automotive/reports/technician-performance', [AutomotiveController::class, 'technicianPerformanceReport']);
+   Route::post('/automotive/services/{service}/stock', [AutomotiveController::class, 'adjustStock']);
+Route::get('/automotive/stock-movements', [AutomotiveController::class, 'stockMovements']);
+        });
 
 /*
 |--------------------------------------------------------------------------
