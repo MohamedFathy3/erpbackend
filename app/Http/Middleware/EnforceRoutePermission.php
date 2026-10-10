@@ -124,6 +124,11 @@ class EnforceRoutePermission
             return 'purchases-invoices.update';
         }
 
+        if ($resource === 'automotive' && ($segments[1] ?? '') === 'reports'
+            && in_array(strtoupper($request->method()), ['GET', 'HEAD'], true)) {
+            return 'automotive.reports.view';
+        }
+
         // The POS selector reads representatives for the employee's branch;
         // representative management remains protected by representative.*.
         if ($resource === 'sales-representative' && ($segments[1] ?? '') === 'index') {

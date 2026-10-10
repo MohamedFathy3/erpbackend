@@ -36,6 +36,12 @@ class EnforceRoutePermissionTest extends TestCase
         $this->assertSame('purchases-invoices.update', $this->permissionFor('PUT', '/api/purchase-invoices/54'));
     }
 
+    public function test_automotive_reports_require_reports_view_permission(): void
+    {
+        $this->assertSame('automotive.reports.view', $this->permissionFor('GET', '/api/automotive/reports/profitability'));
+        $this->assertSame('automotive.reports.view', $this->permissionFor('GET', '/api/automotive/reports/technician-performance'));
+    }
+
     public function test_crud_methods_map_to_expected_permission_actions(): void
     {
         $this->assertSame('inventory.view', $this->permissionFor('GET', '/api/products/9'));
