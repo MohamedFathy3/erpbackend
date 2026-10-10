@@ -1009,19 +1009,32 @@ private function linkWarehouses(Product $product, ?array $warehouseIds): void
     $tenantId = $product->tenant_id;
 
     if (empty($warehouseIds)) {
-        // لو المنتج مربوط بمخزن بالفعل، متعملش حاجة
-        if (ProductWarehouse::where('product_id', $product->id)->exists()) {
-            return;
-        }
+        // Keep current links, including legacy rows hidden by the pivot's
+        // tenant scope, so they can be reconciled below instead of duplicated.
+        $existingWarehouseIds = ProductWarehouse::withoutGlobalScopes()
+            ->where('product_id', $product->id)
+            ->pluck('warehouse_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
 
-        // ✅ اختار المخزن الرئيسي لنفس الـ tenant فقط
-        $main = \App\Models\Warehouse::where('tenant_id', $tenantId)
+        // Ignore any corrupt cross-tenant links; never adopt them.
+        $warehouseIds = empty($existingWarehouseIds) ? [] :
+            \App\Models\Warehouse::withoutGlobalScopes()
+                ->where('tenant_id', $tenantId)
+                ->whereIn('id', $existingWarehouseIds)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+        if (empty($warehouseIds)) {
+            // ✅ اختار المخزن الرئيسي لنفس الـ tenant فقط
+            $main = \App\Models\Warehouse::withoutGlobalScopes()->where('tenant_id', $tenantId)
             ->whereNull('deleted_at')
             ->orderByDesc('main_branch')
             ->orderBy('id')
             ->first();
 
-        $warehouseIds = $main ? [$main->id] : [];
+            $warehouseIds = $main ? [$main->id] : [];
+        }
     }
 
     if (empty($warehouseIds)) {
@@ -1029,18 +1042,36 @@ private function linkWarehouses(Product $product, ?array $warehouseIds): void
         return;
     }
 
-    foreach ($warehouseIds as $warehouseId) {
-        ProductWarehouse::firstOrCreate(
-            [
-                'product_id'   => $product->id,
-                'warehouse_id' => (int) $warehouseId,
-            ],
-            [
-                'stock'     => 0,   // ✅ متحطش stock وهمي
-                'cost'      => $product->cost ?? 0,
-                'tenant_id' => $tenantId,
-            ]
-        );
+    // A stale/null tenant_id can hide an existing pivot row from Eloquent's
+    // global scope, although the database unique key still sees that row.
+    // Validate every warehouse against the product tenant before bypassing it.
+    $warehouseIds = array_values(array_unique(array_map('intval', $warehouseIds)));
+    $ownedWarehouseIds = \App\Models\Warehouse::withoutGlobalScopes()
+        ->where('tenant_id', $tenantId)
+        ->whereIn('id', $warehouseIds)
+        ->pluck('id')
+        ->map(fn ($id) => (int) $id)
+        ->all();
+
+    if (count($ownedWarehouseIds) !== count($warehouseIds)) {
+        throw \Illuminate\Validation\ValidationException::withMessages([
+            'warehouse_ids' => 'One or more selected warehouses do not belong to this tenant.',
+        ]);
+    }
+
+    foreach ($ownedWarehouseIds as $warehouseId) {
+        $pivot = ProductWarehouse::withoutGlobalScopes()->firstOrNew([
+            'product_id' => $product->id,
+            'warehouse_id' => $warehouseId,
+        ]);
+
+        // Repair ownership only after verifying both related records belong
+        // to this tenant, and never overwrite stock/cost on an existing row.
+        $pivot->forceFill([
+            'tenant_id' => $tenantId,
+            'stock' => $pivot->exists ? $pivot->stock : 0,
+            'cost' => $pivot->exists ? $pivot->cost : ($product->cost ?? 0),
+        ])->save();
     }
 }
 
