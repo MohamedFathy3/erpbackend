@@ -18,7 +18,6 @@ class CashierShiftResource extends JsonResource
             'card_sales'       => $this->card_sales,
             'wallet_sales'     => $this->wallet_sales,
             'returns_amount'   => $this->returns_amount,
-            'expected_amount'  => $this->expected_amount,
             'actual_amount'    => $this->actual_amount,
             'difference'       => $this->difference,
             'opened_at'        => $this->opened_at,
@@ -30,4 +29,3 @@ class CashierShiftResource extends JsonResource
         ];
     }
 }
-

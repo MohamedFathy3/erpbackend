@@ -691,7 +691,6 @@ class CashierShiftController extends Controller
                     'opening_balance' => $openingBalance,
                     'cash_sales'      => $collections['cash'],
                     'cash_returns'    => $refunds['cash'],
-                    'expected_amount' => $expectedCash,
                     'actual_amount'   => $actualAmount,
                     'difference'      => $difference,
                     'status'          => $reconciliationStatus,
