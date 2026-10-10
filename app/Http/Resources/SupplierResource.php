@@ -9,9 +9,18 @@ class SupplierResource extends JsonResource
 {
     public function toArray($request): array
     {
-        $totalPurchases = $this->purchase_invoices_sum_total_amount ?? 0;
-        $totalPaid = $this->purchase_invoices_sum_paid_amount ?? 0;
-        $remaining = $totalPurchases - $totalPaid;
+        if ($this->relationLoaded('purchaseInvoices')) {
+            $invoices = $this->purchaseInvoices->filter(
+                fn ($invoice) => !in_array($invoice->workflow_status, ['cancelled', 'canceled'], true)
+            );
+            $totalPurchases = $invoices->sum(fn ($invoice) => (float) $invoice->total_amount);
+            $totalPaid = $invoices->sum(fn ($invoice) => (float) $invoice->paid_amount);
+            $remaining = $invoices->sum(fn ($invoice) => (float) $invoice->remaining_amount);
+        } else {
+            $totalPurchases = $this->purchase_invoices_sum_total_amount ?? 0;
+            $totalPaid = $this->purchase_invoices_sum_paid_amount ?? 0;
+            $remaining = $totalPurchases - $totalPaid;
+        }
 
         return [
             'id' => $this->id,

@@ -26,7 +26,7 @@ class SuppliersController extends BaseController
     {
         try {
             $supplier = SupplierResource::collection($this->crudRepository->all(
-                [],
+                ['purchaseInvoices.returns'],
                 [],
                 ['*']
             ));
@@ -50,8 +50,7 @@ class SuppliersController extends BaseController
     {
         try {
     
-            $supplier = Supplier::withSum('purchaseInvoices', 'total_amount')
-                ->withSum('purchaseInvoices', 'paid_amount')
+            $supplier = Supplier::with('purchaseInvoices.returns')
                 ->findOrFail($supplier->id);
     
             return JsonResponse::respondSuccess(

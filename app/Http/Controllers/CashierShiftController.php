@@ -319,6 +319,8 @@ class CashierShiftController extends Controller
             // 3. المرتجعات (POS + Sales)
             // ============================================================
             $shiftInvoiceIds = $invoices->pluck('id')->toArray();
+            $salesReturnTable = (new SalesInvoiceReturn())->getTable();
+            $hasSalesReturnShiftColumn = \Illuminate\Support\Facades\Schema::hasColumn($salesReturnTable, 'shift_id');
 
             $posReturns = ReturnInvoice::with([
                     'invoice.customer',
@@ -339,10 +341,16 @@ class CashierShiftController extends Controller
                     'items.product',
                     'treasury',
                 ])
-                ->where(function ($query) use ($shift, $shiftInvoiceIds) {
-                    $query->where('shift_id', $shift->id);
+                ->where(function ($query) use ($shift, $shiftInvoiceIds, $hasSalesReturnShiftColumn) {
+                    if ($hasSalesReturnShiftColumn) {
+                        $query->where('shift_id', $shift->id);
+                    } elseif (empty($shiftInvoiceIds)) {
+                        $query->whereRaw('1 = 0');
+                    }
                     if (!empty($shiftInvoiceIds)) {
-                        $query->orWhereIn('sales_invoice_id', $shiftInvoiceIds);
+                        $hasSalesReturnShiftColumn
+                            ? $query->orWhereIn('sales_invoice_id', $shiftInvoiceIds)
+                            : $query->whereIn('sales_invoice_id', $shiftInvoiceIds);
                     }
                 })
                 ->whereBetween('created_at', [$startAt, $endAt])
