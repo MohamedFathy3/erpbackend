@@ -30,10 +30,10 @@ class EnforceRoutePermissionTest extends TestCase
         $this->assertSame('sales.create', $this->permissionFor('POST', '/api/shifts/open'));
     }
 
-    public function test_plural_purchase_invoice_update_requires_purchasing_update(): void
+    public function test_purchase_invoice_update_requires_dedicated_permission(): void
     {
-        $this->assertSame('purchasing.update', $this->permissionFor('PUT', '/api/purchases-invoices/update/54'));
-        $this->assertSame('purchasing.update', $this->permissionFor('PUT', '/api/purchase-invoices/54'));
+        $this->assertSame('purchases-invoices.update', $this->permissionFor('PUT', '/api/purchases-invoices/update/54'));
+        $this->assertSame('purchases-invoices.update', $this->permissionFor('PUT', '/api/purchase-invoices/54'));
     }
 
     public function test_crud_methods_map_to_expected_permission_actions(): void

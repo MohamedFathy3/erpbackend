@@ -66,6 +66,35 @@ class WorkflowPostingService
         return $this->postInvoice($invoice, 'purchase', (float) ($invoice->total_amount ?? 0), 0);
     }
 
+    /**
+     * Replace the accounting entry of an already-posted purchase invoice.
+     * The old entry is reversed first, then the new totals are posted under a
+     * revision event key so the original idempotency record is preserved.
+     */
+    public function repostPurchase(Model $invoice): ?JournalEntry
+    {
+        if ($invoice instanceof PurchaseInvoice && $invoice->supplier) {
+            app(SubledgerPostingService::class)->supplierAccount($invoice->supplier);
+        }
+
+        if ($invoice->posting_journal_entry_id) {
+            $original = JournalEntry::with('lines')->find($invoice->posting_journal_entry_id);
+            if ($original && $original->status === 'posted') {
+                $this->reverseJournal($original, 'عكس قيد تعديل فاتورة مشتريات', $invoice::class, $invoice->getKey());
+            }
+        }
+
+        return $this->postInvoice(
+            $invoice,
+            'purchase',
+            (float) ($invoice->total_amount ?? 0),
+            0,
+            null,
+            0,
+            'revision:' . now()->format('YmdHis.u')
+        );
+    }
+
     public function postPurchasePayment(Model $invoice, PurchaseInvoicePayment $payment): ?JournalEntry
     {
         $amount = (float) $payment->amount;
@@ -215,10 +244,10 @@ class WorkflowPostingService
         return $journal;
     }
 
-    private function postInvoice(Model $source, string $type, float $amount, int $treasuryId, ?string $paymentMethod = null, int $bankId = 0): ?JournalEntry
+    private function postInvoice(Model $source, string $type, float $amount, int $treasuryId, ?string $paymentMethod = null, int $bankId = 0, ?string $eventSuffix = null): ?JournalEntry
     {
         if ($amount <= 0) return null;
-        $eventKey = 'financial-posting:' . strtolower(class_basename($source)) . ':' . $source->getKey() . ':' . $type;
+        $eventKey = 'financial-posting:' . strtolower(class_basename($source)) . ':' . $source->getKey() . ':' . $type . ($eventSuffix ? ':' . $eventSuffix : '');
         $existing = WorkflowTransaction::where('event_key', $eventKey)->whereNotNull('journal_entry_id')->first();
         if ($existing) return $existing->journalEntry;
 

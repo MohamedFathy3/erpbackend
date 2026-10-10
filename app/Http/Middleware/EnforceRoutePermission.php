@@ -117,6 +117,11 @@ class EnforceRoutePermission
             return null;
         }
 
+        if (in_array($resource, ['purchases-invoices', 'purchase-invoices'], true)
+            && in_array(strtoupper($request->method()), ['PUT', 'PATCH'], true)) {
+            return 'purchases-invoices.update';
+        }
+
         // The POS selector reads representatives for the employee's branch;
         // representative management remains protected by representative.*.
         if ($resource === 'sales-representative' && ($segments[1] ?? '') === 'index') {

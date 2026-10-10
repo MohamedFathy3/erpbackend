@@ -494,14 +494,18 @@ class PurchaseInvoiceController extends Controller
     // ========== update ==========
     public function update(PurchaseInvoiceRequest $request, $id, WorkflowPostingService $posting)
     {
+        $actor = $request->user() ?: auth()->user();
+        abort_unless(
+            $actor && method_exists($actor, 'hasPermission') && $actor->hasPermission('purchases-invoices.update'),
+            403,
+            'ليس لديك صلاحية تعديل فواتير المشتريات المرحّلة.'
+        );
+
         DB::beginTransaction();
 
         try {
             // جلب الفاتورة القديمة
             $invoice = PurchaseInvoice::with('items')->findOrFail($id);
-            if ($invoice->workflow_status === 'posted') {
-                throw new \RuntimeException('لا يمكن تعديل فاتورة مشتريات مرحّلة. استخدم مرتجعاً أو ألغِ المعاملة أولاً للحفاظ على سلامة القيود والمخزون.');
-            }
             if ($invoice->workflow_status === 'cancelled') {
                 throw new \RuntimeException('لا يمكن تعديل فاتورة مشتريات ملغاة.');
             }
@@ -639,7 +643,10 @@ class PurchaseInvoiceController extends Controller
                 }
             }
 
-            $journal = $posting->postPurchase($invoice->fresh()->load('items.product'));
+            $freshInvoice = $invoice->fresh()->load('items.product');
+            $journal = $freshInvoice->workflow_status === 'posted'
+                ? $posting->repostPurchase($freshInvoice)
+                : $posting->postPurchase($freshInvoice);
             $invoice->update(['posting_journal_entry_id' => $journal?->id, 'workflow_status' => $journal ? 'posted' : 'pending_finance']);
             DB::commit();
 
@@ -674,8 +681,8 @@ class PurchaseInvoiceController extends Controller
 
             return response()->json([
                 'result' => 'Error',
-                'message' => 'Failed to update purchase invoice',
-                'error' => config('app.debug') ? $e->getMessage() : null
+                'message' => $e->getMessage() ?: 'فشل تحديث فاتورة المشتريات',
+                'error' => $e->getMessage() ?: 'فشل تحديث فاتورة المشتريات'
             ], 500);
         }
     }
