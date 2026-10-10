@@ -82,7 +82,7 @@ class EnforceRoutePermission
         }
         $module = [
             'admin' => 'users', 'user' => 'users', 'role' => 'users', 'roles' => 'users', 'permissions' => 'users',
-            'employee' => 'hr', 'employees' => 'hr', 'attendance' => 'hr',
+            'employee' => 'hr', 'employees' => 'hr', 'attendance' => 'hr', 'employee-financial-reports' => 'hr',
             'inventory' => 'inventory', 'product' => 'inventory', 'products' => 'inventory', 'warehouse' => 'inventory', 'warehouses' => 'inventory',
             'warehouse-stock' => 'inventory', 'offer' => 'inventory', 'category' => 'inventory', 'branch' => 'inventory',
             'color' => 'inventory', 'unit' => 'inventory', 'inventory-logs' => 'inventory', 'transfer' => 'inventory',
@@ -127,6 +127,13 @@ class EnforceRoutePermission
         if ($resource === 'automotive' && ($segments[1] ?? '') === 'reports'
             && in_array(strtoupper($request->method()), ['GET', 'HEAD'], true)) {
             return 'automotive.reports.view';
+        }
+
+        if ($resource === 'employee-financial-reports') {
+            return match (strtoupper($request->method())) {
+                'GET', 'HEAD' => 'employee_financial_reports.view',
+                default => 'employee_financial_reports.manage',
+            };
         }
 
         // The POS selector reads representatives for the employee's branch;
