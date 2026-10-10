@@ -360,7 +360,17 @@ public function store(Request $request)
         // ✅ إضافة العناصر
         // ============================================================
         foreach ($request->items as $item) {
-            $product = Product::query()->lockForUpdate()->find($item['product_id']);
+            // Tenant-level catalog items with no assigned branch are shared
+            // with the tenant's branches. Keep other branches isolated.
+            $productQuery = Product::query()
+                ->withoutGlobalScope('branch')
+                ->where(function ($query) use ($branchId): void {
+                    $query->where('branch_id', $branchId)->orWhereNull('branch_id');
+                });
+            if ($tenantId) {
+                $productQuery->where('tenant_id', $tenantId);
+            }
+            $product = $productQuery->lockForUpdate()->find($item['product_id']);
 
             if (!$product) {
                 DB::rollBack();
@@ -439,7 +449,7 @@ public function store(Request $request)
                     'reference_id' => $invoice->id,
                     'unit_cost' => (float) ($product->cost ?? 0),
                     'notes' => "POS invoice {$invoice->invoice_number}",
-                ]);
+                ], $tenantId ? (int) $tenantId : null);
 
                 $remainingStock -= $quantityFromWarehouse;
                 if ($remainingStock <= 0) {
