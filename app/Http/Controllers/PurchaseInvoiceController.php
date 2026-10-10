@@ -130,6 +130,9 @@ class PurchaseInvoiceController extends Controller
                     'total'               => $lineTotal,             // بعد الخصم والضريبة
                 ]);
 
+                $tenantId = auth()->user()?->tenant_id
+                    ?: (app()->bound('currentTenantId') ? (int) app('currentTenantId') : null);
+
                 app(InventoryMovementService::class)->apply([
                     'product_id'      => $item['product_id'],
                     'product_unit_id' => $productUnitId,
@@ -142,9 +145,15 @@ class PurchaseInvoiceController extends Controller
                     'reference_type'  => PurchaseInvoice::class,
                     'reference_id'    => $invoice->id,
                     'notes'           => "Purchase invoice {$invoice->invoice_number}",
-                ]);
+                ], $tenantId ? (int) $tenantId : null);
 
-                $product = Product::lockForUpdate()->find($item['product_id']);
+                // Purchase invoices can receive stock into another branch of
+                // the same tenant. Keep tenant isolation, but don't hide the
+                // product solely because its branch differs from the actor's.
+                $product = Product::query()
+                    ->withoutGlobalScope('branch')
+                    ->lockForUpdate()
+                    ->find($item['product_id']);
                 if ($product) {
                     $oldStock     = max(0, (float) $product->stock - (float) $item['quantity']);
                     $oldCost      = (float) ($product->cost ?? 0);
