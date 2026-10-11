@@ -6,19 +6,9 @@ use App\Models\AutomotiveService;
 use App\Models\AutomotiveStockMovement;
 use Illuminate\Support\Facades\DB;
 
-/**
- * مخزون منتجات خدمة السيارات — الوحدة الوحيدة هي المتر.
- *
- * المصدر الوحيد للرصيد: automotive_services.stock_quantity (بالمتر)،
- * ويتم نسخه تلقائياً إلى products.stock للمنتج المرتبط.
- * كل حركة تُسجَّل في automotive_stock_movements (موجب = دخول، سالب = خروج).
- *
- * نقاط الربط مع بقية النظام:
- *   - المشتريات (استلام):  receiveByProduct($productId, $meters, [...])
- *   - فاتورة POS (بيع):    consumeByServiceId($serviceId, $quantity * $meterQuantity, [...])
- *   - مرتجع POS:           restore($service, $meters, [...])
- *   - أمر خدمة:            يتم داخل AutomotiveController
- */
+
+
+
 class AutomotiveStockService
 {
     public const UNIT = 'متر';
@@ -49,7 +39,6 @@ class AutomotiveStockService
     public function consumeByServiceId(int $serviceId, float $meters, array $meta = []): ?AutomotiveStockMovement
     {
         $service = AutomotiveService::query()->find($serviceId);
-
         return $service ? $this->consume($service, $meters, $meta) : null;
     }
 
@@ -79,11 +68,11 @@ class AutomotiveStockService
             ->groupBy('service_id');
 
         foreach ($groups as $serviceId => $movements) {
-            $net = (float) $movements->sum('meters'); // سالب = ما زال خارج المخزن
+            $net = (float) $movements->sum('meters');
             if ($net < -0.0005 && ($service = AutomotiveService::query()->find($serviceId))) {
                 $this->restore($service, abs($net), array_merge($meta, [
                     'reference_type' => $referenceType,
-                    'reference_id' => $referenceId,
+                    'reference_id'   => $referenceId,
                 ]));
             }
         }
@@ -91,20 +80,21 @@ class AutomotiveStockService
 
     /**
      * الدالة الأساسية: تغيّر الرصيد بمقدار signed meters داخل transaction مع قفل الصف.
+     * تعمل mirror على products.stock كذلك.
      *
      * @param array{unit_cost?: float|int|string, note?: string, reference_type?: string, reference_id?: int} $meta
      */
     public function apply(AutomotiveService $service, string $type, float $meters, array $meta = []): ?AutomotiveStockMovement
     {
         if ($service->item_type !== 'product' || abs($meters) < 0.0005) {
-            return null; // الخدمات العادية لا تستهلك مخزوناً
+            return null;
         }
 
         return DB::transaction(function () use ($service, $type, $meters, $meta) {
             $locked = AutomotiveService::query()->whereKey($service->getKey())->lockForUpdate()->firstOrFail();
 
             $before = (float) $locked->stock_quantity;
-            $after = round($before + $meters, 3);
+            $after  = round($before + $meters, 3);
 
             if ($after < 0) {
                 abort(422, sprintf(
@@ -127,19 +117,23 @@ class AutomotiveStockService
             }
 
             $locked->update($attributes);
-            $locked->product?->update(['stock' => $after]);
+
+            // ✅ مرآة الرصيد في products.stock (المصدر الموحّد)
+            if ($locked->product) {
+                $locked->product->update(['stock' => $after]);
+            }
 
             $movement = AutomotiveStockMovement::create([
-                'service_id' => $locked->id,
-                'product_id' => $locked->product_id,
-                'type' => $type,
-                'meters' => $meters,
-                'balance_after' => $after,
-                'unit_cost' => $purchaseCost > 0 ? $purchaseCost : (float) $locked->estimated_cost,
+                'service_id'     => $locked->id,
+                'product_id'     => $locked->product_id,
+                'type'           => $type,
+                'meters'         => $meters,
+                'balance_after'  => $after,
+                'unit_cost'      => $purchaseCost > 0 ? $purchaseCost : (float) $locked->estimated_cost,
                 'reference_type' => $meta['reference_type'] ?? null,
-                'reference_id' => $meta['reference_id'] ?? null,
-                'user_id' => auth()->id(),
-                'note' => $meta['note'] ?? null,
+                'reference_id'   => $meta['reference_id'] ?? null,
+                'user_id'        => auth()->id(),
+                'note'           => $meta['note'] ?? null,
             ]);
 
             $service->refresh();
@@ -148,20 +142,22 @@ class AutomotiveStockService
         });
     }
 
-    /** يسجّل حركة في السجل دون تغيير الرصيد (للرصيد الافتتاحي أو التعديل اليدوي من فورم الخدمة). */
+    /**
+     * يسجّل حركة في السجل دون تغيير الرصيد (للرصيد الافتتاحي أو بعد خصم مباشر من products.stock).
+     */
     public function log(AutomotiveService $service, string $type, float $meters, array $meta = []): AutomotiveStockMovement
     {
         return AutomotiveStockMovement::create([
-            'service_id' => $service->id,
-            'product_id' => $service->product_id,
-            'type' => $type,
-            'meters' => $meters,
-            'balance_after' => (float) $service->stock_quantity,
-            'unit_cost' => (float) ($meta['unit_cost'] ?? $service->estimated_cost),
+            'service_id'     => $service->id,
+            'product_id'     => $service->product_id,
+            'type'           => $type,
+            'meters'         => $meters,
+            'balance_after'  => (float) $service->stock_quantity,
+            'unit_cost'      => (float) ($meta['unit_cost'] ?? $service->estimated_cost),
             'reference_type' => $meta['reference_type'] ?? null,
-            'reference_id' => $meta['reference_id'] ?? null,
-            'user_id' => auth()->id(),
-            'note' => $meta['note'] ?? null,
+            'reference_id'   => $meta['reference_id'] ?? null,
+            'user_id'        => auth()->id(),
+            'note'           => $meta['note'] ?? null,
         ]);
     }
 }

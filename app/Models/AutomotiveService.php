@@ -39,7 +39,16 @@ class AutomotiveService extends BaseModel
     {
         return $this->hasMany(AutomotiveServiceOrderItem::class, 'service_id');
     }
-
+public function getStockQuantityAttribute($value)
+{
+    if ($this->item_type === 'product' && $this->product_id) {
+        $stock = \DB::table('products')->where('id', $this->product_id)->value('stock');
+        if ($stock !== null) {
+            return round((float) $stock, 3);
+        }
+    }
+    return $value;
+}
     public function stockMovements(): HasMany
     {
         return $this->hasMany(AutomotiveStockMovement::class, 'service_id');

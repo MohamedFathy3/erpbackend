@@ -71,14 +71,24 @@ class AutomotiveController extends BaseController
         return response()->json(['status' => true, 'data' => $vehicle->fresh()->load('customer')]);
     }
 
-    public function services(Request $request)
-    {
-        $query = AutomotiveService::with('product')->latest();
-        if ($request->has('active')) $query->where('active', $request->boolean('active'));
-        if ($request->filled('search')) $query->where(fn ($q) => $q->where('name', 'like', '%' . $request->string('search') . '%')->orWhere('code', 'like', '%' . $request->string('search') . '%'));
-        return response()->json(['status' => true, 'data' => $query->paginate($request->integer('per_page', 25))]);
+public function services(Request $request)
+{
+    $query = AutomotiveService::with('product')->latest();
+
+    // ✅ تجاهل الخدمات اليتيمة (منتجها مش موجود)
+    $query->where(function ($q) {
+        $q->where('item_type', 'service')
+          ->orWhereHas('product');
+    });
+
+    if ($request->has('active')) $query->where('active', $request->boolean('active'));
+    if ($request->filled('search')) {
+        $query->where(fn ($q) => $q->where('name', 'like', '%' . $request->string('search') . '%')
+            ->orWhere('code', 'like', '%' . $request->string('search') . '%'));
     }
 
+    return response()->json(['status' => true, 'data' => $query->paginate($request->integer('per_page', 25))]);
+}
     private function stock(): AutomotiveStockService
     {
         return app(AutomotiveStockService::class);
@@ -92,69 +102,92 @@ class AutomotiveController extends BaseController
             : 999999;
     }
 
-    public function storeService(Request $request)
-    {
-        $data = $request->validate([
-            'code' => ['required', 'string', 'max:50'],
-            'name' => ['required', 'string', 'max:255'],
-            'name_ar' => ['nullable', 'string', 'max:255'],
-            'description' => ['nullable', 'string'],
-            'item_type' => ['nullable', Rule::in(['service', 'product'])],
-            'unit' => ['nullable', 'string', 'max:30'],
-            'has_fixed_price' => ['boolean'],
-            'selling_price' => ['nullable', 'numeric', 'min:0'],
-            'estimated_cost' => ['nullable', 'numeric', 'min:0'],
-            'small_vehicle_quantity' => ['nullable', 'numeric', 'min:0.001'],
-            'large_vehicle_quantity' => ['nullable', 'numeric', 'min:0.001'],
-            'small_vehicle_price' => ['nullable', 'numeric', 'min:0'],
-            'large_vehicle_price' => ['nullable', 'numeric', 'min:0'],
-            'stock_quantity' => ['nullable', 'numeric', 'min:0'],
-            'estimated_minutes' => ['nullable', 'integer', 'min:1'],
-            'warranty_eligible' => ['boolean'],
-            'active' => ['boolean'],
+   public function storeService(Request $request)
+{
+    $data = $request->validate([
+        'code' => ['required', 'string', 'max:50'],
+        'name' => ['required', 'string', 'max:255'],
+        'name_ar' => ['nullable', 'string', 'max:255'],
+        'description' => ['nullable', 'string'],
+        'item_type' => ['nullable', Rule::in(['service', 'product'])],
+        'unit' => ['nullable', 'string', 'max:30'],
+        'has_fixed_price' => ['boolean'],
+        'selling_price' => ['nullable', 'numeric', 'min:0'],
+        'estimated_cost' => ['nullable', 'numeric', 'min:0'],
+        'small_vehicle_quantity' => ['nullable', 'numeric', 'min:0.001'],
+        'large_vehicle_quantity' => ['nullable', 'numeric', 'min:0.001'],
+        'small_vehicle_price' => ['nullable', 'numeric', 'min:0'],
+        'large_vehicle_price' => ['nullable', 'numeric', 'min:0'],
+        'stock_quantity' => ['nullable', 'numeric', 'min:0'],
+        'estimated_minutes' => ['nullable', 'integer', 'min:1'],
+        'warranty_eligible' => ['boolean'],
+        'active' => ['boolean'],
+    ]);
+
+    $data['active'] = $request->boolean('active', true);
+    $data['item_type'] = $data['item_type'] ?? 'service';
+
+    if ($data['item_type'] === 'product') {
+        $data['unit'] = AutomotiveStockService::UNIT;
+        $data['stock_quantity'] = $data['stock_quantity'] ?? 0;
+    } else {
+        $data['stock_quantity'] = 0;
+    }
+
+    $data = $this->applyPricingMode($data, $request, null);
+
+    $service = DB::transaction(function () use ($data) {
+        $service = AutomotiveService::create($data);
+
+        $product = Product::create([
+            'name' => $service->name,
+            'description' => $service->description,
+            'sku' => 'AUTO-' . $service->code,
+            'price' => $this->resolveProductPrice($service),
+            'cost' => $service->estimated_cost,
+            'stock' => $this->productStockValue($service),
+            'active' => $service->active ?? true,
         ]);
 
-        $data['active'] = $request->boolean('active', true);
-        $data['item_type'] = $data['item_type'] ?? 'service';
+        $service->update(['product_id' => $product->id]);
+        $service = $service->fresh();
 
-        if ($data['item_type'] === 'product') {
-            $data['unit'] = AutomotiveStockService::UNIT;           // المنتجات دائماً بالمتر
-            $data['stock_quantity'] = $data['stock_quantity'] ?? 0; // الرصيد الافتتاحي بالمتر
-        } else {
-            $data['stock_quantity'] = 0;                            // الخدمات لا مخزون لها
+        // ✅✅✅ اربط المنتج بالمخزن الرئيسي (أول مخزن في الـ tenant)
+        if ($service->item_type === 'product') {
+            $mainWarehouseId = DB::table('warehouses')
+                ->where('tenant_id', $service->tenant_id)
+                ->whereNull('deleted_at')
+                ->orderBy('id')
+                ->value('id');
+
+            if ($mainWarehouseId) {
+                DB::table('product_warehouse')->updateOrInsert(
+                    [
+                        'product_id'   => $product->id,
+                        'warehouse_id' => $mainWarehouseId,
+                    ],
+                    [
+                        'stock'      => (float) $service->stock_quantity,
+                        'tenant_id'  => $service->tenant_id,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]
+                );
+            }
         }
 
-        // منتج → سعر ثابت | خدمة بسعر > 0 → ثابت | خدمة بدون سعر → يدوي في POS
-        $data = $this->applyPricingMode($data, $request, null);
-
-        $service = DB::transaction(function () use ($data) {
-            $service = AutomotiveService::create($data);
-
-            $product = Product::create([
-                'name' => $service->name,
-                'description' => $service->description,
-                'sku' => 'AUTO-' . $service->code,
-                'price' => $this->resolveProductPrice($service),
-                'cost' => $service->estimated_cost,
-                'stock' => $this->productStockValue($service),
-                'active' => $service->active ?? true,
+        if ($service->item_type === 'product' && (float) $service->stock_quantity > 0) {
+            $this->stock()->log($service, 'initial', (float) $service->stock_quantity, [
+                'unit_cost' => (float) $service->estimated_cost,
+                'note' => 'رصيد افتتاحي (بالمتر)',
             ]);
+        }
 
-            $service->update(['product_id' => $product->id]);
-            $service = $service->fresh();
+        return $service->load('product');
+    });
 
-            if ($service->item_type === 'product' && (float) $service->stock_quantity > 0) {
-                $this->stock()->log($service, 'initial', (float) $service->stock_quantity, [
-                    'unit_cost' => (float) $service->estimated_cost,
-                    'note' => 'رصيد افتتاحي (بالمتر)',
-                ]);
-            }
-
-            return $service->load('product');
-        });
-
-        return response()->json(['status' => true, 'data' => $service], 201);
-    }
+    return response()->json(['status' => true, 'data' => $service], 201);
+}
 
     public function updateService(Request $request, AutomotiveService $service)
     {

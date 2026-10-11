@@ -167,8 +167,8 @@ public function store(Request $request)
 {
     $request->validate([
         'customer_id' => 'nullable|exists:customers,id',
-        'items.*.product_name' => 'nullable|string|max:255',
         'items' => 'required|array|min:1',
+        'items.*.product_name' => 'nullable|string|max:255',
         'items.*.product_id' => 'nullable|exists:products,id',
         'items.*.automotive_service_id' => 'nullable|exists:automotive_services,id',
         'items.*.item_type' => 'nullable|in:product,service',
@@ -187,10 +187,8 @@ public function store(Request $request)
         'items.*.meter_quantity' => 'nullable|numeric|min:0.001',
         'items.*.product_unit_id' => 'nullable|integer|exists:product_units,id',
         'items.*.color_id' => 'nullable|integer|exists:colors,id',
-        'items.*.product_name' => 'nullable|string|max:255',
     ]);
 
-    // ✅ إصلاح العميل الافتراضي — داخل نفس الـ tenant
     if (!$request->filled('customer_id')) {
         $tenantId = $request->user()?->tenant_id
             ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
@@ -199,8 +197,8 @@ public function store(Request $request)
             ->where('tenant_id', $tenantId)
             ->where(function ($q) {
                 $q->where('is_default', true)
-                  ->orWhere('name', 'عميل نقدي')
-                  ->orWhere('name', 'Cash Customer');
+                    ->orWhere('name', 'عميل نقدي')
+                    ->orWhere('name', 'Cash Customer');
             })
             ->first();
 
@@ -244,7 +242,6 @@ public function store(Request $request)
     try {
         $user = auth()->user();
 
-        // ✅ جلب وردية المستخدم الحالي
         $shift = CashierShift::where('status', 'open')
             ->where(function ($q) use ($user) {
                 if ($user instanceof Admin) {
@@ -291,18 +288,12 @@ public function store(Request $request)
         $branchId = (int) ($employee?->branch_id ?? $request->input('branch_id') ?? $treasury->branch_id ?? 0);
         $tenantId = $user?->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
 
-        // ✅ حساب المجاميع
         $pricing = app(PosInvoicePricingService::class)->calculate(
             $request->input('items', []),
             (float) ($request->input('discount_percentage') ?? 0),
             $isComplimentary,
             (float) ($request->input('extra_charge') ?? 0),
         );
-        $total = $pricing['gross_total'];
-        $itemDiscountTotal = $pricing['item_discount_total'];
-        $afterItemDiscounts = $pricing['after_item_discounts'];
-        $invoiceDiscountPercentage = $pricing['invoice_discount_percentage'];
-        $invoiceDiscountAmount = $pricing['invoice_discount_amount'];
         $totalDiscountAmount = $pricing['total_discount_amount'];
         $effectiveDiscountPercentage = $pricing['effective_discount_percentage'];
 
@@ -333,7 +324,6 @@ public function store(Request $request)
         $cardPaid = collect($payments)->where('method', 'card')->sum('amount');
         $walletPaid = collect($payments)->where('method', 'wallet')->sum('amount');
 
-        // ✅ إنشاء الفاتورة
         $representative = $request->filled('sales_representative_id')
             ? SalesRepresentative::query()->find($request->integer('sales_representative_id'))
             : null;
@@ -364,14 +354,10 @@ public function store(Request $request)
             'status'           => $paid >= $netTotal ? 'paid' : ($paid > 0 ? 'partial' : 'unpaid'),
         ]);
 
-        // ============================================================
-        // ✅ إضافة العناصر — دعم الخدمات والمنتجات
-        // ============================================================
         foreach ($request->items as $item) {
-            $itemType = $item['item_type'] ?? 'product';
             $automotiveServiceId = $item['automotive_service_id'] ?? null;
+            $itemType = $item['item_type'] ?? ($automotiveServiceId ? 'service' : 'product');
 
-            // ✅ لو service و مفيش automotive_service_id → استخرجه من product_id
             if ($itemType === 'service' && !$automotiveServiceId && !empty($item['product_id'])) {
                 $serviceFromProduct = \App\Models\AutomotiveService::query()
                     ->where('tenant_id', $tenantId)
@@ -382,9 +368,7 @@ public function store(Request $request)
                 }
             }
 
-            // ═══════════════════════════════════════════════════════
-            // ✅ حالة 1: خدمة أوتوموتيف
-            // ═══════════════════════════════════════════════════════
+            // ═══════════ حالة 1: خدمة أوتوموتيف ═══════════
             if ($itemType === 'service' && $automotiveServiceId) {
                 $service = \App\Models\AutomotiveService::query()
                     ->where('tenant_id', $tenantId)
@@ -395,18 +379,33 @@ public function store(Request $request)
                     DB::rollBack();
                     return response()->json([
                         'status'  => false,
-                        'message' => "الخدمة ID {$automotiveServiceId} غير موجودة في مساحة العمل الحالية."
+                        'message' => "الخدمة ID {$automotiveServiceId} غير موجودة."
                     ], 400);
                 }
 
-                // ✅ حساب الأمتار المطلوبة
                 $meterPerCar = (float) ($item['meter_quantity'] ?? 1);
                 $carsCount   = (float) $item['quantity'];
                 $totalMeters = $meterPerCar * $carsCount;
+                $tracksMeters = $totalMeters > 0 && $service->item_type === 'product';
 
-                // ✅ التحقق من مخزون الخدمة
-                if ($service->item_type === 'product' && $totalMeters > 0) {
-                    $availableStock = (float) $service->stock_quantity;
+                $productRow = null;
+                if ($tracksMeters && $service->product_id) {
+                    $productRow = DB::table('products')
+                        ->where('id', $service->product_id)
+                        ->lockForUpdate()
+                        ->first(['id', 'name', 'stock']);
+
+                    if (!$productRow) {
+                        DB::rollBack();
+                        return response()->json([
+                            'status'  => false,
+                            'message' => "المنتج المرتبط بالخدمة '{$service->name}' غير موجود."
+                        ], 400);
+                    }
+                }
+
+                if ($tracksMeters) {
+                    $availableStock = $productRow ? (float) $productRow->stock : (float) $service->stock_quantity;
                     if ($availableStock < $totalMeters) {
                         DB::rollBack();
                         return response()->json([
@@ -416,7 +415,6 @@ public function store(Request $request)
                     }
                 }
 
-                // ✅ إنشاء بند الفاتورة كخدمة
                 $invoice->items()->create([
                     'product_id'            => null,
                     'automotive_service_id' => $service->id,
@@ -432,65 +430,97 @@ public function store(Request $request)
                     'discount_amount'       => round(((float) $item['price'] * $carsCount) * (float) ($item['discount_percentage'] ?? 0) / 100, 2),
                 ]);
 
-                // ✅ خصم الأمتار من مخزون الخدمة
-                if ($service->item_type === 'product' && $totalMeters > 0) {
-                    $service->decrement('stock_quantity', $totalMeters);
+                if ($tracksMeters) {
+                    $stockBefore = $productRow ? (float) $productRow->stock : (float) $service->stock_quantity;
+                    $stockAfter  = round($stockBefore - $totalMeters, 3);
 
-                    if ($service->product_id) {
-                        $product = Product::query()
-                            ->where('tenant_id', $tenantId)
+                    if ($productRow) {
+                        // 1) مخازن الفرع
+                        $warehouseStocks = DB::table('product_warehouse')
+                            ->join('warehouses', 'warehouses.id', '=', 'product_warehouse.warehouse_id')
+                            ->where('product_warehouse.product_id', $productRow->id)
+                            ->where('warehouses.branch_id', $branchId)
+                            ->where('warehouses.tenant_id', $tenantId)
+                            ->whereNull('warehouses.deleted_at')
+                            ->orderBy('warehouses.id')
                             ->lockForUpdate()
-                            ->find($service->product_id);
+                            ->get(['product_warehouse.warehouse_id', 'product_warehouse.stock']);
 
-                        if ($product) {
+                        // 2) fallback: كل مخازن الـ tenant
+                        if ($warehouseStocks->isEmpty()) {
                             $warehouseStocks = DB::table('product_warehouse')
                                 ->join('warehouses', 'warehouses.id', '=', 'product_warehouse.warehouse_id')
-                                ->where('product_warehouse.product_id', $product->id)
-                                ->where('warehouses.branch_id', $branchId)
+                                ->where('product_warehouse.product_id', $productRow->id)
                                 ->where('warehouses.tenant_id', $tenantId)
                                 ->whereNull('warehouses.deleted_at')
                                 ->orderBy('warehouses.id')
                                 ->lockForUpdate()
                                 ->get(['product_warehouse.warehouse_id', 'product_warehouse.stock']);
+                        }
 
-                            $remainingStock = $totalMeters;
-                            foreach ($warehouseStocks as $warehouseStock) {
-                                $qty = min($remainingStock, (float) $warehouseStock->stock);
-                                if ($qty <= 0) continue;
+                        // 3) fallback: اعمل صف جديد
+                        if ($warehouseStocks->isEmpty()) {
+                            $mainWarehouseId = DB::table('warehouses')
+                                ->where('tenant_id', $tenantId)
+                                ->whereNull('deleted_at')
+                                ->orderBy('id')
+                                ->value('id');
 
-                                app(\App\Services\InventoryMovementService::class)->apply([
-                                    'product_id'          => $product->id,
-                                    'branch_id'           => $branchId,
-                                    'warehouse_id'        => (int) $warehouseStock->warehouse_id,
-                                    'track_variant_stock' => false,
-                                    'movement_type'       => 'sale',
-                                    'quantity_delta'      => -$qty,
-                                    'reference_type'      => Invoice::class,
-                                    'reference_id'        => $invoice->id,
-                                    'unit_cost'           => (float) ($service->estimated_cost ?? 0),
-                                    'notes'               => "POS service sale {$invoice->invoice_number} - {$qty} meters",
+                            if ($mainWarehouseId) {
+                                DB::table('product_warehouse')->insert([
+                                    'product_id'   => $productRow->id,
+                                    'warehouse_id' => $mainWarehouseId,
+                                    'stock'        => $stockBefore,
+                                    'tenant_id'    => $tenantId,
+                                    'created_at'   => now(),
+                                    'updated_at'   => now(),
                                 ]);
 
-                                $remainingStock -= $qty;
-                                if ($remainingStock <= 0) break;
+                                $warehouseStocks = collect([
+                                    (object) ['warehouse_id' => $mainWarehouseId, 'stock' => $stockBefore]
+                                ]);
                             }
                         }
+
+                        // 4) اخصم
+                        $remaining = $totalMeters;
+                        foreach ($warehouseStocks as $ws) {
+                            $qty = min($remaining, (float) $ws->stock);
+                            if ($qty <= 0) continue;
+
+                            DB::table('product_warehouse')
+                                ->where('product_id', $productRow->id)
+                                ->where('warehouse_id', (int) $ws->warehouse_id)
+                                ->decrement('stock', $qty);
+
+                            $remaining -= $qty;
+                            if ($remaining <= 0) break;
+                        }
+
+                        // 5) الرقم النهائي
+                        DB::table('products')->where('id', $productRow->id)->update(['stock' => $stockAfter]);
                     }
+
+                    // 6) مرآة + سجل
+                    $service->update(['stock_quantity' => $stockAfter]);
+                    app(\App\Services\AutomotiveStockService::class)->log($service, 'sale', -$totalMeters, [
+                        'reference_type' => 'pos_invoice',
+                        'reference_id'   => $invoice->id,
+                        'note'           => "فاتورة POS {$invoice->invoice_number} - {$totalMeters} متر",
+                    ]);
                 }
-                continue;  // ← تخطى باقي الكود
+                continue;
             }
 
-            // ═══════════════════════════════════════════════════════
-            // ✅ حالة 2: منتج عادي
-            // ═══════════════════════════════════════════════════════
-           if (empty($item['product_id'])) {
-    DB::rollBack();
-    $itemName = $item['product_name'] ?? $item['name'] ?? 'غير معروف';
-    return response()->json([
-        'status' => false,
-        'message' => "البند '{$itemName}' ليس له product_id ولا automotive_service_id."
-    ], 400);
-}
+            // ═══════════ حالة 2: منتج عادي ═══════════
+            if (empty($item['product_id'])) {
+                DB::rollBack();
+                $itemName = $item['product_name'] ?? $item['name'] ?? 'غير معروف';
+                return response()->json([
+                    'status' => false,
+                    'message' => "البند '{$itemName}' ليس له product_id ولا automotive_service_id."
+                ], 400);
+            }
 
             $product = Product::query()
                 ->where('tenant_id', $tenantId)
@@ -501,7 +531,7 @@ public function store(Request $request)
                 DB::rollBack();
                 return response()->json([
                     'status' => false,
-                    'message' => "المنتج ID {$item['product_id']} غير موجود في مساحة العمل الحالية."
+                    'message' => "المنتج ID {$item['product_id']} غير موجود."
                 ], 400);
             }
 
@@ -522,7 +552,7 @@ public function store(Request $request)
                 DB::rollBack();
                 return response()->json([
                     'status' => false,
-                    'message' => "الكمية المتوفرة في مخازن الفرع للمنتج '{$product->name}' أقل من المطلوبة. المتاح: {$availableStock}، المطلوب: {$stockUsage}."
+                    'message' => "الكمية المتوفرة للمنتج '{$product->name}' أقل من المطلوبة. المتاح: {$availableStock}، المطلوب: {$stockUsage}."
                 ], 400);
             }
 
@@ -573,7 +603,6 @@ public function store(Request $request)
             }
         }
 
-        // ✅ إضافة المدفوعات
         foreach ($payments as $payment) {
             $invoice->payments()->create([
                 'method' => $payment['method'],
@@ -582,7 +611,6 @@ public function store(Request $request)
             ]);
         }
 
-        // ✅ إيداع المدفوعات النقدية في الخزينة
         if ($cashPaid > 0 && $treasuryId) {
             $treasury = Treasury::query()
                 ->withoutGlobalScope('branch')
@@ -601,22 +629,18 @@ public function store(Request $request)
             ]);
         }
 
-        // ✅ تحديث نقاط الولاء
         $loyaltySetting = LoyaltySetting::first();
         $pointsPerCurrency = (float) ($loyaltySetting?->points ?? 0);
         if ($loyaltySetting && $pointsPerCurrency > 0 && $request->customer_id) {
             $customer = Customer::find($request->customer_id);
             if ($customer) {
                 $earnedPoints = floor($paid / $pointsPerCurrency);
-                $oldPoints = $customer->point ?? 0;
-                $newPoints = $oldPoints + $earnedPoints;
-                $customer->point = $newPoints;
+                $customer->point = ($customer->point ?? 0) + $earnedPoints;
                 $customer->last_paid_amount = $paid;
                 $customer->save();
             }
         }
 
-        // ✅ تحديث مبيعات الوردية
         if ($shift) {
             $shift->update([
                 'cash_sales'   => ($shift->cash_sales ?? 0) + $cashPaid,
@@ -641,26 +665,18 @@ public function store(Request $request)
             'message' => 'Invoice created successfully',
             'data'    => new InvoiceResource(
                 $invoice->fresh([
-                    'items',
-                    'payments',
-                    'customer',
-                    'branch',
-                    'shift',
-                    'salesRepresentative',
-                    'cashier',
-                    'treasury'
+                    'items', 'payments', 'customer', 'branch',
+                    'shift', 'salesRepresentative', 'cashier', 'treasury'
                 ])
             )
         ], 201);
 
     } catch (\Exception $e) {
         DB::rollBack();
-
         Log::error('❌ Invoice Store Error: ' . $e->getMessage(), [
             'trace' => $e->getTraceAsString(),
             'request' => $request->all()
         ]);
-
         return response()->json([
             'status'  => false,
             'message' => 'حدث خطأ أثناء إنشاء الفاتورة: ' . $e->getMessage(),
