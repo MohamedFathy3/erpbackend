@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\AutomotiveService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Schema;
 
@@ -41,7 +42,32 @@ class PurchaseInvoiceRequest extends FormRequest
 
             'items' => 'required|array|min:1',
 
-            'items.*.product_id' => 'required|exists:products,id',
+            // ✅ التحقق من أن المنتج مش خدمة (زي غسيل السيارة)
+            'items.*.product_id' => [
+                'required',
+                'exists:products,id',
+                function ($attribute, $value, $fail) {
+                    // نتحقق إن المنتج مش مرتبط بخدمة من نوع service
+                    $isService = AutomotiveService::query()
+                        ->where('product_id', $value)
+                        ->where('item_type', 'service')
+                        ->exists();
+
+                    if ($isService) {
+                        // نجيب اسم المنتج عشان الرسالة تكون أوضح
+                        $productName = \App\Models\Product::query()
+                            ->where('id', $value)
+                            ->value('name');
+
+                        $fail(
+                            $productName
+                                ? "المنتج \"{$productName}\" خدمة ولا يمكن إضافته إلى فاتورة مشتريات."
+                                : 'لا يمكن إضافة خدمة إلى فاتورة مشتريات.'
+                        );
+                    }
+                },
+            ],
+
             'items.*.quantity' => 'required|numeric|min:1',
             'items.*.price' => 'required|numeric|min:0',
             'items.*.discount' => 'nullable|numeric|min:0|max:100',
@@ -66,6 +92,8 @@ class PurchaseInvoiceRequest extends FormRequest
             'items.*.discount.max' => 'نسبة الخصم لا تتجاوز 100%',
             'items.*.quantity.min' => 'الكمية يجب أن تكون 1 على الأقل',
             'items.*.unit_id.exists' => 'الوحدة المحددة غير موجودة. اترك الوحدة فارغة لاستخدام وحدة المنتج الأساسية.',
+            'items.*.product_id.required' => 'يجب اختيار منتج لكل بند.',
+            'items.*.product_id.exists' => 'المنتج المحدد غير موجود.',
         ];
     }
 }

@@ -837,7 +837,9 @@ Route::middleware([
         ProductController::class,
         'toggle'
     ]);
-
+Route::get('/products/purchasable', [ProductController::class, 'purchasable'])
+    ->name('products.purchasable');
+    
     Route::delete('product/force-delete', [
         ProductController::class,
         'forceDelete'

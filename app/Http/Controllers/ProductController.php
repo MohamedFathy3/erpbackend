@@ -32,6 +32,98 @@ class ProductController extends BaseController
         $this->crudRepository = $pattern;
     }
 
+
+/**
+ * المنتجات القابلة للشراء فقط (بدون الخدمات).
+ * تُستخدم في شاشات المشتريات.
+ */
+public function purchasable(Request $request)
+{
+    try {
+        $query = Product::query()
+            ->purchasable() // ✅ استبعاد الخدمات
+            ->with(['units', 'media', 'category']);
+
+        // البحث جاي من filters.name (زي باقي الـ endpoints)
+        $filters = $request->input('filters', []);
+        if (!empty($filters['name'])) {
+            $name = trim((string) $filters['name']);
+            $hasArabicNameColumn = Schema::hasColumn('products', 'name_ar');
+            $query->where(function ($q) use ($name, $hasArabicNameColumn) {
+                $q->where('name', 'LIKE', '%' . $name . '%');
+                if ($hasArabicNameColumn) {
+                    $q->orWhere('name_ar', 'LIKE', '%' . $name . '%');
+                }
+            });
+        }
+
+        if (!empty($filters['sku'])) {
+            $query->where('sku', 'LIKE', '%' . trim((string) $filters['sku']) . '%');
+        }
+
+        if (!empty($filters['barcode'])) {
+            $barcode = trim((string) $filters['barcode']);
+            $query->where(function ($q) use ($barcode) {
+                $q->where('barcode', 'LIKE', '%' . $barcode . '%')
+                  ->orWhereHas('units', function ($unitQuery) use ($barcode) {
+                      $unitQuery->where('barcode', 'LIKE', '%' . $barcode . '%');
+                  });
+            });
+        }
+
+        if (array_key_exists('active', $filters)) {
+            $query->where('active', filter_var($filters['active'], FILTER_VALIDATE_BOOLEAN));
+        } else {
+            $query->where('active', true);
+        }
+
+        // فلترة بالفرع
+        if ($branchId = $request->input('filters.branch_id')) {
+            $query->where('branch_id', (int) $branchId);
+        }
+
+        $orderBy = $request->input('orderBy', 'name');
+        $direction = strtolower($request->input('orderByDirection', 'asc')) === 'desc' ? 'desc' : 'asc';
+        $query->orderBy($orderBy, $direction);
+
+        // pagination
+        if ($request->boolean('paginate', false)) {
+            $perPage = (int) $request->input('perPage', 50);
+            $products = $query->paginate($perPage);
+
+            return response()->json([
+                'data'   => \App\Http\Resources\ProductResource::collection($products->items()),
+                'meta'   => [
+                    'current_page' => $products->currentPage(),
+                    'last_page'    => $products->lastPage(),
+                    'per_page'     => $products->perPage(),
+                    'total'        => $products->total(),
+                ],
+                'result'  => 'Success',
+                'message' => 'Purchasable products fetched successfully',
+                'status'  => 200,
+            ]);
+        }
+
+        $products = $query->get();
+
+        return response()->json([
+            'data'    => \App\Http\Resources\ProductResource::collection($products),
+            'result'  => 'Success',
+            'message' => 'Purchasable products fetched successfully',
+            'status'  => 200,
+        ]);
+
+    } catch (\Throwable $e) {
+        return response()->json([
+            'result'  => 'Error',
+            'message' => $e->getMessage(),
+            'status'  => 500,
+        ], 500);
+    }
+}
+
+
   public function index(Request $request)
 {
     try {
