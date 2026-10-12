@@ -13,7 +13,7 @@ class AutomotiveVehicle extends BaseModel
     protected $casts = [
         'model_year' => 'integer',
         'current_mileage' => 'decimal:2',
-    ];
+];
 
     public function customer(): BelongsTo { return $this->belongsTo(Customer::class); }
     public function serviceOrders(): HasMany { return $this->hasMany(AutomotiveServiceOrder::class, 'vehicle_id'); }

@@ -11,6 +11,9 @@ class AutomotiveService extends BaseModel
 
     protected $casts = [
         'selling_price' => 'decimal:2',
+        // أحجام السيارات: [{ name, meters, price }, ...]
+        'vehicle_sizes' => 'array',
+        // أعمدة قديمة (صغير/كبير) - لم تعد مستخدمة، محفوظة للتوافق فقط
         'small_vehicle_quantity' => 'decimal:3',
         'large_vehicle_quantity' => 'decimal:3',
         'small_vehicle_price' => 'decimal:2',
@@ -39,16 +42,18 @@ class AutomotiveService extends BaseModel
     {
         return $this->hasMany(AutomotiveServiceOrderItem::class, 'service_id');
     }
-public function getStockQuantityAttribute($value)
-{
-    if ($this->item_type === 'product' && $this->product_id) {
-        $stock = \DB::table('products')->where('id', $this->product_id)->value('stock');
-        if ($stock !== null) {
-            return round((float) $stock, 3);
+
+    public function getStockQuantityAttribute($value)
+    {
+        if ($this->item_type === 'product' && $this->product_id) {
+            $stock = \DB::table('products')->where('id', $this->product_id)->value('stock');
+            if ($stock !== null) {
+                return round((float) $stock, 3);
+            }
         }
+        return $value;
     }
-    return $value;
-}
+
     public function stockMovements(): HasMany
     {
         return $this->hasMany(AutomotiveStockMovement::class, 'service_id');

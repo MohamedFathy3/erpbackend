@@ -16,6 +16,7 @@ use App\Models\Employee;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class AutomotiveController extends BaseController
 {
@@ -71,24 +72,25 @@ class AutomotiveController extends BaseController
         return response()->json(['status' => true, 'data' => $vehicle->fresh()->load('customer')]);
     }
 
-public function services(Request $request)
-{
-    $query = AutomotiveService::with('product')->latest();
+    public function services(Request $request)
+    {
+        $query = AutomotiveService::with('product')->latest();
 
-    // ✅ تجاهل الخدمات اليتيمة (منتجها مش موجود)
-    $query->where(function ($q) {
-        $q->where('item_type', 'service')
-          ->orWhereHas('product');
-    });
+        // تجاهل الخدمات اليتيمة (منتجها مش موجود)
+        $query->where(function ($q) {
+            $q->where('item_type', 'service')
+              ->orWhereHas('product');
+        });
 
-    if ($request->has('active')) $query->where('active', $request->boolean('active'));
-    if ($request->filled('search')) {
-        $query->where(fn ($q) => $q->where('name', 'like', '%' . $request->string('search') . '%')
-            ->orWhere('code', 'like', '%' . $request->string('search') . '%'));
+        if ($request->has('active')) $query->where('active', $request->boolean('active'));
+        if ($request->filled('search')) {
+            $query->where(fn ($q) => $q->where('name', 'like', '%' . $request->string('search') . '%')
+                ->orWhere('code', 'like', '%' . $request->string('search') . '%'));
+        }
+
+        return response()->json(['status' => true, 'data' => $query->paginate($request->integer('per_page', 25))]);
     }
 
-    return response()->json(['status' => true, 'data' => $query->paginate($request->integer('per_page', 25))]);
-}
     private function stock(): AutomotiveStockService
     {
         return app(AutomotiveStockService::class);
@@ -102,96 +104,151 @@ public function services(Request $request)
             : 999999;
     }
 
-   public function storeService(Request $request)
-{
-    $data = $request->validate([
-        'code' => ['required', 'string', 'max:50'],
-        'name' => ['required', 'string', 'max:255'],
-        'name_ar' => ['nullable', 'string', 'max:255'],
-        'description' => ['nullable', 'string'],
-        'item_type' => ['nullable', Rule::in(['service', 'product'])],
-        'unit' => ['nullable', 'string', 'max:30'],
-        'has_fixed_price' => ['boolean'],
-        'selling_price' => ['nullable', 'numeric', 'min:0'],
-        'estimated_cost' => ['nullable', 'numeric', 'min:0'],
-        'small_vehicle_quantity' => ['nullable', 'numeric', 'min:0.001'],
-        'large_vehicle_quantity' => ['nullable', 'numeric', 'min:0.001'],
-        'small_vehicle_price' => ['nullable', 'numeric', 'min:0'],
-        'large_vehicle_price' => ['nullable', 'numeric', 'min:0'],
-        'stock_quantity' => ['nullable', 'numeric', 'min:0'],
-        'estimated_minutes' => ['nullable', 'integer', 'min:1'],
-        'warranty_eligible' => ['boolean'],
-        'active' => ['boolean'],
-    ]);
-
-    $data['active'] = $request->boolean('active', true);
-    $data['item_type'] = $data['item_type'] ?? 'service';
-
-    if ($data['item_type'] === 'product') {
-        $data['unit'] = AutomotiveStockService::UNIT;
-        $data['stock_quantity'] = $data['stock_quantity'] ?? 0;
-    } else {
-        $data['stock_quantity'] = 0;
+    /** قواعد التحقق المشتركة لأحجام السيارات (Array: name + meters + price). */
+    private function vehicleSizesRules(): array
+    {
+        return [
+            'vehicle_sizes' => ['nullable', 'array', 'max:30'],
+            'vehicle_sizes.*.name' => ['required', 'string', 'max:100'],
+            'vehicle_sizes.*.meters' => ['required', 'numeric', 'min:0.001'],
+            'vehicle_sizes.*.price' => ['nullable', 'numeric', 'min:0'],
+        ];
     }
 
-    $data = $this->applyPricingMode($data, $request, null);
+    /**
+     * تنظيف أحجام السيارات وحساب السعر تلقائياً لو لم يُرسل:
+     *   السعر = عدد الأمتار × سعر بيع المتر
+     * الخدمات (غير المنتجات) لا تحمل أحجاماً.
+     */
+    private function normalizeVehicleSizes(array $data, string $itemType, float $pricePerMeter): array
+    {
+        if ($itemType !== 'product') {
+            $data['vehicle_sizes'] = null;
+            return $data;
+        }
 
-    $service = DB::transaction(function () use ($data) {
-        $service = AutomotiveService::create($data);
+        // لم تُرسل في الطلب => لا نغيّر المحفوظ
+        if (!array_key_exists('vehicle_sizes', $data)) {
+            return $data;
+        }
 
-        $product = Product::create([
-            'name' => $service->name,
-            'description' => $service->description,
-            'sku' => 'AUTO-' . $service->code,
-            'price' => $this->resolveProductPrice($service),
-            'cost' => $service->estimated_cost,
-            'stock' => $this->productStockValue($service),
-            'active' => $service->active ?? true,
-        ]);
-
-        $service->update(['product_id' => $product->id]);
-        $service = $service->fresh();
-
-        // ✅✅✅ اربط المنتج بالمخزن الرئيسي (أول مخزن في الـ tenant)
-        if ($service->item_type === 'product') {
-            $mainWarehouseId = DB::table('warehouses')
-                ->where('tenant_id', $service->tenant_id)
-                ->whereNull('deleted_at')
-                ->orderBy('id')
-                ->value('id');
-
-            if ($mainWarehouseId) {
-                DB::table('product_warehouse')->updateOrInsert(
-                    [
-                        'product_id'   => $product->id,
-                        'warehouse_id' => $mainWarehouseId,
-                    ],
-                    [
-                        'stock'      => (float) $service->stock_quantity,
-                        'tenant_id'  => $service->tenant_id,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]
-                );
+        $names = [];
+        $sizes = [];
+        foreach ($data['vehicle_sizes'] ?? [] as $size) {
+            $name = trim((string) $size['name']);
+            $key = mb_strtolower($name);
+            if (in_array($key, $names, true)) {
+                throw ValidationException::withMessages(['vehicle_sizes' => "اسم الحجم \"{$name}\" مكرر."]);
             }
+            $names[] = $key;
+
+            $meters = round((float) $size['meters'], 3);
+            $price = isset($size['price']) && $size['price'] !== ''
+                ? (float) $size['price']
+                : $meters * $pricePerMeter;
+
+            $sizes[] = ['name' => $name, 'meters' => $meters, 'price' => round($price, 2)];
         }
 
-        if ($service->item_type === 'product' && (float) $service->stock_quantity > 0) {
-            $this->stock()->log($service, 'initial', (float) $service->stock_quantity, [
-                'unit_cost' => (float) $service->estimated_cost,
-                'note' => 'رصيد افتتاحي (بالمتر)',
+        $data['vehicle_sizes'] = $sizes;
+        return $data;
+    }
+
+    public function storeService(Request $request)
+    {
+        $data = $request->validate(array_merge([
+            'code' => ['required', 'string', 'max:50'],
+            'name' => ['required', 'string', 'max:255'],
+            'name_ar' => ['nullable', 'string', 'max:255'],
+            'description' => ['nullable', 'string'],
+            'item_type' => ['nullable', Rule::in(['service', 'product'])],
+            'unit' => ['nullable', 'string', 'max:30'],
+            'has_fixed_price' => ['boolean'],
+            // للمنتج: سعر بيع المتر | للخدمة: السعر الثابت (اختياري)
+            'selling_price' => ['nullable', 'numeric', 'min:0'],
+            // للمنتج فقط: تكلفة المتر
+            'estimated_cost' => ['nullable', 'numeric', 'min:0'],
+            'stock_quantity' => ['nullable', 'numeric', 'min:0'],
+            'estimated_minutes' => ['nullable', 'integer', 'min:1'],
+            'warranty_eligible' => ['boolean'],
+            'active' => ['boolean'],
+        ], $this->vehicleSizesRules()));
+
+        $data['active'] = $request->boolean('active', true);
+        $data['item_type'] = $data['item_type'] ?? 'service';
+
+        if ($data['item_type'] === 'product') {
+            if ((float) ($data['selling_price'] ?? 0) <= 0) {
+                throw ValidationException::withMessages(['selling_price' => 'المنتج يتطلب سعر بيع المتر.']);
+            }
+            $data['unit'] = AutomotiveStockService::UNIT;
+            $data['stock_quantity'] = $data['stock_quantity'] ?? 0;
+            $data['estimated_cost'] = $data['estimated_cost'] ?? 0;
+        } else {
+            // الخدمة: بدون تكلفة وبدون مخزون وبدون أحجام
+            $data['stock_quantity'] = 0;
+            $data['estimated_cost'] = 0;
+        }
+
+        $data = $this->applyPricingMode($data, $request, null);
+        $data = $this->normalizeVehicleSizes($data, $data['item_type'], (float) ($data['selling_price'] ?? 0));
+
+        $service = DB::transaction(function () use ($data) {
+            $service = AutomotiveService::create($data);
+
+            $product = Product::create([
+                'name' => $service->name,
+                'description' => $service->description,
+                'sku' => 'AUTO-' . $service->code,
+                'price' => $this->resolveProductPrice($service),
+                'cost' => $service->estimated_cost,
+                'stock' => $this->productStockValue($service),
+                'active' => $service->active ?? true,
             ]);
-        }
 
-        return $service->load('product');
-    });
+            $service->update(['product_id' => $product->id]);
+            $service = $service->fresh();
 
-    return response()->json(['status' => true, 'data' => $service], 201);
-}
+            // اربط المنتج بالمخزن الرئيسي (أول مخزن في الـ tenant)
+            if ($service->item_type === 'product') {
+                $mainWarehouseId = DB::table('warehouses')
+                    ->where('tenant_id', $service->tenant_id)
+                    ->whereNull('deleted_at')
+                    ->orderBy('id')
+                    ->value('id');
+
+                if ($mainWarehouseId) {
+                    DB::table('product_warehouse')->updateOrInsert(
+                        [
+                            'product_id'   => $product->id,
+                            'warehouse_id' => $mainWarehouseId,
+                        ],
+                        [
+                            'stock'      => (float) $service->stock_quantity,
+                            'tenant_id'  => $service->tenant_id,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]
+                    );
+                }
+            }
+
+            if ($service->item_type === 'product' && (float) $service->stock_quantity > 0) {
+                $this->stock()->log($service, 'initial', (float) $service->stock_quantity, [
+                    'unit_cost' => (float) $service->estimated_cost,
+                    'note' => 'رصيد افتتاحي (بالمتر)',
+                ]);
+            }
+
+            return $service->load('product');
+        });
+
+        return response()->json(['status' => true, 'data' => $service], 201);
+    }
 
     public function updateService(Request $request, AutomotiveService $service)
     {
-        $data = $request->validate([
+        $data = $request->validate(array_merge([
             'code' => ['sometimes', 'string', 'max:50'],
             'name' => ['sometimes', 'string', 'max:255'],
             'name_ar' => ['nullable', 'string', 'max:255'],
@@ -201,15 +258,11 @@ public function services(Request $request)
             'has_fixed_price' => ['boolean'],
             'selling_price' => ['nullable', 'numeric', 'min:0'],
             'estimated_cost' => ['nullable', 'numeric', 'min:0'],
-            'small_vehicle_quantity' => ['nullable', 'numeric', 'min:0.001'],
-            'large_vehicle_quantity' => ['nullable', 'numeric', 'min:0.001'],
-            'small_vehicle_price' => ['nullable', 'numeric', 'min:0'],
-            'large_vehicle_price' => ['nullable', 'numeric', 'min:0'],
             'stock_quantity' => ['nullable', 'numeric', 'min:0'],
             'estimated_minutes' => ['nullable', 'integer', 'min:1'],
             'warranty_eligible' => ['boolean'],
             'active' => ['boolean'],
-        ]);
+        ], $this->vehicleSizesRules()));
 
         $oldStock = (float) $service->stock_quantity;
         $newType = $data['item_type'] ?? $service->item_type;
@@ -217,12 +270,21 @@ public function services(Request $request)
         if ($newType === 'product') {
             $data['unit'] = AutomotiveStockService::UNIT;
         } else {
+            // الخدمة: بدون مخزون وبدون تكلفة
             unset($data['stock_quantity']);
+            $data['estimated_cost'] = 0;
         }
 
         if ($request->hasAny(['selling_price', 'has_fixed_price', 'item_type'])) {
             $data = $this->applyPricingMode($data, $request, $service);
         }
+
+        $effectivePrice = (float) ($data['selling_price'] ?? $service->selling_price ?? 0);
+        if ($newType === 'product' && $effectivePrice <= 0) {
+            throw ValidationException::withMessages(['selling_price' => 'المنتج يتطلب سعر بيع المتر.']);
+        }
+
+        $data = $this->normalizeVehicleSizes($data, $newType, $effectivePrice);
 
         $service->update($data);
         $service->refresh();
@@ -314,8 +376,6 @@ public function services(Request $request)
 
         if (!$fixed) {
             $data['selling_price'] = 0;
-            $data['small_vehicle_price'] = null;
-            $data['large_vehicle_price'] = null;
         }
 
         return $data;
@@ -323,18 +383,23 @@ public function services(Request $request)
 
     /**
      * سعر المنتج المرتبط بالخدمة في POS (0 لو السعر يدوي).
+     * لو للمنتج أحجام: يُستخدم سعر أول حجم (الافتراضي)، وإلا سعر البيع.
      */
     private function resolveProductPrice(AutomotiveService $service): float
     {
         if (!$service->has_fixed_price) {
             return 0;
         }
-        foreach ([$service->small_vehicle_price, $service->selling_price] as $candidate) {
-            if ((float) $candidate > 0) {
-                return (float) $candidate;
+
+        $sizes = $service->vehicle_sizes;
+        if (is_array($sizes) && !empty($sizes)) {
+            $first = (float) ($sizes[0]['price'] ?? 0);
+            if ($first > 0) {
+                return $first;
             }
         }
-        return 0;
+
+        return (float) $service->selling_price > 0 ? (float) $service->selling_price : 0;
     }
 
     public function orders(Request $request)
@@ -493,7 +558,7 @@ public function services(Request $request)
             ->whereHas('items', fn ($query) => $query->where('item_type', 'service'))
             ->get();
 
-        // تكلفة بند POS: منتج بالمتر => تكلفة المتر × عدد السيارات × أمتار كل سيارة، وخدمة عادية => التكلفة × الكمية
+        // تكلفة بند POS: منتج بالمتر => تكلفة المتر × عدد السيارات × أمتار كل سيارة، وخدمة عادية => بدون تكلفة
         $posItemCost = function ($item): float {
             $service = $item->automotiveService;
             if (!$service) return 0.0;
