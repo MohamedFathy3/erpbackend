@@ -28,4 +28,5 @@ public function unit()
 {
     return $this->belongsTo(Unit::class, 'product_unit_id');
 }
+
 }
