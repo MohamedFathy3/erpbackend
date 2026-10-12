@@ -43,14 +43,23 @@ class AutomotiveService extends BaseModel
         return $this->hasMany(AutomotiveServiceOrderItem::class, 'service_id');
     }
 
+    /**
+     * الخدمة (غسيل مثلاً) لا مخزون لها دائماً = 0.
+     * المنتج بالمتر: الرصيد الحقيقي يُقرأ من جدول products.
+     */
     public function getStockQuantityAttribute($value)
     {
-        if ($this->item_type === 'product' && $this->product_id) {
+        if (($this->attributes['item_type'] ?? 'service') !== 'product') {
+            return 0;
+        }
+
+        if ($this->product_id) {
             $stock = \DB::table('products')->where('id', $this->product_id)->value('stock');
             if ($stock !== null) {
                 return round((float) $stock, 3);
             }
         }
+
         return $value;
     }
 

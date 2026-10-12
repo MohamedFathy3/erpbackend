@@ -96,12 +96,95 @@ class AutomotiveController extends BaseController
         return app(AutomotiveStockService::class);
     }
 
-    /** مخزون المنتج المرتبط: المنتجات بالمتر (كسور مسموحة)، والخدمات غير محدودة. */
-    private function productStockValue(AutomotiveService $service): float|int
+    /** مخزون المنتج المرتبط: المنتجات بالمتر (كسور مسموحة)، والخدمات لا مخزون لها (صفر). */
+    private function productStockValue(string $itemType, float $stock): float
     {
-        return $service->item_type === 'product'
-            ? round((float) ($service->stock_quantity ?? 0), 3)
-            : 999999;
+        return $itemType === 'product' ? round($stock, 3) : 0.0;
+    }
+
+    /** بيانات الـ Product المرتبط بالخدمة (تُستخدم في الإنشاء والتعديل). */
+    private function productAttributes(AutomotiveService $service, float $stock): array
+    {
+        return [
+            'name' => $service->name,
+            'description' => $service->description,
+            'price' => $this->resolveProductPrice($service),
+            'cost' => $service->item_type === 'product' ? (float) $service->estimated_cost : 0,
+            'stock' => $this->productStockValue((string) $service->item_type, $stock),
+            'active' => $service->active ?? true,
+        ];
+    }
+
+    /** أول مخزن للـ tenant (المخزن الرئيسي). */
+    private function mainWarehouseId($tenantId): ?int
+    {
+        $id = DB::table('warehouses')
+            ->where('tenant_id', $tenantId)
+            ->whereNull('deleted_at')
+            ->orderBy('id')
+            ->value('id');
+
+        return $id ? (int) $id : null;
+    }
+
+    /** زيادة/خصم أمتار من مخازن المنتج (delta موجب = زيادة، سالب = خصم). */
+    private function syncWarehouseStock(Product $product, AutomotiveService $service, float $delta): void
+    {
+        $tenantId = $service->tenant_id;
+
+        $rows = DB::table('product_warehouse')
+            ->join('warehouses', 'warehouses.id', '=', 'product_warehouse.warehouse_id')
+            ->where('product_warehouse.product_id', $product->id)
+            ->where('warehouses.tenant_id', $tenantId)
+            ->whereNull('warehouses.deleted_at')
+            ->orderBy('warehouses.id')
+            ->lockForUpdate()
+            ->get(['product_warehouse.warehouse_id', 'product_warehouse.stock']);
+
+        if ($delta > 0) {
+            if ($rows->isNotEmpty()) {
+                DB::table('product_warehouse')
+                    ->where('product_id', $product->id)
+                    ->where('warehouse_id', (int) $rows->first()->warehouse_id)
+                    ->increment('stock', $delta, ['updated_at' => now()]);
+                return;
+            }
+
+            $warehouseId = $this->mainWarehouseId($tenantId);
+            if ($warehouseId) {
+                DB::table('product_warehouse')->insert([
+                    'product_id' => $product->id,
+                    'warehouse_id' => $warehouseId,
+                    'stock' => $delta,
+                    'tenant_id' => $tenantId,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+            return;
+        }
+
+        $remaining = abs($delta);
+        foreach ($rows as $row) {
+            $qty = min($remaining, (float) $row->stock);
+            if ($qty <= 0) continue;
+
+            DB::table('product_warehouse')
+                ->where('product_id', $product->id)
+                ->where('warehouse_id', (int) $row->warehouse_id)
+                ->decrement('stock', $qty, ['updated_at' => now()]);
+
+            $remaining -= $qty;
+            if ($remaining <= 0) break;
+        }
+    }
+
+    /** تصفير مخزون المنتج في كل المخازن (عند تحويله إلى خدمة). */
+    private function zeroWarehouseStock(Product $product): void
+    {
+        DB::table('product_warehouse')
+            ->where('product_id', $product->id)
+            ->update(['stock' => 0, 'updated_at' => now()]);
     }
 
     /** قواعد التحقق المشتركة لأحجام السيارات (Array: name + meters + price). */
@@ -194,28 +277,21 @@ class AutomotiveController extends BaseController
         $data = $this->normalizeVehicleSizes($data, $data['item_type'], (float) ($data['selling_price'] ?? 0));
 
         $service = DB::transaction(function () use ($data) {
+            $initialStock = $data['item_type'] === 'product' ? (float) ($data['stock_quantity'] ?? 0) : 0.0;
+
             $service = AutomotiveService::create($data);
 
-            $product = Product::create([
-                'name' => $service->name,
-                'description' => $service->description,
-                'sku' => 'AUTO-' . $service->code,
-                'price' => $this->resolveProductPrice($service),
-                'cost' => $service->estimated_cost,
-                'stock' => $this->productStockValue($service),
-                'active' => $service->active ?? true,
-            ]);
+            $product = Product::create(array_merge(
+                ['sku' => 'AUTO-' . $service->code],
+                $this->productAttributes($service, $initialStock)
+            ));
 
             $service->update(['product_id' => $product->id]);
             $service = $service->fresh();
 
-            // اربط المنتج بالمخزن الرئيسي (أول مخزن في الـ tenant)
+            // المنتج بالمتر فقط يُربط بالمخزن الرئيسي، الخدمة لا مخزون لها
             if ($service->item_type === 'product') {
-                $mainWarehouseId = DB::table('warehouses')
-                    ->where('tenant_id', $service->tenant_id)
-                    ->whereNull('deleted_at')
-                    ->orderBy('id')
-                    ->value('id');
+                $mainWarehouseId = $this->mainWarehouseId($service->tenant_id);
 
                 if ($mainWarehouseId) {
                     DB::table('product_warehouse')->updateOrInsert(
@@ -224,20 +300,20 @@ class AutomotiveController extends BaseController
                             'warehouse_id' => $mainWarehouseId,
                         ],
                         [
-                            'stock'      => (float) $service->stock_quantity,
+                            'stock'      => $initialStock,
                             'tenant_id'  => $service->tenant_id,
                             'created_at' => now(),
                             'updated_at' => now(),
                         ]
                     );
                 }
-            }
 
-            if ($service->item_type === 'product' && (float) $service->stock_quantity > 0) {
-                $this->stock()->log($service, 'initial', (float) $service->stock_quantity, [
-                    'unit_cost' => (float) $service->estimated_cost,
-                    'note' => 'رصيد افتتاحي (بالمتر)',
-                ]);
+                if ($initialStock > 0) {
+                    $this->stock()->log($service, 'initial', $initialStock, [
+                        'unit_cost' => (float) $service->estimated_cost,
+                        'note' => 'رصيد افتتاحي (بالمتر)',
+                    ]);
+                }
             }
 
             return $service->load('product');
@@ -264,15 +340,31 @@ class AutomotiveController extends BaseController
             'active' => ['boolean'],
         ], $this->vehicleSizesRules()));
 
-        $oldStock = (float) $service->stock_quantity;
-        $newType = $data['item_type'] ?? $service->item_type;
+        $oldType = (string) ($service->item_type ?: 'service');
+        $newType = (string) ($data['item_type'] ?? $oldType);
+        $converted = $oldType !== $newType;
+
+        // الرصيد الحالي الحقيقي: للمنتج يُقرأ من جدول products، والخدمة رصيدها صفر
+        $oldStock = $oldType === 'product' ? round((float) $service->stock_quantity, 3) : 0.0;
 
         if ($newType === 'product') {
             $data['unit'] = AutomotiveStockService::UNIT;
+            // لو لم يُرسل رصيد نُبقي الرصيد الحالي (أو صفر عند التحويل من خدمة)
+            $newStock = array_key_exists('stock_quantity', $data) && $data['stock_quantity'] !== null
+                ? round((float) $data['stock_quantity'], 3)
+                : $oldStock;
+            $data['stock_quantity'] = $newStock;
+            if (!array_key_exists('estimated_cost', $data) || $data['estimated_cost'] === null) {
+                $data['estimated_cost'] = $converted ? 0 : (float) $service->estimated_cost;
+            }
         } else {
             // الخدمة: بدون مخزون وبدون تكلفة
-            unset($data['stock_quantity']);
+            $newStock = 0.0;
+            $data['stock_quantity'] = 0;
             $data['estimated_cost'] = 0;
+            if ($converted) {
+                $data['unit'] = null;
+            }
         }
 
         if ($request->hasAny(['selling_price', 'has_fixed_price', 'item_type'])) {
@@ -286,29 +378,50 @@ class AutomotiveController extends BaseController
 
         $data = $this->normalizeVehicleSizes($data, $newType, $effectivePrice);
 
-        $service->update($data);
-        $service->refresh();
+        $service = DB::transaction(function () use ($service, $data, $oldType, $newType, $converted, $oldStock, $newStock) {
+            $service->update($data);
+            $service->refresh();
 
-        // تعديل الرصيد يدوياً من فورم الخدمة = تسوية مسجلة في السجل
-        if ($service->item_type === 'product') {
-            $delta = round((float) $service->stock_quantity - $oldStock, 3);
-            if (abs($delta) >= 0.001) {
-                $this->stock()->log($service, 'adjustment', $delta, ['note' => 'تعديل الرصيد من شاشة الخدمات']);
+            // 1) تأكد من وجود الـ Product المرتبط ثم زامنه (الاسم، السعر، المخزون)
+            $product = $service->product;
+            if (!$product) {
+                $product = Product::create(array_merge(
+                    ['sku' => 'AUTO-' . $service->code],
+                    $this->productAttributes($service, $newStock)
+                ));
+                $service->update(['product_id' => $product->id]);
+                $service->refresh();
+            } else {
+                $product->update($this->productAttributes($service, $newStock));
             }
-        }
 
-        if ($service->product) {
-            $service->product->update([
-                'name' => $service->name,
-                'description' => $service->description,
-                'price' => $this->resolveProductPrice($service),
-                'cost' => $service->estimated_cost,
-                'stock' => $this->productStockValue($service),
-                'active' => $service->active ?? true,
-            ]);
-        }
+            // 2) المخزون والسجل
+            if ($newType === 'product') {
+                $delta = round($newStock - $oldStock, 3);
+                if (abs($delta) >= 0.001) {
+                    $this->syncWarehouseStock($product, $service, $delta);
+                    $isInitial = $converted && $oldStock <= 0;
+                    $this->stock()->log($service, $isInitial ? 'initial' : 'adjustment', $delta, [
+                        'unit_cost' => (float) $service->estimated_cost,
+                        'note' => $isInitial
+                            ? 'رصيد افتتاحي عند تحويل الخدمة إلى منتج'
+                            : 'تعديل الرصيد من شاشة الخدمات',
+                    ]);
+                }
+            } elseif ($oldType === 'product') {
+                // تحويل منتج إلى خدمة: تصفير المخزون وتسجيل ذلك
+                if ($oldStock > 0) {
+                    $this->stock()->log($service, 'adjustment', -$oldStock, [
+                        'note' => 'تحويل المنتج إلى خدمة (تصفير المخزون)',
+                    ]);
+                }
+                $this->zeroWarehouseStock($product);
+            }
 
-        return response()->json(['status' => true, 'data' => $service->fresh()->load('product')]);
+            return $service->fresh()->load('product');
+        });
+
+        return response()->json(['status' => true, 'data' => $service]);
     }
 
     /**
@@ -441,7 +554,7 @@ class AutomotiveController extends BaseController
                 // تكلفة المتر الافتراضية للمنتجات لو لم تُرسل
                 if ($svc && !isset($item['unit_cost'])) $item['unit_cost'] = (float) $svc->estimated_cost;
                 $order->items()->create($item);
-                // منتج بالمتر: الكمية = عدد الأمتار، وتُخصم من المخزن (422 لو لا تكفي)
+                // منتج بالمتر: الكمية = عدد الأمتار، وتُخصم من المخزن (422 لو لا تكفي). الخدمة لا تخصم شيئاً.
                 if ($svc && $svc->item_type === 'product') {
                     $this->stock()->consume($svc, (float) $item['quantity'], [
                         'reference_type' => 'service_order',

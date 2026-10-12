@@ -1,44 +1,57 @@
 <?php
 
-    namespace App\Models;
-    use App\Traits\HasMedia;
-    use Illuminate\Database\Eloquent\Factories\HasFactory;
-    use Illuminate\Database\Eloquent\Model;
-    use Illuminate\Notifications\Notifiable;
+namespace App\Models;
 
-    class Product extends BaseModel
+use App\Traits\HasMedia;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Notifications\Notifiable;
+
+class Product extends BaseModel
+{
+    use HasFactory, Notifiable, HasMedia;
+
+    protected $with = [
+        'media',
+    ];
+
+    protected $guarded = ['id'];
+
+    protected $casts = [
+        'active' => 'boolean',
+    ];
+
+    /**
+     * المنتجات القابلة للشراء/التخزين: يستبعد المنتجات المرتبطة بـ "خدمة" (مثل غسيل السيارة).
+     * استخدمه في شاشات المشتريات/المخزون: Product::purchasable()->get()
+     * شاشة POS لا تستخدمه لأن الخدمات يجب أن تظهر فيها.
+     */
+    public function scopePurchasable($query)
     {
-        use HasFactory, Notifiable , HasMedia;
+        return $query->whereDoesntHave('automotiveService', function ($service) {
+            $service->where('item_type', 'service');
+        });
+    }
 
-        protected $with = [
-            'media',
-        ];
+    public function automotiveService()
+    {
+        return $this->hasOne(AutomotiveService::class, 'product_id');
+    }
 
-        protected $guarded = ['id'];
+    public function units()
+    {
+        return $this->hasMany(ProductUnit::class);
+    }
 
-        protected $casts = [
-            'active' => 'boolean',
-        ];
+    public function offers()
+    {
+        return $this->belongsToMany(Offer::class);
+    }
 
-        public function automotiveService()
-        {
-            return $this->hasOne(AutomotiveService::class, 'product_id');
-        }
-
-        public function units()
-        {
-            return $this->hasMany(ProductUnit::class);
-        }
-
-        public function offers()
-        {
-            return $this->belongsToMany(Offer::class);
-        }
-
-        public function category()
-        {
-            return $this->belongsTo(Category::class);
-        }
+    public function category()
+    {
+        return $this->belongsTo(Category::class);
+    }
 
     public function warehouses()
     {
@@ -46,24 +59,24 @@
             ->withPivot(['stock', 'cost'])
             ->withTimestamps();
     }
-        public function purchaseInvoiceItems()
-        {
-            return $this->hasMany(PurchaseInvoiceItem::class);
-        }
 
-        public function invoiceItems()
-        {
-            return $this->hasMany(InvoiceItem::class);
-        }
-
-        public function salesInvoiceItems()
-        {
-            return $this->hasMany(SalesInvoiceItem::class);
-        }
-
-        public function inventoryMovements()
-        {
-            return $this->hasMany(InventoryMovement::class);
-        }
-
+    public function purchaseInvoiceItems()
+    {
+        return $this->hasMany(PurchaseInvoiceItem::class);
     }
+
+    public function invoiceItems()
+    {
+        return $this->hasMany(InvoiceItem::class);
+    }
+
+    public function salesInvoiceItems()
+    {
+        return $this->hasMany(SalesInvoiceItem::class);
+    }
+
+    public function inventoryMovements()
+    {
+        return $this->hasMany(InventoryMovement::class);
+    }
+}
