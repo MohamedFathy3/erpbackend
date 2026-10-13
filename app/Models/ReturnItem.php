@@ -19,5 +19,10 @@ class ReturnItem extends Model
      {
          return $this->belongsTo(Product::class);
      }
+
+     public function automotiveService()
+     {
+         return $this->belongsTo(AutomotiveService::class, 'automotive_service_id');
+     }
         
 }

@@ -20,14 +20,14 @@ class ReturnInvoiceResource extends JsonResource
             'posting_journal_entry_id' => $this->posting_journal_entry_id,
             'cogs_journal_entry_id' => $this->cogs_journal_entry_id,
             'commission_journal_entry_id' => $this->commission_journal_entry_id,
+            'status' => 'returned',
 
             'reason' => $this->reason,
 
             'created_at' => $this->created_at->format('Y-m-d H:i'),
 
-            'items' => ReturnItemResource::collection($this->items),
+            'items' => ReturnItemResource::collection($this->items->load('automotiveService')),
             'invoice' => new InvoiceResource($this->invoice),
         ];
     }
 }
-

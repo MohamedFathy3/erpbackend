@@ -49,7 +49,7 @@ class SalesRepresentativeReportService
                 'original_invoice_number' => $return->invoice?->invoice_number,
                 'total_amount' => (float) ($return->total_amount ?? $return->refunded_amount ?? 0),
                 'created_at' => optional($return->created_at)->toDateTimeString(),
-                'status' => $return->status,
+                'status' => 'returned',
             ]);
 
         $salesReturns = SalesInvoiceReturn::query()
@@ -131,7 +131,7 @@ class SalesRepresentativeReportService
     private function normalizePosInvoice(Invoice $invoice, float $fallbackRate): array
     {
         $rate = $invoice->commission_rate_snapshot !== null ? (float) $invoice->commission_rate_snapshot : $fallbackRate;
-        $total = $invoice->is_complimentary ? 0 : (float) ($invoice->total_amount ?? 0);
+        $total = $invoice->is_complimentary ? 0 : (float) ($invoice->net_amount ?? $invoice->total_amount ?? 0);
         $commission = (float) $invoice->net_commission_amount;
         $costTotal = (float) $invoice->items->sum(fn ($item) => (float) ($item->cost ?? $item->product?->cost ?? 0) * (float) ($item->quantity ?? 0));
 
@@ -145,7 +145,7 @@ class SalesRepresentativeReportService
             'total_amount' => $total,
             'net_total' => $total,
             'extra_charge' => round((float) ($invoice->extra_charge ?? 0), 2),
-            'paid_amount' => (float) ($invoice->paid_amount ?? 0),
+            'paid_amount' => (float) ($invoice->net_paid_amount ?? $invoice->paid_amount ?? 0),
             'status' => $invoice->status,
             'commission_rate' => $rate,
             'commission_amount' => round($commission, 2),

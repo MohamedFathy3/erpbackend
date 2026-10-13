@@ -13,13 +13,18 @@ use App\Models\ReturnItem;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Services\PosAccountingPostingService;
+use App\Services\AutomotiveStockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class ReturnInvoiceController extends Controller
 {
-    public function storeReturn(Request $request, PosAccountingPostingService $posting)
+    public function storeReturn(
+        Request $request,
+        PosAccountingPostingService $posting,
+        AutomotiveStockService $automotiveStock
+    )
     {
         DB::beginTransaction();
 
@@ -102,19 +107,44 @@ class ReturnInvoiceController extends Controller
                     abort(404, "المنتج باللون والمقاس المحددين غير موجود في الفاتورة");
                 }
 
-                $product = Product::findOrFail($item['product_id']);
+                $product = !empty($item['product_id'])
+                    ? Product::findOrFail($item['product_id'])
+                    : null;
+                $automotiveService = $invoiceItem->automotive_service_id
+                    ? $invoiceItem->automotiveService
+                    : null;
+
+                if (!$product && !$automotiveService) {
+                    throw new \RuntimeException(
+                        "بند المرتجع {$invoiceItem->product_name} لا يرتبط بمنتج أو خدمة قابلة للإرجاع."
+                    );
+                }
 
                 $return->items()->create([
-                    'product_id'   => $product->id,
-                    'product_name' => $product->name,
+                    'product_id'   => $product?->id,
+                    'automotive_service_id' => $automotiveService?->id,
+                    'product_name' => $invoiceItem->product_name ?: $product?->name ?: $automotiveService?->name,
                     'color'        => $invoiceItem->color ?? ($item['color'] ?? null),
                     'size'         => $invoiceItem->size ?? ($item['size'] ?? null),
                     'quantity'     => $item['quantity'],
+                    'meter_quantity' => $invoiceItem->meter_quantity,
                     'price'        => $invoiceItem->price,
                     'total'        => $invoiceItem->price * $item['quantity'],
                 ]);
 
-                $product->increment('stock', $item['quantity']);
+                if ($product) {
+                    $product->increment('stock', $item['quantity']);
+                } elseif ($automotiveService) {
+                    $automotiveStock->restore(
+                        $automotiveService,
+                        (float) ($invoiceItem->meter_quantity ?? $item['quantity']),
+                        [
+                            'reference_type' => ReturnInvoice::class,
+                            'reference_id' => $return->id,
+                            'note' => "إرجاع خدمة {$invoice->invoice_number}",
+                        ]
+                    );
+                }
             }
 
             // ============================================================
