@@ -4,10 +4,13 @@ namespace Tests\Feature;
 
 use App\Http\Controllers\PurchaseInvoiceController;
 use App\Models\PurchaseInvoice;
+use App\Models\PurchaseInvoicePayment;
 use App\Models\Finance;
+use App\Models\JournalEntry;
 use App\Models\Supplier;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
+use App\Models\WorkflowTransaction;
 use App\Services\WorkflowPostingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -61,5 +64,19 @@ class SupplierPaymentHistoryTest extends TestCase
             ->where('reference_id', $invoice->id)
             ->where('type', 'out')
             ->count());
+
+        $payment = PurchaseInvoicePayment::findOrFail($payload['payment']['id']);
+        $originalJournal = JournalEntry::findOrFail($payment->journal_entry_id);
+        app(WorkflowPostingService::class)->reversePurchasePayment($invoice->fresh(), $payment);
+
+        $this->assertSame('cancelled', $originalJournal->fresh()->status);
+        $this->assertDatabaseHas('finances', [
+            'reference_number' => 'PURCHASE_PAYMENT:' . $payment->id,
+            'is_tracking_only' => true,
+        ]);
+        $this->assertDatabaseHas('workflow_transactions', [
+            'event_key' => 'financial-purchase-payment:' . $payment->id,
+            'status' => 'reversed',
+        ]);
     }
 }

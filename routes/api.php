@@ -2118,6 +2118,7 @@ Route::middleware([
         FinanceController::class,
         'index'
     ]);
+    Route::post('/finance/supplier-payment', [FinanceController::class, 'storeSupplierPaymentExpense']);
 
     Route::post('finance/restore', [
         FinanceController::class,

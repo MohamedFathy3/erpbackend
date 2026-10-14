@@ -6,8 +6,10 @@ use App\Helpers\JsonResponse;
 use App\Http\Requests\FinanceRequest;
 use App\Http\Resources\FinanceResource;
 use App\Interfaces\FinanceRepositoryInterface;
+use App\Models\Admin;
 use App\Models\Finance;
 use App\Models\CashierShift;
+use App\Models\Employee;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Services\AccountingAutoPostingService;
@@ -15,6 +17,7 @@ use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class FinanceController extends BaseController
 {
@@ -88,6 +91,37 @@ class FinanceController extends BaseController
         }
     }
 
+    public function storeSupplierPaymentExpense(Request $request)
+    {
+        $data = $request->validate([
+            'payment_number' => ['required', 'string', 'max:150'],
+            'supplier_name' => ['required', 'string', 'max:255'],
+            'amount' => ['required', 'numeric', 'gt:0'],
+            'date' => ['required', 'date'],
+            'payment_method' => ['required', 'string', Rule::in(['cash', 'bank_transfer', 'check', 'credit_card', 'other'])],
+        ]);
+
+        $tenantId = $request->user()?->tenant_id
+            ?: (app()->bound('currentTenantId') ? app('currentTenantId') : 'default');
+        $finance = Finance::query()->firstOrCreate(
+            ['source_key' => 'supplier_payment:' . $tenantId . ':' . $data['payment_number']],
+            [
+                'category' => 'supplier_payment',
+                'amount' => round((float) $data['amount'], 2),
+                'description' => 'دفعة للمورد: ' . $data['supplier_name'],
+                'date' => $data['date'],
+                'payment_method' => $data['payment_method'],
+                'reference_number' => $data['payment_number'],
+                'is_tracking_only' => true,
+            ]
+        );
+
+        return (new FinanceResource($finance->load(['treasury', 'currency', 'branch'])))->additional([
+            'status' => true,
+            'message' => 'تم تسجيل دفعة المورد في المصروفات دون إنشاء قيد تكلفة مكرر.',
+        ]);
+    }
+
     public function storePosExpense(Request $request)
     {
         $data = $request->validate([
@@ -103,6 +137,17 @@ class FinanceController extends BaseController
             $shift = CashierShift::query()->lockForUpdate()->findOrFail($data['cashier_shift_id']);
             if ($shift->status !== 'open') {
                 throw new \RuntimeException('لا يمكن إضافة مصروف إلى وردية مغلقة.');
+            }
+
+            $user = $request->user();
+            $ownsShift = ($user instanceof Admin && (int) $shift->admin_id === (int) $user->id)
+                || ($user instanceof Employee && (int) $shift->employee_id === (int) $user->id);
+            if (!$ownsShift) {
+                DB::rollBack();
+                return response()->json([
+                    'status' => false,
+                    'message' => 'لا يمكنك تسجيل مصروف على وردية لا تخصك.',
+                ], 403);
             }
 
             $treasury = !empty($data['treasury_id'])
@@ -132,7 +177,7 @@ class FinanceController extends BaseController
             DB::commit();
             return (new FinanceResource($finance->fresh(['treasury', 'branch', 'cashierShift'])))->additional([
                 'status' => true,
-                'shift_expenses_amount' => (float) Finance::query()->where('cashier_shift_id', $shift->id)->sum('amount'),
+                'shift_expenses_amount' => (float) Finance::query()->where('cashier_shift_id', $shift->id)->where('is_tracking_only', false)->sum('amount'),
             ]);
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -153,6 +198,10 @@ class FinanceController extends BaseController
     // ✅ دالة التعديل (بتتعامل مع تغيير الخزينة أو المبلغ بذكاء)
     public function update(FinanceRequest $request, Finance $Finance)
     {
+        if ($Finance->source_key || $Finance->is_tracking_only) {
+            return JsonResponse::respondError('لا يمكن تعديل سجل مصروف مرتبط بمستند أو محفوظ للتقرير فقط.');
+        }
+
         DB::beginTransaction();
         try {
             app(AccountingAutoPostingService::class)->reverseDocument($Finance, 'تعديل مصروف');
@@ -204,9 +253,15 @@ class FinanceController extends BaseController
     // ✅ دالة الحذف (بتعيد المبلغ للخزينة)
     public function destroy(Request $request): ?\Illuminate\Http\JsonResponse
     {
+        $items = (array) $request->input('items', []);
+        if (Finance::query()->whereIn('id', $items)->where(function ($query) {
+            $query->whereNotNull('source_key')->orWhere('is_tracking_only', true);
+        })->exists()) {
+            return JsonResponse::respondError('لا يمكن حذف سجل مصروف مرتبط بمستند أو محفوظ للتقرير فقط.');
+        }
+
         DB::beginTransaction();
         try {
-            $items = $request['items'];
             foreach ($items as $id) {
                 $finance = Finance::find($id);
                 if ($finance) {
@@ -245,7 +300,13 @@ class FinanceController extends BaseController
     public function forceDelete(Request $request): \Illuminate\Http\JsonResponse
     {
         try {
-            $this->crudRepository->deleteRecordsFinial(Finance::class, $request['items']);
+            $items = (array) $request->input('items', []);
+            if (Finance::withTrashed()->whereIn('id', $items)->where(function ($query) {
+                $query->whereNotNull('source_key')->orWhere('is_tracking_only', true);
+            })->exists()) {
+                return JsonResponse::respondError('لا يمكن حذف سجل مصروف مرتبط بمستند أو محفوظ للتقرير فقط.');
+            }
+            $this->crudRepository->deleteRecordsFinial(Finance::class, $items);
             return JsonResponse::respondSuccess(trans(JsonResponse::MSG_FORCE_DELETED_SUCCESSFULLY));
         } catch (Exception $e) {
             return JsonResponse::respondError($e->getMessage());

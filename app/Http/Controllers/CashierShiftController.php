@@ -28,7 +28,7 @@ class CashierShiftController extends Controller
             + (float) $shift->cash_sales
 
             - (float) $shift->returns_amount
-            - (float) Finance::query()->where('cashier_shift_id', $shift->id)->sum('amount'),
+            - (float) Finance::query()->where('cashier_shift_id', $shift->id)->where('is_tracking_only', false)->sum('amount'),
             2
         );
     }
@@ -133,10 +133,12 @@ class CashierShiftController extends Controller
                         $q->where('employee_id', $user->id);
                     }
                 })
+                ->lockForUpdate()
                 ->latest('opened_at')
                 ->first();
 
             if (!$shift) {
+                DB::rollBack();
                 return response()->json([
                     'status'  => false,
                     'message' => 'لا توجد وردية مفتوحة حالياً',
@@ -215,7 +217,7 @@ class CashierShiftController extends Controller
             'message' => 'آخر وردية مفتوحة',
             'data'    => array_merge($shift->toArray(), [
                 'expected_amount' => $expected,
-                'expenses_amount' => (float) Finance::query()->where('cashier_shift_id', $shift->id)->sum('amount'),
+                'expenses_amount' => (float) Finance::query()->where('cashier_shift_id', $shift->id)->where('is_tracking_only', false)->sum('amount'),
             ]),
         ]);
     }

@@ -44,7 +44,7 @@ class DashboardController extends Controller
             PurchaseReturn::query()->where(fn ($query) => $query->whereNull('workflow_status')->orWhere('workflow_status', '!=', 'cancelled')),
             'return_date'
         )->get();
-        $expenses = $scoped(Finance::query()->whereNotIn('category', ['revenue', 'income']), 'date')->get();
+        $expenses = $scoped(Finance::query()->whereNotIn('category', ['revenue', 'income'])->where('is_tracking_only', false), 'date')->get();
         $revenues = $scoped(Revenue::query(), 'date')->get();
         $journals = $scoped(JournalEntry::with('lines'), 'entry_date')->get();
         $employeesQuery = Employee::query();

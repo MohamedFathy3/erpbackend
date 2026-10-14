@@ -135,6 +135,34 @@ class WorkflowPostingService
         });
     }
 
+    public function reversePurchasePayment(PurchaseInvoice $invoice, PurchaseInvoicePayment $payment): void
+    {
+        $journal = $payment->journal_entry_id
+            ? JournalEntry::with('lines')->find($payment->journal_entry_id)
+            : null;
+        $reversal = $journal && $journal->status === 'posted'
+            ? $this->reverseJournal($journal, 'عكس دفعة تعديل فاتورة مشتريات', PurchaseInvoicePayment::class, $payment->id)
+            : null;
+
+        Finance::query()
+            ->withoutGlobalScope('branch')
+            ->where('reference_number', 'PURCHASE_PAYMENT:' . $payment->id)
+            ->update([
+                'is_tracking_only' => true,
+                'description' => 'دفعة ملغاة - فاتورة مشتريات رقم ' . $invoice->invoice_number,
+            ]);
+
+        WorkflowTransaction::capture(
+            'financial-purchase-payment:' . $payment->id,
+            $payment,
+            'purchase_payment_reversed',
+            ['amount' => round((float) $payment->amount, 2), 'reversal_journal_entry_id' => $reversal?->id],
+            $reversal?->id,
+            null,
+            'reversed'
+        );
+    }
+
     /**
      * Mirror a purchase payment in the expenses screen without posting a
      * second cash movement. The treasury balance and treasury transaction are
@@ -148,12 +176,13 @@ class WorkflowPostingService
         $method = in_array($method, $allowedMethods, true) ? $method : 'other';
         $reference = 'PURCHASE_PAYMENT:' . $payment->getKey();
 
+        $isAdditionalPayment = str_contains((string) $payment->notes, 'دفعة إضافية');
         $finance = Finance::query()->firstOrCreate(
             ['reference_number' => $reference],
             [
                 'category' => 'supplies',
                 'amount' => round((float) $payment->amount, 2),
-                'description' => 'دفعة فاتورة مشتريات رقم ' . $invoice->invoice_number,
+                'description' => ($isAdditionalPayment ? 'دفعة إضافية لفاتورة مشتريات رقم ' : 'دفعة فاتورة مشتريات رقم ') . $invoice->invoice_number,
                 'date' => $payment->payment_date ?? now()->toDateString(),
                 'payment_method' => $method,
                 'treasury_id' => $payment->treasury_id,
