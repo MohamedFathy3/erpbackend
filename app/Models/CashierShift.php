@@ -25,6 +25,16 @@ class CashierShift extends Model
     {
         return $this->hasMany(Invoice::class, 'cashier_shift_id');
     }
+
+    public function expenses()
+    {
+        return $this->hasMany(Finance::class, 'cashier_shift_id');
+    }
+
+    public function getExpensesAmountAttribute(): float
+    {
+        return round((float) $this->expenses()->sum('amount'), 2);
+    }
     
 
 }

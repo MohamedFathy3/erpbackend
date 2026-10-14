@@ -4,8 +4,10 @@ namespace Tests\Feature;
 
 use App\Http\Controllers\PurchaseInvoiceController;
 use App\Models\PurchaseInvoice;
+use App\Models\Finance;
 use App\Models\Supplier;
 use App\Models\Treasury;
+use App\Models\TreasuryTransaction;
 use App\Services\WorkflowPostingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -45,5 +47,19 @@ class SupplierPaymentHistoryTest extends TestCase
         $this->assertSame('2026-09-20', $payload['invoice']['payments'][0]['payment_date']);
         $this->assertSame('دفعة اختبار', $payload['invoice']['payments'][0]['notes']);
         $this->assertNotNull($payload['invoice']['payments'][0]['journal_entry_id']);
+
+        $this->assertDatabaseHas('finances', [
+            'category' => 'supplies',
+            'amount' => 25,
+            'treasury_id' => $treasury->id,
+            'reference_number' => 'PURCHASE_PAYMENT:' . $payload['payment']['id'],
+            'journal_entry_id' => $payload['payment']['journal_entry_id'],
+        ]);
+        $this->assertSame(1, Finance::query()->where('reference_number', 'PURCHASE_PAYMENT:' . $payload['payment']['id'])->count());
+        $this->assertSame(1, TreasuryTransaction::query()
+            ->where('reference_type', PurchaseInvoice::class)
+            ->where('reference_id', $invoice->id)
+            ->where('type', 'out')
+            ->count());
     }
 }

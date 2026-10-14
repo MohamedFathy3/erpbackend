@@ -6,6 +6,7 @@ use App\Http\Resources\CashierShiftResource;
 use App\Models\Admin;
 use App\Models\CashierShift;
 use App\Models\Employee;
+use App\Models\Finance;
 use App\Models\Invoice;
 use App\Models\ReturnInvoice;
 use App\Models\SalesInvoiceReturn;
@@ -18,16 +19,16 @@ class CashierShiftController extends Controller
 {
     /**
      * ✅ حساب المبلغ المتوقع الموحّد
-     *    المتوقع = رصيد البداية + النقدي + البطاقة + المحفظة - المرتجعات
+     *    النقدي المتوقع = رصيد البداية + مبيعات النقدي - مرتجعات النقدي - مصروفات الوردية
      */
     private function calculateExpectedAmount(CashierShift $shift): float
     {
         return round(
             (float) $shift->opening_balance
             + (float) $shift->cash_sales
-            + (float) $shift->card_sales
-            + (float) $shift->wallet_sales
-            - (float) $shift->returns_amount,
+
+            - (float) $shift->returns_amount
+            - (float) Finance::query()->where('cashier_shift_id', $shift->id)->sum('amount'),
             2
         );
     }
@@ -214,6 +215,7 @@ class CashierShiftController extends Controller
             'message' => 'آخر وردية مفتوحة',
             'data'    => array_merge($shift->toArray(), [
                 'expected_amount' => $expected,
+                'expenses_amount' => (float) Finance::query()->where('cashier_shift_id', $shift->id)->sum('amount'),
             ]),
         ]);
     }
@@ -408,11 +410,11 @@ class CashierShiftController extends Controller
             // ✅ [الإصلاح الأهم] البحث عن الفواتير باستخدام cashier_shift_id
             // ═══════════════════════════════════════════════════════════════
             $invoiceTable = (new Invoice())->getTable();
-            
+
             // ✅ نتحقق من كل الأعمدة المحتملة
             $hasCashierShiftId = Schema::hasColumn($invoiceTable, 'cashier_shift_id');
             $hasShiftId        = Schema::hasColumn($invoiceTable, 'shift_id');
-            
+
             Log::info('Shift Report - Checking columns', [
                 'shift_id' => $shiftId,
                 'has_cashier_shift_id' => $hasCashierShiftId,
@@ -429,7 +431,7 @@ class CashierShiftController extends Controller
             // ✅ الحل: نستخدم cashier_shift_id (الاسم الصحيح) مع fallback على الوقت
             if ($hasCashierShiftId || $hasShiftId) {
                 $shiftColumn = $hasCashierShiftId ? 'cashier_shift_id' : 'shift_id';
-                
+
                 $invoiceQuery->where(function ($q) use ($shift, $shiftColumn, $startAt, $endAt) {
                     // ✅ الفواتير المرتبطة بالوردية
                     $q->where($shiftColumn, $shift->id)

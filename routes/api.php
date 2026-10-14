@@ -2110,7 +2110,10 @@ Route::middleware([
     'auth:sanctum',
     'resolve.tenant',
 ])->group(function () {
-
+    Route::post('/pos/expenses', [
+        FinanceController::class,
+        'storePosExpense'
+    ]);
     Route::post('/finance/index', [
         FinanceController::class,
         'index'

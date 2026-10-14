@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Account;
+use App\Models\Finance;
 use App\Models\InventoryMovement;
 use App\Models\JournalEntry;
 use App\Models\Product;
@@ -99,12 +100,18 @@ class WorkflowPostingService
     {
         $amount = (float) $payment->amount;
         if ($amount <= 0) return null;
-        if ($payment->journal_entry_id) return JournalEntry::with('lines')->findOrFail($payment->journal_entry_id);
+        if ($payment->journal_entry_id) {
+            $journal = JournalEntry::with('lines')->findOrFail($payment->journal_entry_id);
+            if ($invoice instanceof PurchaseInvoice) $this->syncPurchaseExpense($invoice, $payment, $journal);
+            return $journal;
+        }
         $eventKey = 'financial-purchase-payment:' . $payment->getKey();
         $existing = WorkflowTransaction::where('event_key', $eventKey)->whereNotNull('journal_entry_id')->first();
         if ($existing) {
             $payment->update(['journal_entry_id' => $existing->journal_entry_id]);
-            return $existing->journalEntry;
+            $journal = $existing->journalEntry;
+            if ($invoice instanceof PurchaseInvoice) $this->syncPurchaseExpense($invoice, $payment, $journal);
+            return $journal;
         }
         $cash = $this->ledger->cashAccount($payment->treasury_id, $payment->bank_id);
         $payable = $invoice instanceof PurchaseInvoice && $invoice->supplier
@@ -122,9 +129,45 @@ class WorkflowPostingService
             ]);
             $this->postLines($journal, [[$payable, $amount, 0, 'تخفيض رصيد المورد'], [$cash, 0, $amount, 'صرف من الخزينة لسداد المورد']]);
             $payment->update(['journal_entry_id' => $journal->id]);
+            if ($invoice instanceof PurchaseInvoice) $this->syncPurchaseExpense($invoice, $payment, $journal);
             WorkflowTransaction::capture($eventKey, $payment, 'purchase_payment_posted', ['amount' => $amount], $journal->id, null, 'completed');
             return $journal;
         });
+    }
+
+    /**
+     * Mirror a purchase payment in the expenses screen without posting a
+     * second cash movement. The treasury balance and treasury transaction are
+     * already handled by PurchaseInvoiceController; this row is reporting
+     * metadata linked to the payment journal.
+     */
+    private function syncPurchaseExpense(PurchaseInvoice $invoice, PurchaseInvoicePayment $payment, JournalEntry $journal): Finance
+    {
+        $method = strtolower((string) ($payment->payment_method ?? 'cash'));
+        $allowedMethods = ['cash', 'bank_transfer', 'check', 'credit_card', 'other'];
+        $method = in_array($method, $allowedMethods, true) ? $method : 'other';
+        $reference = 'PURCHASE_PAYMENT:' . $payment->getKey();
+
+        $finance = Finance::query()->firstOrCreate(
+            ['reference_number' => $reference],
+            [
+                'category' => 'supplies',
+                'amount' => round((float) $payment->amount, 2),
+                'description' => 'دفعة فاتورة مشتريات رقم ' . $invoice->invoice_number,
+                'date' => $payment->payment_date ?? now()->toDateString(),
+                'payment_method' => $method,
+                'treasury_id' => $payment->treasury_id,
+                'currency_id' => $invoice->currency_id,
+                'branch_id' => $invoice->branch_id,
+                'journal_entry_id' => $journal->id,
+            ]
+        );
+
+        if ($finance->journal_entry_id !== $journal->id) {
+            $finance->update(['journal_entry_id' => $journal->id]);
+        }
+
+        return $finance;
     }
 
     public function postReturn(Model $return, string $direction, float $amount, ?int $treasuryId = null): ?JournalEntry

@@ -62,6 +62,12 @@ class Finance extends Model
     {
         return $this->belongsTo(Branch::class);
     }
+
+    public function cashierShift(): BelongsTo
+    {
+        return $this->belongsTo(CashierShift::class, 'cashier_shift_id');
+    }
+
     public function journalEntry(): BelongsTo
     {
         return $this->belongsTo(JournalEntry::class);

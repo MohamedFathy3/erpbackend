@@ -7,6 +7,7 @@ use App\Http\Requests\FinanceRequest;
 use App\Http\Resources\FinanceResource;
 use App\Interfaces\FinanceRepositoryInterface;
 use App\Models\Finance;
+use App\Models\CashierShift;
 use App\Models\Treasury;
 use App\Models\TreasuryTransaction;
 use App\Services\AccountingAutoPostingService;
@@ -83,6 +84,58 @@ class FinanceController extends BaseController
         } catch (Exception $e) {
             DB::rollBack();
             Log::error('Finance store error: ' . $e->getMessage());
+            return JsonResponse::respondError($e->getMessage());
+        }
+    }
+
+    public function storePosExpense(Request $request)
+    {
+        $data = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'description' => ['required', 'string', 'max:1000'],
+            'cashier_shift_id' => ['required', 'integer', 'exists:cashier_shifts,id'],
+            'treasury_id' => ['nullable', 'integer', 'exists:treasuries,id'],
+            'date' => ['nullable', 'date'],
+        ]);
+
+        DB::beginTransaction();
+        try {
+            $shift = CashierShift::query()->lockForUpdate()->findOrFail($data['cashier_shift_id']);
+            if ($shift->status !== 'open') {
+                throw new \RuntimeException('لا يمكن إضافة مصروف إلى وردية مغلقة.');
+            }
+
+            $treasury = !empty($data['treasury_id'])
+                ? Treasury::query()->lockForUpdate()->findOrFail($data['treasury_id'])
+                : Treasury::query()->where('is_main', true)->lockForUpdate()->first();
+            if (!$treasury) $treasury = Treasury::query()->lockForUpdate()->first();
+            if (!$treasury) throw new \RuntimeException('لا توجد خزينة متاحة لتسجيل المصروف.');
+            if ((float) $treasury->balance < (float) $data['amount']) {
+                throw new \RuntimeException('رصيد الخزنة غير كافي.');
+            }
+
+            $finance = Finance::create([
+                'category' => 'supplies',
+                'amount' => round((float) $data['amount'], 2),
+                'description' => $data['description'],
+                'date' => $data['date'] ?? now()->toDateString(),
+                'payment_method' => 'cash',
+                'reference_number' => 'POS_SHIFT_EXPENSE:' . $shift->id . ':' . \Illuminate\Support\Str::uuid(),
+                'treasury_id' => $treasury->id,
+                'branch_id' => $shift->branch_id ?? $treasury->branch_id,
+                'cashier_shift_id' => $shift->id,
+            ]);
+
+            $this->decreaseTreasuryBalance($finance);
+            app(AccountingAutoPostingService::class)->postFinance($finance);
+
+            DB::commit();
+            return (new FinanceResource($finance->fresh(['treasury', 'branch', 'cashierShift'])))->additional([
+                'status' => true,
+                'shift_expenses_amount' => (float) Finance::query()->where('cashier_shift_id', $shift->id)->sum('amount'),
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
             return JsonResponse::respondError($e->getMessage());
         }
     }
