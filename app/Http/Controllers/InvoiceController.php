@@ -181,6 +181,7 @@ public function store(Request $request)
         'extra_charge' => 'nullable|numeric|min:0',
         'is_complimentary' => 'sometimes|boolean',
         'sales_representative_id' => 'nullable|integer|exists:sales_representatives,id',
+        'technician_id' => 'nullable|integer|exists:employees,id',
         'items.*.discount_percentage' => 'nullable|numeric|min:0|max:100',
         'items.*.discount_amount' => 'nullable|numeric|min:0',
 'items.*.vehicle_sizes' => 'nullable|array',
@@ -191,6 +192,29 @@ public function store(Request $request)
         'items.*.product_unit_id' => 'nullable|integer|exists:product_units,id',
         'items.*.color_id' => 'nullable|integer|exists:colors,id',
     ]);
+
+    $hasServiceItems = collect($request->input('items', []))->contains(fn ($item) =>
+        ($item['item_type'] ?? null) === 'service' || !empty($item['automotive_service_id'])
+    );
+    if ($hasServiceItems && !$request->filled('technician_id')) {
+        throw \Illuminate\Validation\ValidationException::withMessages([
+            'technician_id' => 'يجب اختيار فني عند إنشاء فاتورة خدمات.',
+        ]);
+    }
+    if ($request->filled('technician_id')) {
+        $tenantId = $request->user()?->tenant_id
+            ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
+        $technicianQuery = Employee::query()
+            ->whereKey($request->integer('technician_id'))
+            ->where('is_active', true)
+            ->whereHas('role', fn ($query) => $query->whereRaw('LOWER(name) = ?', ['technician']));
+        if ($tenantId !== null) $technicianQuery->where('tenant_id', $tenantId);
+        if (!$technicianQuery->exists()) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'technician_id' => 'الموظف المحدد ليس فنيًا صالحًا في مساحة العمل الحالية.',
+            ]);
+        }
+    }
 
     if (!$request->filled('customer_id')) {
         $tenantId = $request->user()?->tenant_id
@@ -340,6 +364,7 @@ public function store(Request $request)
             'invoice_number'   => $invoiceNumber,
             'customer_id'      => $request->customer_id,
             'sales_representative_id' => $request->sales_representative_id,
+            'technician_id'   => $hasServiceItems ? $request->integer('technician_id') : null,
             'cashier_id'       => $cashierId,
             'branch_id'        => $branchId ?: null,
             'treasury_id'      => $treasuryId,
@@ -669,7 +694,7 @@ public function store(Request $request)
             'data'    => new InvoiceResource(
                 $invoice->fresh([
                     'items', 'payments', 'customer', 'branch',
-                    'shift', 'salesRepresentative', 'cashier', 'treasury'
+                    'shift', 'salesRepresentative', 'cashier', 'treasury', 'technician'
                 ])
             )
         ], 201);

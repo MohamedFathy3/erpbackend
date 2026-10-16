@@ -42,6 +42,12 @@ class InvoiceResource extends JsonResource
                 'name' => $this->salesRepresentative?->name,
             ],
 
+            'technician' => $this->technician ? [
+                'id' => $this->technician->id,
+                'name' => $this->technician->name,
+                'name_ar' => $this->technician->name_ar,
+            ] : null,
+
             // ✅ إضافة الكاشير (الموظف اللي سجل الفاتورة)
             'cashier' => $this->relationLoaded('cashier') && $this->cashier ? [
                 'id'          => $this->cashier->id,
