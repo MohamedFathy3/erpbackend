@@ -461,7 +461,7 @@ class CashierShiftController extends Controller
                 'invoice_ids' => $invoices->pluck('id')->toArray(),
             ]);
 
-            $totalSales = 0.0; $totalCost = 0.0; $totalQuantity = 0.0; $totalMeters = 0.0;
+            $totalSales = 0.0; $extraChargeTotal = 0.0; $totalCost = 0.0; $totalQuantity = 0.0; $totalMeters = 0.0;
             $compValue = 0.0; $compCost = 0.0; $compQuantity = 0.0; $compDiscount = 0.0;
             $collections = ['cash' => 0.0, 'card' => 0.0, 'wallet' => 0.0, 'other' => 0.0];
 
@@ -620,6 +620,7 @@ class CashierShiftController extends Controller
 
                 $invoiceSales = $money($invoiceSales);
                 $invoiceCost  = $money($invoiceCost);
+                $invoiceExtraCharge = $isComp ? 0.0 : $money($invoice->extra_charge ?? 0);
                 $rep = $repOf($invoice);
 
                 $row = [
@@ -638,6 +639,8 @@ class CashierShiftController extends Controller
                     'total_quantity' => $qtyFmt($invoiceQuantity),
                     'items' => $items,
                     'total_sales' => $invoiceSales,
+                    'extra_charge' => $invoiceExtraCharge,
+                    'sales_including_extra_charge' => $money($invoiceSales + $invoiceExtraCharge),
                     'total_cost' => $invoiceCost,
                     'profit' => $money($invoiceSales - $invoiceCost),
                     'payments' => $payments,
@@ -656,6 +659,7 @@ class CashierShiftController extends Controller
                     continue;
                 }
 
+                $extraChargeTotal += $invoiceExtraCharge;
                 $cid = $invoice->customer?->id ?? ($invoice->customer_id ?? null);
                 $ck  = $cid ? 'c' . $cid : 'walkin';
                 $ensureGroup($customersReport, $ck, $cid, $invoice->customer?->name);
@@ -673,6 +677,7 @@ class CashierShiftController extends Controller
             }
 
             $totalSales    = $money($totalSales);
+            $extraChargeTotal = $money($extraChargeTotal);
             $totalCost     = $money($totalCost);
             $totalQuantity = $qtyFmt($totalQuantity);
             $totalMeters   = $qtyFmt($totalMeters);
@@ -697,7 +702,7 @@ class CashierShiftController extends Controller
             $salesReturnTable = (new SalesInvoiceReturn())->getTable();
             $hasSalesReturnShiftColumn = \Illuminate\Support\Facades\Schema::hasColumn($salesReturnTable, 'shift_id');
 
-            $posReturnRelations = ['invoice.customer', 'invoice.treasury', 'items.product'];
+            $posReturnRelations = ['invoice.customer', 'invoice.treasury', 'refundTreasury', 'items.product'];
             if (method_exists(\App\Models\ReturnItem::class, 'automotiveService')) {
                 $posReturnRelations[] = 'items.automotiveService';
             }
@@ -881,8 +886,8 @@ class CashierShiftController extends Controller
                     'is_direct' => $isPos ? false : (bool) ($return->is_direct ?? false),
                     'status' => $status,
                     'note' => $note,
-                    'treasury_id' => $isPos ? $invoiceRef?->treasury_id : $return->treasury_id,
-                    'treasury_name' => $isPos ? $invoiceRef?->treasury?->name : $return->treasury?->name,
+                    'treasury_id' => $isPos ? ($return->refund_treasury_id ?? $invoiceRef?->treasury_id) : $return->treasury_id,
+                    'treasury_name' => $isPos ? ($return->refundTreasury?->name ?? $invoiceRef?->treasury?->name) : $return->treasury?->name,
                     'items_count' => count($returnItems),
                     'total_quantity' => $qtyFmt($returnQuantity),
                     'items' => $returnItems,
@@ -1074,6 +1079,8 @@ class CashierShiftController extends Controller
                         'total_quantity'     => $totalQuantity,
                         'total_meters'       => $totalMeters,
                         'gross_sales'        => $totalSales,
+                        'extra_charge_total' => $extraChargeTotal,
+                        'sales_including_extra_charge' => $money($totalSales + $extraChargeTotal),
                         'total_cost'         => $totalCost,
                         'gross_profit'       => $grossProfit,
                         'profit_margin'      => $percent($grossProfit, $totalSales),

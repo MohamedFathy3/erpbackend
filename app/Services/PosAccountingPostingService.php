@@ -173,6 +173,8 @@ class PosAccountingPostingService
             $returnAmount = round((float) $return->total_amount, 2);
             $refundedAmount = min($returnAmount, round((float) $return->refunded_amount, 2));
             $receivableReduction = max(0, $returnAmount - $refundedAmount);
+            $refundTreasuryId = $return->refund_treasury_id ?: $invoice->treasury_id;
+            $method = strtolower((string) $return->refund_method);
             $journal = null;
 
             if ($returnAmount > 0) {
@@ -182,9 +184,8 @@ class PosAccountingPostingService
                 $lines = [[$salesReturns, $returnAmount, 0, 'تخفيض إيراد فاتورة POS بسبب المرتجع']];
 
                 if ($refundedAmount > 0) {
-                    $method = strtolower((string) $return->refund_method);
                     $refundAccount = $method === 'cash'
-                        ? ($this->ledger->cashAccount($invoice->treasury_id) ?? $this->ledger->defaultAccount('asset', 'POS-UNALLOCATED-CASH', 'نقدية POS غير مخصصة', 'Unallocated POS cash'))
+                        ? ($this->ledger->cashAccount($refundTreasuryId) ?? $this->ledger->defaultAccount('asset', 'POS-UNALLOCATED-CASH', 'نقدية POS غير مخصصة', 'Unallocated POS cash'))
                         : app(SubledgerPostingService::class)->detailAccount(
                             'asset',
                             $method === 'card' ? 'POS-CARD-CLEARING' : 'POS-WALLET-CLEARING',
@@ -204,7 +205,7 @@ class PosAccountingPostingService
                     'مرتجع نقطة بيع #' . $return->return_number,
                     'POS return #' . $return->return_number,
                     $return,
-                    $return->refund_method === 'cash' ? (int) $invoice->treasury_id : null
+                    $method === 'cash' ? (int) $refundTreasuryId : null
                 );
                 $this->lines($journal, $lines);
                 $return->update(['posting_journal_entry_id' => $journal->id]);

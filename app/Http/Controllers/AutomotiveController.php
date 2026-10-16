@@ -653,17 +653,34 @@ class AutomotiveController extends BaseController
         })->values();
         $totalCost = $orders->sum(fn ($o) => $o->items->sum(fn ($i) => (float) $i->quantity * (float) $i->unit_cost));
         $totalRevenue = $orders->sum('total_amount');
-        $details = $orders->flatMap(fn ($order) => $order->items->map(fn ($item) => [
-            'order_id' => $order->id, 'order_number' => $order->order_number,
-            'customer' => $order->customer?->name ?? 'عميل غير معروف',
-            'vehicle' => trim(($order->vehicle?->make ?? '') . ' ' . ($order->vehicle?->model ?? '')),
-            'service' => $item->service?->name ?? $item->description, 'quantity' => (float) $item->quantity,
-            'meter_quantity' => $item->service?->item_type === 'product' ? 1 : 0,
-            'unit_price' => (float) $item->unit_price, 'unit_cost' => (float) $item->unit_cost,
-            'revenue' => round((float) $item->quantity * (float) $item->unit_price, 2),
-            'profit' => round((float) $item->quantity * ((float) $item->unit_price - (float) $item->unit_cost), 2),
-            'created_at' => $order->created_at?->toDateString(),
-        ]))->values();
+        $details = $orders->flatMap(function ($order) {
+            $items = $order->items;
+            $subtotal = $items->sum(fn ($item) => max(
+                0,
+                (float) $item->quantity * (float) $item->unit_price - (float) $item->discount_amount
+            ));
+            $revenueFactor = $subtotal > 0 ? (float) $order->total_amount / $subtotal : 0;
+
+            return $items->map(function ($item) use ($order, $revenueFactor) {
+                $revenue = round(max(
+                    0,
+                    (float) $item->quantity * (float) $item->unit_price - (float) $item->discount_amount
+                ) * $revenueFactor, 2);
+                $cost = (float) $item->quantity * (float) $item->unit_cost;
+
+                return [
+                    'order_id' => $order->id, 'order_number' => $order->order_number,
+                    'customer' => $order->customer?->name ?? 'عميل غير معروف',
+                    'vehicle' => trim(($order->vehicle?->make ?? '') . ' ' . ($order->vehicle?->model ?? '')),
+                    'service' => $item->service?->name ?? $item->description, 'quantity' => (float) $item->quantity,
+                    'meter_quantity' => $item->service?->item_type === 'product' ? 1 : 0,
+                    'unit_price' => (float) $item->unit_price, 'unit_cost' => (float) $item->unit_cost,
+                    'revenue' => $revenue,
+                    'profit' => round($revenue - $cost, 2),
+                    'created_at' => $order->created_at?->toDateString(),
+                ];
+            });
+        })->values();
 
         // ===== فواتير POS (خدمات / منتجات السيارات) =====
         $posInvoices = Invoice::with(['items.product', 'items.automotiveService', 'customer'])
