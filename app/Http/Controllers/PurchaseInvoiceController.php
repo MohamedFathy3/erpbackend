@@ -526,7 +526,7 @@ class PurchaseInvoiceController extends Controller
             }
 
             // حفظ البيانات القديمة للمقارنة
-            $oldPaidAmount = $invoice->paid_amount;
+            $oldPaidAmount = round((float) $invoice->paid_amount, 2);
             $oldTreasuryId = $invoice->treasury_id;
             $oldPaymentMethod = $invoice->payment_method;
 
@@ -546,7 +546,16 @@ class PurchaseInvoiceController extends Controller
             }
 
             $total = $subtotal - $discountTotal + $taxTotal;
-            $remaining = $total - ($request->paid_amount ?? 0);
+            $newPaidAmount = $request->payment_method === 'credit'
+                ? 0.0
+                : round((float) ($request->paid_amount ?? 0), 2);
+            if ($newPaidAmount > $total) {
+                throw new \RuntimeException('المبلغ المدفوع أكبر من إجمالي الفاتورة');
+            }
+            if ($request->payment_method === 'cash' && $newPaidAmount > 0 && !$request->treasury_id) {
+                throw new \RuntimeException('يجب اختيار الخزينة عند الدفع النقدي');
+            }
+            $remaining = $total - $newPaidAmount;
 
             // 1️⃣ **عكس حركات المخزون القديمة**
             foreach ($invoice->items as $oldItem) {
@@ -576,7 +585,7 @@ class PurchaseInvoiceController extends Controller
                 'due_date' => $request->due_date,
                 'payment_method' => $request->payment_method,
                 'note' => $request->note,
-                'paid_amount' => $request->paid_amount ?? 0,
+                'paid_amount' => $newPaidAmount,
                 'remaining_amount' => $remaining,
                 'subtotal' => $subtotal,
                 'discount_total' => $discountTotal,
@@ -630,6 +639,28 @@ class PurchaseInvoiceController extends Controller
             }
 
             // 5️⃣ **معالجة الخزينة**
+            $hasActivePayments = PurchaseInvoicePayment::query()
+                ->where('purchase_invoice_id', $invoice->id)
+                ->exists();
+            $cashPaymentChanged = ($oldPaymentMethod === 'cash' ? $oldPaidAmount : 0.0)
+                !== ($request->payment_method === 'cash' ? $newPaidAmount : 0.0)
+                || (
+                    ($oldPaymentMethod === 'cash' || $request->payment_method === 'cash')
+                    && (int) $oldTreasuryId !== (int) $request->treasury_id
+                )
+                || ($request->payment_method === 'credit' && $hasActivePayments);
+
+            if ($cashPaymentChanged) {
+                $oldPayments = PurchaseInvoicePayment::query()
+                    ->where('purchase_invoice_id', $invoice->id)
+                    ->lockForUpdate()
+                    ->get();
+                foreach ($oldPayments as $oldPayment) {
+                    $posting->reversePurchasePayment($invoice, $oldPayment);
+                    $oldPayment->delete();
+                }
+            }
+
             TreasuryTransaction::where('reference_type', PurchaseInvoice::class)
                 ->where('reference_id', $invoice->id)
                 ->delete();
@@ -641,20 +672,38 @@ class PurchaseInvoiceController extends Controller
                 }
             }
 
-            if ($request->payment_method === 'cash' && $request->paid_amount > 0 && $request->treasury_id) {
+            if ($request->payment_method === 'cash' && $newPaidAmount > 0 && $request->treasury_id) {
                 TreasuryTransaction::create([
                     'treasury_id' => $request->treasury_id,
                     'reference_type' => PurchaseInvoice::class,
                     'reference_id' => $invoice->id,
                     'type' => 'out',
-                    'amount' => $request->paid_amount,
+                    'amount' => $newPaidAmount,
                     'description' => "تحديث فاتورة مشتريات رقم {$invoice->invoice_number}",
                     'created_at' => now(),
                 ]);
 
                 $treasury = Treasury::find($request->treasury_id);
                 if ($treasury) {
-                    $treasury->decrement('balance', $request->paid_amount);
+                    $treasury->decrement('balance', $newPaidAmount);
+                }
+            }
+
+            if ($cashPaymentChanged && $request->payment_method === 'cash' && $newPaidAmount > 0) {
+                $actor = $request->user() ?: auth()->user();
+                $payment = PurchaseInvoicePayment::create([
+                    'purchase_invoice_id' => $invoice->id,
+                    'treasury_id' => $request->treasury_id,
+                    'amount' => $newPaidAmount,
+                    'payment_date' => $request->invoice_date ?? now()->toDateString(),
+                    'payment_method' => 'cash',
+                    'created_by' => $actor instanceof User ? $actor->id : null,
+                    'created_by_type' => $actor ? $actor::class : null,
+                    'notes' => 'إعادة تسجيل الدفعة النقدية عند تعديل الفاتورة',
+                ]);
+
+                if (!$posting->postPurchasePayment($invoice, $payment)) {
+                    throw new \RuntimeException('تعذر تسجيل دفعة فاتورة المشتريات في الحسابات والمصروفات.');
                 }
             }
 

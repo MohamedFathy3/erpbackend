@@ -28,7 +28,7 @@ class CashierShiftController extends Controller
             + (float) $shift->cash_sales
 
             - (float) $shift->returns_amount
-            - (float) Finance::query()->where('cashier_shift_id', $shift->id)->sum('amount'),
+            - (float) Finance::query()->withoutGlobalScope('branch')->where('cashier_shift_id', $shift->id)->where('is_tracking_only', false)->sum('amount'),
             2
         );
     }
@@ -133,10 +133,12 @@ class CashierShiftController extends Controller
                         $q->where('employee_id', $user->id);
                     }
                 })
+                ->lockForUpdate()
                 ->latest('opened_at')
                 ->first();
 
             if (!$shift) {
+                DB::rollBack();
                 return response()->json([
                     'status'  => false,
                     'message' => 'لا توجد وردية مفتوحة حالياً',
@@ -215,7 +217,7 @@ class CashierShiftController extends Controller
             'message' => 'آخر وردية مفتوحة',
             'data'    => array_merge($shift->toArray(), [
                 'expected_amount' => $expected,
-                'expenses_amount' => (float) Finance::query()->where('cashier_shift_id', $shift->id)->sum('amount'),
+                'expenses_amount' => (float) Finance::query()->withoutGlobalScope('branch')->where('cashier_shift_id', $shift->id)->where('is_tracking_only', false)->sum('amount'),
             ]),
         ]);
     }
@@ -459,7 +461,7 @@ class CashierShiftController extends Controller
                 'invoice_ids' => $invoices->pluck('id')->toArray(),
             ]);
 
-            $totalSales = 0.0; $totalCost = 0.0; $totalQuantity = 0.0; $totalMeters = 0.0;
+            $totalSales = 0.0; $extraChargeTotal = 0.0; $totalCost = 0.0; $totalQuantity = 0.0; $totalMeters = 0.0;
             $compValue = 0.0; $compCost = 0.0; $compQuantity = 0.0; $compDiscount = 0.0;
             $collections = ['cash' => 0.0, 'card' => 0.0, 'wallet' => 0.0, 'other' => 0.0];
 
@@ -618,6 +620,7 @@ class CashierShiftController extends Controller
 
                 $invoiceSales = $money($invoiceSales);
                 $invoiceCost  = $money($invoiceCost);
+                $invoiceExtraCharge = $isComp ? 0.0 : $money($invoice->extra_charge ?? 0);
                 $rep = $repOf($invoice);
 
                 $row = [
@@ -636,6 +639,8 @@ class CashierShiftController extends Controller
                     'total_quantity' => $qtyFmt($invoiceQuantity),
                     'items' => $items,
                     'total_sales' => $invoiceSales,
+                    'extra_charge' => $invoiceExtraCharge,
+                    'sales_including_extra_charge' => $money($invoiceSales + $invoiceExtraCharge),
                     'total_cost' => $invoiceCost,
                     'profit' => $money($invoiceSales - $invoiceCost),
                     'payments' => $payments,
@@ -654,6 +659,7 @@ class CashierShiftController extends Controller
                     continue;
                 }
 
+                $extraChargeTotal += $invoiceExtraCharge;
                 $cid = $invoice->customer?->id ?? ($invoice->customer_id ?? null);
                 $ck  = $cid ? 'c' . $cid : 'walkin';
                 $ensureGroup($customersReport, $ck, $cid, $invoice->customer?->name);
@@ -671,6 +677,7 @@ class CashierShiftController extends Controller
             }
 
             $totalSales    = $money($totalSales);
+            $extraChargeTotal = $money($extraChargeTotal);
             $totalCost     = $money($totalCost);
             $totalQuantity = $qtyFmt($totalQuantity);
             $totalMeters   = $qtyFmt($totalMeters);
@@ -695,7 +702,7 @@ class CashierShiftController extends Controller
             $salesReturnTable = (new SalesInvoiceReturn())->getTable();
             $hasSalesReturnShiftColumn = \Illuminate\Support\Facades\Schema::hasColumn($salesReturnTable, 'shift_id');
 
-            $posReturnRelations = ['invoice.customer', 'invoice.treasury', 'items.product'];
+            $posReturnRelations = ['invoice.customer', 'invoice.treasury', 'refundTreasury', 'items.product'];
             if (method_exists(\App\Models\ReturnItem::class, 'automotiveService')) {
                 $posReturnRelations[] = 'items.automotiveService';
             }
@@ -879,8 +886,8 @@ class CashierShiftController extends Controller
                     'is_direct' => $isPos ? false : (bool) ($return->is_direct ?? false),
                     'status' => $status,
                     'note' => $note,
-                    'treasury_id' => $isPos ? $invoiceRef?->treasury_id : $return->treasury_id,
-                    'treasury_name' => $isPos ? $invoiceRef?->treasury?->name : $return->treasury?->name,
+                    'treasury_id' => $isPos ? ($return->refund_treasury_id ?? $invoiceRef?->treasury_id) : $return->treasury_id,
+                    'treasury_name' => $isPos ? ($return->refundTreasury?->name ?? $invoiceRef?->treasury?->name) : $return->treasury?->name,
                     'items_count' => count($returnItems),
                     'total_quantity' => $qtyFmt($returnQuantity),
                     'items' => $returnItems,
@@ -975,11 +982,30 @@ class CashierShiftController extends Controller
             $totalRefunded    = $money(array_sum($refunds));
             $collectionsTotal = $money(array_sum($collections));
 
+            $shiftExpenses = Finance::query()
+                ->withoutGlobalScope('branch')
+                ->where('cashier_shift_id', $shift->id)
+                ->where('is_tracking_only', false)
+                ->orderBy('date')
+                ->orderBy('id')
+                ->get(['id', 'amount', 'description', 'date', 'payment_method', 'reference_number'])
+                ->map(fn (Finance $expense) => [
+                    'id' => $expense->id,
+                    'amount' => $money($expense->amount),
+                    'description' => $expense->description,
+                    'date' => $expense->date?->toDateString(),
+                    'payment_method' => $expense->payment_method,
+                    'reference_number' => $expense->reference_number,
+                ])
+                ->values()
+                ->all();
+            $shiftExpensesTotal = $money(array_sum(array_column($shiftExpenses, 'amount')));
+
             $openingBalance = $money($shift->opening_balance);
             $cashSales      = $money($collections['cash']);
             $cashReturns    = $money($refunds['cash']);
 
-            $expectedCash   = $money($openingBalance + $cashSales - $cashReturns);
+            $expectedCash   = $money($openingBalance + $cashSales - $cashReturns - $shiftExpensesTotal);
 
             $savedExpected = $shift->expected_amount !== null ? $money($shift->expected_amount) : null;
             $finalExpected = $savedExpected ?? $expectedCash;
@@ -1053,6 +1079,8 @@ class CashierShiftController extends Controller
                         'total_quantity'     => $totalQuantity,
                         'total_meters'       => $totalMeters,
                         'gross_sales'        => $totalSales,
+                        'extra_charge_total' => $extraChargeTotal,
+                        'sales_including_extra_charge' => $money($totalSales + $extraChargeTotal),
                         'total_cost'         => $totalCost,
                         'gross_profit'       => $grossProfit,
                         'profit_margin'      => $percent($grossProfit, $totalSales),
@@ -1068,6 +1096,11 @@ class CashierShiftController extends Controller
                         'total_cost' => $returnsCost,
                         'profit_reversed' => $returnsProfit,
                         'profit_margin' => $percent($returnsProfit, $returnsAmount),
+                    ],
+
+                    'expenses' => [
+                        'count' => count($shiftExpenses),
+                        'total_amount' => $shiftExpensesTotal,
                     ],
 
                     'net' => [
@@ -1113,6 +1146,7 @@ class CashierShiftController extends Controller
                     'opening_balance' => $openingBalance,
                     'cash_sales'      => $cashSales,
                     'cash_returns'    => $cashReturns,
+                    'expenses'        => $shiftExpensesTotal,
                     'expected_amount' => $finalExpected,
                     'actual_amount'   => $actualAmount,
                     'difference'      => $difference,
@@ -1129,6 +1163,7 @@ class CashierShiftController extends Controller
 
                 'customers'             => $customersReport,
                 'sales_representatives' => $repsReport,
+                'expenses' => $shiftExpenses,
 
                 'top_products' => array_slice($productsReport, 0, 10),
                 'top_services' => array_slice($servicesReport, 0, 10),

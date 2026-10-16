@@ -43,6 +43,11 @@ class ReturnInvoice extends Model
         return $this->belongsTo(CashierShift::class, 'shift_id');
     }
 
+    public function refundTreasury()
+    {
+        return $this->belongsTo(Treasury::class, 'refund_treasury_id')->withoutGlobalScope('branch');
+    }
+
     // ============================================================
     // Boot
     // ============================================================

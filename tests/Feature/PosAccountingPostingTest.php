@@ -66,6 +66,8 @@ class PosAccountingPostingTest extends TestCase
     {
         $treasury = Treasury::create(['name' => 'POS return cash', 'balance' => 0]);
         app(AccountLedgerService::class)->initializeTreasuryAccount($treasury);
+        $cashierTreasury = Treasury::create(['name' => 'Cashier refund till', 'balance' => 100]);
+        app(AccountLedgerService::class)->initializeTreasuryAccount($cashierTreasury);
         $product = Product::create(['name' => 'Returned POS item', 'price' => 10, 'cost' => 5, 'stock' => 9]);
         $invoice = Invoice::create([
             'invoice_number' => 'POS-RETURN-TEST-1',
@@ -92,6 +94,7 @@ class PosAccountingPostingTest extends TestCase
             'total_amount' => 10,
             'refunded_amount' => 5,
             'refund_method' => 'cash',
+            'refund_treasury_id' => $cashierTreasury->id,
         ]);
         $return->items()->create([
             'product_id' => $product->id,
@@ -116,6 +119,11 @@ class PosAccountingPostingTest extends TestCase
 
         $this->assertEquals(10, Account::where('code', '4090-SALES-RETURNS')->value('debit'));
         $this->assertEquals(1, Account::where('code', 'SALES-COMMISSIONS-PAYABLE')->value('debit'));
+        $this->assertSame($cashierTreasury->id, $returnJournal->treasury_id);
+        $this->assertEquals(
+            5,
+            $returnJournal->lines()->where('account_id', $cashierTreasury->account_id)->value('credit')
+        );
         $this->assertSame($returnJournal->id, $posting->postReturn($return->fresh())->id);
         $this->assertDatabaseCount('journal_entries', 4);
     }

@@ -177,14 +177,29 @@ class ReturnInvoiceController extends Controller
                 ]);
             }
 
+            $refundTreasuryId = $invoice->treasury_id;
+            if ($user instanceof Employee && $user->treasury_id) {
+                $refundTreasuryId = $user->treasury_id;
+            } elseif ($shift?->employee?->treasury_id) {
+                $refundTreasuryId = $shift->employee->treasury_id;
+            }
+
+            if ($paymentsTotal > 0 && strtolower((string) $return->refund_method) === 'cash') {
+                $return->update(['refund_treasury_id' => $refundTreasuryId]);
+            }
+
             // ============================================================
             // 7. رد نقدي من الخزينة
             // ============================================================
             if ($paymentsTotal > 0 && strtolower((string) $return->refund_method) === 'cash') {
-                $treasury = Treasury::query()->lockForUpdate()->find($invoice->treasury_id);
+                $treasury = $refundTreasuryId
+                    ? Treasury::query()->withoutGlobalScope('branch')->lockForUpdate()->find($refundTreasuryId)
+                    : null;
 
                 if (!$treasury || (float) $treasury->balance < $paymentsTotal) {
-                    throw new \RuntimeException('رصيد الخزينة غير كافٍ لتنفيذ رد المبلغ.');
+                    $available = $treasury ? number_format((float) $treasury->balance, 2) : '0.00';
+                    $requested = number_format($paymentsTotal, 2);
+                    throw new \RuntimeException("رصيد خزينة الكاشير غير كافٍ. المتاح: {$available}، والمطلوب رده: {$requested}.");
                 }
 
                 $treasury->decrement('balance', $paymentsTotal);

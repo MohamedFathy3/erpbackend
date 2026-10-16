@@ -33,7 +33,10 @@ class CashierShift extends Model
 
     public function getExpensesAmountAttribute(): float
     {
-        return round((float) $this->expenses()->sum('amount'), 2);
+        return round((float) $this->expenses()
+            ->withoutGlobalScope('branch')
+            ->where('is_tracking_only', false)
+            ->sum('amount'), 2);
     }
     
 
