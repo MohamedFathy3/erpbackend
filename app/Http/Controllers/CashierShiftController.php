@@ -33,6 +33,68 @@ class CashierShiftController extends Controller
         );
     }
 
+    /** Gross sold-item totals by type; returns are reported separately. */
+    private function calculateShiftItemSalesByType(CashierShift $shift): array
+    {
+        $totals = ['accessories_sales' => 0.0, 'services_sales' => 0.0];
+        $startAt = $shift->opened_at ? \Carbon\Carbon::parse($shift->opened_at) : now();
+        $endAt = $shift->closed_at ? \Carbon\Carbon::parse($shift->closed_at) : now();
+        $excludedStatuses = ['cancelled', 'canceled', 'void', 'voided', 'draft', 'ملغي', 'ملغاة', 'ملغية'];
+        $invoiceTable = (new Invoice())->getTable();
+        $hasCashierShiftId = Schema::hasColumn($invoiceTable, 'cashier_shift_id');
+        $hasShiftId = Schema::hasColumn($invoiceTable, 'shift_id');
+        $invoiceQuery = Invoice::query();
+
+        if ($hasCashierShiftId || $hasShiftId) {
+            $shiftColumn = $hasCashierShiftId ? 'cashier_shift_id' : 'shift_id';
+            $invoiceQuery->where(function ($query) use ($shift, $shiftColumn, $startAt, $endAt) {
+                $query->where($shiftColumn, $shift->id)
+                    ->orWhere(function ($fallback) use ($startAt, $endAt, $shiftColumn) {
+                        $fallback->whereNull($shiftColumn)
+                            ->whereBetween('created_at', [$startAt, $endAt]);
+                    });
+            });
+        } else {
+            $invoiceQuery->whereBetween('created_at', [$startAt, $endAt]);
+        }
+
+        $invoiceQuery
+            ->where(function ($query) use ($excludedStatuses) {
+                $query->whereNull('status')->orWhereNotIn('status', $excludedStatuses);
+            });
+
+        if (Schema::hasColumn($invoiceTable, 'is_complimentary')) {
+            $invoiceQuery->where(function ($query) {
+                $query->whereNull('is_complimentary')->orWhere('is_complimentary', false);
+            });
+        }
+
+        $invoiceIds = $invoiceQuery->pluck('id');
+        if ($invoiceIds->isEmpty()) return $totals;
+
+        $itemTable = (new \App\Models\InvoiceItem())->getTable();
+        $serviceConditions = [];
+        if (Schema::hasColumn($itemTable, 'item_type')) {
+            $serviceConditions[] = "{$itemTable}.item_type = 'service'";
+        }
+        if (Schema::hasColumn($itemTable, 'automotive_service_id')) {
+            $serviceConditions[] = "{$itemTable}.automotive_service_id IS NOT NULL";
+        }
+        $isServiceSql = $serviceConditions ? '(' . implode(' OR ', $serviceConditions) . ')' : '1 = 0';
+        $lineTotalSql = "COALESCE({$itemTable}.total, COALESCE({$itemTable}.price, 0) * COALESCE({$itemTable}.quantity, 0))";
+
+        $aggregates = \App\Models\InvoiceItem::query()
+            ->whereIn('invoice_id', $invoiceIds)
+            ->selectRaw("COALESCE(SUM(CASE WHEN {$isServiceSql} THEN {$lineTotalSql} ELSE 0 END), 0) AS services_sales")
+            ->selectRaw("COALESCE(SUM(CASE WHEN NOT {$isServiceSql} THEN {$lineTotalSql} ELSE 0 END), 0) AS accessories_sales")
+            ->first();
+
+        $totals['accessories_sales'] = (float) ($aggregates?->accessories_sales ?? 0);
+        $totals['services_sales'] = (float) ($aggregates?->services_sales ?? 0);
+
+        return array_map(fn ($amount) => round($amount, 2), $totals);
+    }
+
     /**
      * ✅ فتح وردية جديدة
      */
@@ -211,11 +273,14 @@ class CashierShiftController extends Controller
 
         // ✅ المتوقع يُحسب live من القيم الحالية
         $expected = $this->calculateExpectedAmount($shift);
+        $itemSales = $this->calculateShiftItemSalesByType($shift);
 
         return response()->json([
             'status'  => true,
             'message' => 'آخر وردية مفتوحة',
             'data'    => array_merge($shift->toArray(), [
+                'accessories_sales' => $itemSales['accessories_sales'],
+                'services_sales' => $itemSales['services_sales'],
                 'expected_amount' => $expected,
                 'expenses_amount' => (float) Finance::query()->withoutGlobalScope('branch')->where('cashier_shift_id', $shift->id)->where('is_tracking_only', false)->sum('amount'),
             ]),
@@ -1081,6 +1146,8 @@ class CashierShiftController extends Controller
                     'closed_at' => $shift->closed_at,
                     'duration_minutes' => $durationMinutes,
                     'status' => $shift->status,
+                    'accessories_sales' => $salesByItemType['accessories'],
+                    'services_sales' => $salesByItemType['services'],
                 ],
 
                 'summary' => [
@@ -1090,6 +1157,8 @@ class CashierShiftController extends Controller
                         'total_quantity'     => $totalQuantity,
                         'total_meters'       => $totalMeters,
                         'gross_sales'        => $totalSales,
+                        'accessories_sales'  => $salesByItemType['accessories'],
+                        'services_sales'     => $salesByItemType['services'],
                         'by_type'            => $salesByItemType,
                         'extra_charge_total' => $extraChargeTotal,
                         'sales_including_extra_charge' => $money($totalSales + $extraChargeTotal),
