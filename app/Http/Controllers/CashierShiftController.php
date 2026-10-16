@@ -922,6 +922,17 @@ class CashierShiftController extends Controller
             }, array_values($productsReport));
             usort($productsReport, fn ($a, $b) => $b['profit'] <=> $a['profit']);
 
+            // Split sold line-item values for the shift receipt. These are gross
+            // sales before returns; returns remain shown separately in the report.
+            $salesByItemType = ['accessories' => 0.0, 'services' => 0.0];
+            foreach ($productsReport as $productRow) {
+                $bucket = ($productRow['item_type'] ?? 'product') === 'service'
+                    ? 'services'
+                    : 'accessories';
+                $salesByItemType[$bucket] += (float) ($productRow['selling_total'] ?? 0);
+            }
+            $salesByItemType = array_map($money, $salesByItemType);
+
             $servicesReport = array_map(function ($s) use ($money, $qtyFmt, $percent) {
                 $s['cars_count']    = $qtyFmt($s['cars_count']);
                 $s['meters_count']  = $qtyFmt($s['meters_count']);
@@ -1079,6 +1090,7 @@ class CashierShiftController extends Controller
                         'total_quantity'     => $totalQuantity,
                         'total_meters'       => $totalMeters,
                         'gross_sales'        => $totalSales,
+                        'by_type'            => $salesByItemType,
                         'extra_charge_total' => $extraChargeTotal,
                         'sales_including_extra_charge' => $money($totalSales + $extraChargeTotal),
                         'total_cost'         => $totalCost,
