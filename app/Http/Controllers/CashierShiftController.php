@@ -28,7 +28,7 @@ class CashierShiftController extends Controller
             + (float) $shift->cash_sales
 
             - (float) $shift->returns_amount
-            - (float) Finance::query()->where('cashier_shift_id', $shift->id)->where('is_tracking_only', false)->sum('amount'),
+            - (float) Finance::query()->withoutGlobalScope('branch')->where('cashier_shift_id', $shift->id)->where('is_tracking_only', false)->sum('amount'),
             2
         );
     }
@@ -217,7 +217,7 @@ class CashierShiftController extends Controller
             'message' => 'آخر وردية مفتوحة',
             'data'    => array_merge($shift->toArray(), [
                 'expected_amount' => $expected,
-                'expenses_amount' => (float) Finance::query()->where('cashier_shift_id', $shift->id)->where('is_tracking_only', false)->sum('amount'),
+                'expenses_amount' => (float) Finance::query()->withoutGlobalScope('branch')->where('cashier_shift_id', $shift->id)->where('is_tracking_only', false)->sum('amount'),
             ]),
         ]);
     }
@@ -977,11 +977,30 @@ class CashierShiftController extends Controller
             $totalRefunded    = $money(array_sum($refunds));
             $collectionsTotal = $money(array_sum($collections));
 
+            $shiftExpenses = Finance::query()
+                ->withoutGlobalScope('branch')
+                ->where('cashier_shift_id', $shift->id)
+                ->where('is_tracking_only', false)
+                ->orderBy('date')
+                ->orderBy('id')
+                ->get(['id', 'amount', 'description', 'date', 'payment_method', 'reference_number'])
+                ->map(fn (Finance $expense) => [
+                    'id' => $expense->id,
+                    'amount' => $money($expense->amount),
+                    'description' => $expense->description,
+                    'date' => $expense->date?->toDateString(),
+                    'payment_method' => $expense->payment_method,
+                    'reference_number' => $expense->reference_number,
+                ])
+                ->values()
+                ->all();
+            $shiftExpensesTotal = $money(array_sum(array_column($shiftExpenses, 'amount')));
+
             $openingBalance = $money($shift->opening_balance);
             $cashSales      = $money($collections['cash']);
             $cashReturns    = $money($refunds['cash']);
 
-            $expectedCash   = $money($openingBalance + $cashSales - $cashReturns);
+            $expectedCash   = $money($openingBalance + $cashSales - $cashReturns - $shiftExpensesTotal);
 
             $savedExpected = $shift->expected_amount !== null ? $money($shift->expected_amount) : null;
             $finalExpected = $savedExpected ?? $expectedCash;
@@ -1072,6 +1091,11 @@ class CashierShiftController extends Controller
                         'profit_margin' => $percent($returnsProfit, $returnsAmount),
                     ],
 
+                    'expenses' => [
+                        'count' => count($shiftExpenses),
+                        'total_amount' => $shiftExpensesTotal,
+                    ],
+
                     'net' => [
                         'sales' => $netSales,
                         'cost' => $netCost,
@@ -1115,6 +1139,7 @@ class CashierShiftController extends Controller
                     'opening_balance' => $openingBalance,
                     'cash_sales'      => $cashSales,
                     'cash_returns'    => $cashReturns,
+                    'expenses'        => $shiftExpensesTotal,
                     'expected_amount' => $finalExpected,
                     'actual_amount'   => $actualAmount,
                     'difference'      => $difference,
@@ -1131,6 +1156,7 @@ class CashierShiftController extends Controller
 
                 'customers'             => $customersReport,
                 'sales_representatives' => $repsReport,
+                'expenses' => $shiftExpenses,
 
                 'top_products' => array_slice($productsReport, 0, 10),
                 'top_services' => array_slice($servicesReport, 0, 10),

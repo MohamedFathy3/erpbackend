@@ -48,6 +48,17 @@ class FinanceController extends BaseController
             if ($dateFrom) $query->whereDate('date', '>=', $dateFrom);
             if ($dateTo) $query->whereDate('date', '<=', $dateTo);
 
+            $actualExpensesQuery = clone $query;
+            $actualExpensesQuery->where('is_tracking_only', false);
+            $trackingOnlyExpensesQuery = clone $query;
+            $trackingOnlyExpensesQuery->where('is_tracking_only', true);
+            $totals = [
+                'actual_amount' => (float) $actualExpensesQuery->sum('amount'),
+                'actual_count' => (int) $actualExpensesQuery->count(),
+                'tracking_only_amount' => (float) $trackingOnlyExpensesQuery->sum('amount'),
+                'tracking_only_count' => (int) $trackingOnlyExpensesQuery->count(),
+            ];
+
             $allowedSorts = ['id', 'date', 'amount', 'category', 'created_at'];
             $orderBy = $request->input('orderBy', 'id');
             if (!in_array($orderBy, $allowedSorts, true)) $orderBy = 'id';
@@ -58,7 +69,10 @@ class FinanceController extends BaseController
                 ? $query->paginate(max(1, min(500, $request->integer('perPage', 15))))
                 : $query->get();
 
-            return FinanceResource::collection($finances)->additional(JsonResponse::success());
+            return FinanceResource::collection($finances)->additional(array_merge(
+                JsonResponse::success(),
+                ['totals' => $totals]
+            ));
         } catch (Exception $e) {
             return JsonResponse::respondError($e->getMessage());
         }
@@ -177,7 +191,7 @@ class FinanceController extends BaseController
             DB::commit();
             return (new FinanceResource($finance->fresh(['treasury', 'branch', 'cashierShift'])))->additional([
                 'status' => true,
-                'shift_expenses_amount' => (float) Finance::query()->where('cashier_shift_id', $shift->id)->where('is_tracking_only', false)->sum('amount'),
+                'shift_expenses_amount' => (float) Finance::query()->withoutGlobalScope('branch')->where('cashier_shift_id', $shift->id)->where('is_tracking_only', false)->sum('amount'),
             ]);
         } catch (\Throwable $e) {
             DB::rollBack();
