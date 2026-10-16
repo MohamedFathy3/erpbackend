@@ -20,6 +20,8 @@ class FinanceResource extends JsonResource
             'payment_method_arabic' => $this->payment_method_arabic,
             'reference_number' => $this->reference_number,
             'journal_entry_id' => $this->journal_entry_id,
+            'is_automatic' => (bool) $this->source_key,
+            'is_tracking_only' => (bool) $this->is_tracking_only,
             
             // ✅ الخزينة
             'treasury_id' => $this->treasury_id,

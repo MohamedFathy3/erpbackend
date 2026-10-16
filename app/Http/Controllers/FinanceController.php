@@ -15,6 +15,7 @@ use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class FinanceController extends BaseController
 {
@@ -88,6 +89,37 @@ class FinanceController extends BaseController
         }
     }
 
+    public function storeSupplierPaymentExpense(Request $request)
+    {
+        $data = $request->validate([
+            'payment_number' => ['required', 'string', 'max:150'],
+            'supplier_name' => ['required', 'string', 'max:255'],
+            'amount' => ['required', 'numeric', 'gt:0'],
+            'date' => ['required', 'date'],
+            'payment_method' => ['required', 'string', Rule::in(['cash', 'bank_transfer', 'check', 'credit_card', 'other'])],
+        ]);
+
+        $tenantId = $request->user()?->tenant_id
+            ?: (app()->bound('currentTenantId') ? app('currentTenantId') : 'default');
+        $finance = Finance::withoutGlobalScope('branch')->firstOrCreate(
+            ['source_key' => 'supplier_payment:' . $tenantId . ':' . $data['payment_number']],
+            [
+                'category' => 'supplier_payment',
+                'amount' => round((float) $data['amount'], 2),
+                'description' => 'دفعة للمورد: ' . $data['supplier_name'],
+                'date' => $data['date'],
+                'payment_method' => $data['payment_method'],
+                'reference_number' => $data['payment_number'],
+                'is_tracking_only' => true,
+            ]
+        );
+
+        return (new FinanceResource($finance->load(['treasury', 'currency', 'branch'])))->additional([
+            'status' => true,
+            'message' => 'تم تسجيل دفعة المورد في المصروفات دون إنشاء قيد تكلفة مكرر.',
+        ]);
+    }
+
     public function storePosExpense(Request $request)
     {
         $data = $request->validate([
@@ -153,6 +185,10 @@ class FinanceController extends BaseController
     // ✅ دالة التعديل (بتتعامل مع تغيير الخزينة أو المبلغ بذكاء)
     public function update(FinanceRequest $request, Finance $Finance)
     {
+        if ($Finance->source_key) {
+            return JsonResponse::respondError('لا يمكن تعديل سجل مصروف مرتبط تلقائياً بمستند آخر.');
+        }
+
         DB::beginTransaction();
         try {
             app(AccountingAutoPostingService::class)->reverseDocument($Finance, 'تعديل مصروف');
@@ -204,9 +240,13 @@ class FinanceController extends BaseController
     // ✅ دالة الحذف (بتعيد المبلغ للخزينة)
     public function destroy(Request $request): ?\Illuminate\Http\JsonResponse
     {
+        $items = (array) $request->input('items', []);
+        if (Finance::query()->whereIn('id', $items)->whereNotNull('source_key')->exists()) {
+            return JsonResponse::respondError('لا يمكن حذف سجل مصروف مرتبط تلقائياً بمستند آخر.');
+        }
+
         DB::beginTransaction();
         try {
-            $items = $request['items'];
             foreach ($items as $id) {
                 $finance = Finance::find($id);
                 if ($finance) {
@@ -245,7 +285,11 @@ class FinanceController extends BaseController
     public function forceDelete(Request $request): \Illuminate\Http\JsonResponse
     {
         try {
-            $this->crudRepository->deleteRecordsFinial(Finance::class, $request['items']);
+            $items = (array) $request->input('items', []);
+            if (Finance::withTrashed()->whereIn('id', $items)->whereNotNull('source_key')->exists()) {
+                return JsonResponse::respondError('لا يمكن حذف سجل مصروف مرتبط تلقائياً بمستند آخر.');
+            }
+            $this->crudRepository->deleteRecordsFinial(Finance::class, $items);
             return JsonResponse::respondSuccess(trans(JsonResponse::MSG_FORCE_DELETED_SUCCESSFULLY));
         } catch (Exception $e) {
             return JsonResponse::respondError($e->getMessage());

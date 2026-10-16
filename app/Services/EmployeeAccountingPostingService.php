@@ -7,6 +7,7 @@ use App\Models\EmployeeAdvance;
 use App\Models\EmployeeAdvancePayment;
 use App\Models\EmployeeFinancialTransaction;
 use App\Models\EmployeePayroll;
+use App\Models\Finance;
 use App\Models\JournalEntry;
 use App\Models\SalesInvoice;
 use App\Models\Treasury;
@@ -96,7 +97,23 @@ class EmployeeAccountingPostingService
                 'amount' => $amount,
                 'description' => 'صرف راتب الموظف #' . $payroll->employee_id,
             ]);
-            $payroll->update(['payment_journal_entry_id' => $journal->id]);
+            $finance = Finance::withoutGlobalScope('branch')->firstOrCreate(
+                ['source_key' => 'payroll_payment:' . ($payroll->tenant_id ?: 'default') . ':' . $payroll->id],
+                [
+                    'category' => 'salaries',
+                    'amount' => $amount,
+                    'description' => 'صرف راتب الموظف: ' . ($payroll->employee?->name ?? $payroll->employee_id),
+                    'date' => $payroll->paid_at?->toDateString() ?? now()->toDateString(),
+                    'payment_method' => 'cash',
+                    'reference_number' => 'PAYROLL-' . $payroll->id,
+                    'branch_id' => $payroll->employee?->branch_id ?? $treasury->branch_id,
+                    'is_tracking_only' => true,
+                ]
+            );
+            $payroll->update([
+                'finance_id' => $finance->id,
+                'payment_journal_entry_id' => $journal->id,
+            ]);
             return $journal->load('lines');
         });
     }

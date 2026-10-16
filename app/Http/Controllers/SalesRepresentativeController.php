@@ -161,7 +161,7 @@ class SalesRepresentativeController extends BaseController
             if ($bonus->status === 'paid' || $bonus->finance_id) throw ValidationException::withMessages(['bonus' => 'تم دفع بونص هذا اليوم بالفعل.']);
             $treasury = Treasury::query()->lockForUpdate()->findOrFail($data['treasury_id']);
             if ((float) $treasury->balance < $amount) throw ValidationException::withMessages(['treasury_id' => 'رصيد الخزينة غير كافٍ.']);
-            $finance = Finance::create(['category' => 'bonus', 'amount' => $amount, 'description' => 'عمولة مندوب المبيعات: ' . $salesRepresentative->name . ' - ' . $date, 'date' => $date, 'payment_method' => 'cash', 'treasury_id' => $treasury->id, 'branch_id' => $salesRepresentative->branch_id]);
+            $finance = Finance::create(['category' => 'bonus', 'amount' => $amount, 'description' => 'عمولة مندوب المبيعات: ' . $salesRepresentative->name . ' - ' . $date, 'date' => $date, 'payment_method' => 'cash', 'treasury_id' => $treasury->id, 'branch_id' => $salesRepresentative->branch_id, 'source_key' => 'sales_rep_bonus:' . ($bonus->tenant_id ?: 'default') . ':' . $bonus->id]);
             $treasury->decrement('balance', $amount);
             TreasuryTransaction::create(['treasury_id' => $treasury->id, 'reference_type' => EmployeeBonus::class, 'reference_id' => $bonus->id, 'type' => 'out', 'amount' => $amount, 'description' => 'دفع عمولة مندوب ' . $salesRepresentative->name]);
             $journal = app(\App\Services\AccountingAutoPostingService::class)->postFinance($finance);

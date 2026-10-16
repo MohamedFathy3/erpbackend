@@ -34,6 +34,31 @@ class FinanceReportingTest extends TestCase
         $this->assertSame(33333.0, (float) $payload['data'][0]['amount']);
     }
 
+    public function test_supplier_payment_expense_is_tracking_only_and_idempotent(): void
+    {
+        $payload = [
+            'payment_number' => 'PAY-SUP-001',
+            'supplier_name' => 'Test Supplier',
+            'amount' => 125.50,
+            'date' => '2026-10-14',
+            'payment_method' => 'cash',
+        ];
+        $request = Request::create('/api/finance/supplier-payment', 'POST', $payload);
+
+        $firstResponse = app(FinanceController::class)->storeSupplierPaymentExpense($request)->toResponse($request);
+        $firstPayload = $firstResponse->getData(true);
+        $secondResponse = app(FinanceController::class)->storeSupplierPaymentExpense($request)->toResponse($request);
+        $secondPayload = $secondResponse->getData(true);
+
+        $this->assertSame(200, $firstResponse->getStatusCode());
+        $this->assertSame($firstPayload['data']['id'], $secondPayload['data']['id']);
+        $this->assertTrue($firstPayload['data']['is_automatic']);
+        $this->assertTrue($firstPayload['data']['is_tracking_only']);
+        $this->assertSame('supplier_payment', $firstPayload['data']['category']);
+        $this->assertSame(1, Finance::query()->count());
+        $this->assertNull($firstPayload['data']['journal_entry_id']);
+    }
+
     public function test_posted_rent_expense_rolls_up_to_parent_without_double_counting_totals(): void
     {
         $expense = Finance::create([

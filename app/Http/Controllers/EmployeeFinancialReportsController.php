@@ -129,7 +129,7 @@ class EmployeeFinancialReportsController extends Controller
             $treasury = Treasury::query()->lockForUpdate()->findOrFail($data['treasury_id']);
             $amount = round((float) $bonus->amount, 2);
             if ((float) $treasury->balance < $amount) throw ValidationException::withMessages(['treasury_id' => 'رصيد الخزينة غير كافٍ لصرف البونص.']);
-            $finance = Finance::create(['category' => 'bonus', 'amount' => $amount, 'description' => 'بونص الموظف: ' . ($bonus->employee?->name ?? $bonus->employee_id) . ' - ' . $bonus->reason, 'date' => $data['paid_at'], 'payment_method' => 'cash', 'treasury_id' => $treasury->id, 'branch_id' => $bonus->employee?->branch_id]);
+            $finance = Finance::create(['category' => 'bonus', 'amount' => $amount, 'description' => 'بونص الموظف: ' . ($bonus->employee?->name ?? $bonus->employee_id) . ' - ' . $bonus->reason, 'date' => $data['paid_at'], 'payment_method' => 'cash', 'treasury_id' => $treasury->id, 'branch_id' => $bonus->employee?->branch_id, 'source_key' => 'employee_bonus:' . ($bonus->tenant_id ?: 'default') . ':' . $bonus->id]);
             $treasury->decrement('balance', $amount);
             TreasuryTransaction::create(['treasury_id' => $treasury->id, 'reference_type' => EmployeeBonus::class, 'reference_id' => $bonus->id, 'type' => 'out', 'amount' => $amount, 'description' => 'صرف بونص الموظف #' . $bonus->employee_id]);
             $journal = app(\App\Services\AccountingAutoPostingService::class)->postFinance($finance);
