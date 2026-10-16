@@ -97,11 +97,7 @@ class EmployeeAccountingPostingService
                 'amount' => $amount,
                 'description' => 'صرف راتب الموظف #' . $payroll->employee_id,
             ]);
-<<<<<<< HEAD
             $finance = Finance::withoutGlobalScope('branch')->firstOrCreate(
-=======
-            $finance = Finance::query()->firstOrCreate(
->>>>>>> 2da530c97d48932c992c79ebf25711aa3c760ac9
                 ['source_key' => 'payroll_payment:' . ($payroll->tenant_id ?: 'default') . ':' . $payroll->id],
                 [
                     'category' => 'salaries',
@@ -110,10 +106,7 @@ class EmployeeAccountingPostingService
                     'date' => $payroll->paid_at?->toDateString() ?? now()->toDateString(),
                     'payment_method' => 'cash',
                     'reference_number' => 'PAYROLL-' . $payroll->id,
-<<<<<<< HEAD
                     'branch_id' => $payroll->employee?->branch_id ?? $treasury->branch_id,
-=======
->>>>>>> 2da530c97d48932c992c79ebf25711aa3c760ac9
                     'is_tracking_only' => true,
                 ]
             );

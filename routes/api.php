@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\ActivityLogController;
+use App\Http\Controllers\AuditTrailController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AutomotiveController;
 use App\Http\Controllers\AutomotivePortalController;
@@ -165,6 +166,8 @@ Route::middleware([
         SuperAdminTenantController::class,
         'enabledModules'
     ]);
+    Route::post('/audit/page-view', static fn () => response()->noContent());
+    Route::post('/audit/print', static fn () => response()->noContent());
 
     /*
     |--------------------------------------------------------------------------
@@ -173,6 +176,8 @@ Route::middleware([
     */
 
     Route::prefix('super-admin')->group(function () {
+
+        Route::get('/audit-trail', [AuditTrailController::class, 'index']);
 
         Route::get('/overview', [
             SuperAdminOverviewController::class,

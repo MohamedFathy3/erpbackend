@@ -31,6 +31,7 @@ return Application::configure(basePath: dirname(__DIR__))
             ForceJsonResponse::class,
         ]);
         $middleware->api(append: [
+            \App\Http\Middleware\AuditTrailMiddleware::class,
             CheckModuleEnabled::class,
             EnforceRoutePermission::class,
             EnsureTenantSubscriptionActive::class,

@@ -117,11 +117,7 @@ class FinanceController extends BaseController
 
         $tenantId = $request->user()?->tenant_id
             ?: (app()->bound('currentTenantId') ? app('currentTenantId') : 'default');
-<<<<<<< HEAD
         $finance = Finance::withoutGlobalScope('branch')->firstOrCreate(
-=======
-        $finance = Finance::query()->firstOrCreate(
->>>>>>> 2da530c97d48932c992c79ebf25711aa3c760ac9
             ['source_key' => 'supplier_payment:' . $tenantId . ':' . $data['payment_number']],
             [
                 'category' => 'supplier_payment',
@@ -216,13 +212,8 @@ class FinanceController extends BaseController
     // ✅ دالة التعديل (بتتعامل مع تغيير الخزينة أو المبلغ بذكاء)
     public function update(FinanceRequest $request, Finance $Finance)
     {
-<<<<<<< HEAD
-        if ($Finance->source_key) {
-            return JsonResponse::respondError('لا يمكن تعديل سجل مصروف مرتبط تلقائياً بمستند آخر.');
-=======
         if ($Finance->source_key || $Finance->is_tracking_only) {
             return JsonResponse::respondError('لا يمكن تعديل سجل مصروف مرتبط بمستند أو محفوظ للتقرير فقط.');
->>>>>>> 2da530c97d48932c992c79ebf25711aa3c760ac9
         }
 
         DB::beginTransaction();
@@ -277,15 +268,10 @@ class FinanceController extends BaseController
     public function destroy(Request $request): ?\Illuminate\Http\JsonResponse
     {
         $items = (array) $request->input('items', []);
-<<<<<<< HEAD
-        if (Finance::query()->whereIn('id', $items)->whereNotNull('source_key')->exists()) {
-            return JsonResponse::respondError('لا يمكن حذف سجل مصروف مرتبط تلقائياً بمستند آخر.');
-=======
         if (Finance::query()->whereIn('id', $items)->where(function ($query) {
             $query->whereNotNull('source_key')->orWhere('is_tracking_only', true);
         })->exists()) {
             return JsonResponse::respondError('لا يمكن حذف سجل مصروف مرتبط بمستند أو محفوظ للتقرير فقط.');
->>>>>>> 2da530c97d48932c992c79ebf25711aa3c760ac9
         }
 
         DB::beginTransaction();
@@ -329,15 +315,10 @@ class FinanceController extends BaseController
     {
         try {
             $items = (array) $request->input('items', []);
-<<<<<<< HEAD
-            if (Finance::withTrashed()->whereIn('id', $items)->whereNotNull('source_key')->exists()) {
-                return JsonResponse::respondError('لا يمكن حذف سجل مصروف مرتبط تلقائياً بمستند آخر.');
-=======
             if (Finance::withTrashed()->whereIn('id', $items)->where(function ($query) {
                 $query->whereNotNull('source_key')->orWhere('is_tracking_only', true);
             })->exists()) {
                 return JsonResponse::respondError('لا يمكن حذف سجل مصروف مرتبط بمستند أو محفوظ للتقرير فقط.');
->>>>>>> 2da530c97d48932c992c79ebf25711aa3c760ac9
             }
             $this->crudRepository->deleteRecordsFinial(Finance::class, $items);
             return JsonResponse::respondSuccess(trans(JsonResponse::MSG_FORCE_DELETED_SUCCESSFULLY));

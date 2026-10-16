@@ -7,8 +7,10 @@ use App\Http\Requests\BranchRequest;
 use App\Http\Resources\BranchResource;
 use App\Interfaces\BranchRepositoryInterface;
 use App\Models\Branch;
+use App\Models\Employee;
 use Exception;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class BranchController extends BaseController
 {
@@ -20,14 +22,23 @@ class BranchController extends BaseController
         $this->crudRepository = $pattern;
     }
 
-    public function index()
+    public function index(Request $request)
     {
         try {
-            $user = request()->user();
+            $user = $request->user();
             $query = Branch::query();
-            if ($user && !($user->super_admin ?? false) && $user->branch_id) {
+
+            if ($user instanceof Employee && !($user->super_admin ?? false)) {
+                if (Schema::hasColumn('branches', 'tenant_id')) {
+                    $query->where('tenant_id', (int) ($user->tenant_id ?? 0));
+                }
+                if (!$user->hasPermission('branches.view')) {
+                    $query->whereKey((int) ($user->branch_id ?? 0));
+                }
+            } elseif ($user && !($user->super_admin ?? false) && $user->branch_id) {
                 $query->whereKey((int) $user->branch_id);
             }
+
             $branch = BranchResource::collection($query->get());
             return $branch->additional(JsonResponse::success());
         } catch (Exception $e) {
@@ -45,8 +56,17 @@ class BranchController extends BaseController
         }
     }
 
-    public function show(Branch $branch): ?\Illuminate\Http\JsonResponse
+    public function show(Request $request, Branch $branch): ?\Illuminate\Http\JsonResponse
     {
+        $user = $request->user();
+        if ($user instanceof Employee && !($user->super_admin ?? false)) {
+            abort_unless(
+                $user->hasPermission('branches.view') || (int) $user->branch_id === (int) $branch->id,
+                403,
+                'ليس لديك صلاحية عرض هذا الفرع.'
+            );
+        }
+
         try {
             return JsonResponse::respondSuccess('Item Fetched Successfully', new BranchResource($branch));
         } catch (Exception $e) {

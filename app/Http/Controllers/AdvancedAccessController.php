@@ -3,6 +3,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Permission;
 use App\Models\Role;
+use App\Models\Employee;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 
@@ -63,7 +64,36 @@ public function roles(Request $request)
 
 
     public function updateRole(Request $request, Role $role) { abort_unless($this->canManage($request), 403); $data=$request->validate(['name'=>'required|string|max:100','permissions'=>'array','permissions.*'=>'integer|exists:permissions,id']); $role->update(['name'=>$data['name']]); $role->permissions()->sync($data['permissions'] ?? []); return response()->json(['data'=>$role->fresh('permissions')]); }
-    public function mePermissions(Request $request) { $user=$request->user(); abort_unless($user, 401); return response()->json(['data'=>['is_super_admin'=>(bool)($user->super_admin ?? false),'permissions'=>$user->permissionKeys()]]); }
+    public function mePermissions(Request $request)
+    {
+        $user = $request->user();
+        abort_unless($user, 401);
+
+        $permissionKeys = $user->permissionKeys();
+        $column = Permission::identifierColumn();
+        $permissionQuery = Permission::query()->whereIn($column, $permissionKeys);
+        if (Schema::hasColumn('permissions', 'module')) {
+            $permissionQuery->orderBy('module');
+        }
+        $permissionDetails = $permissionQuery->orderBy($column)->get()->map(static fn (Permission $permission): array => [
+            'id' => $permission->id,
+            'key' => $permission->{$column},
+            'name' => $permission->name,
+            'name_ar' => $permission->name_ar,
+            'module' => $permission->module ?? 'general',
+        ])->values();
+
+        $role = $user->role ?? null;
+        $branch = $user instanceof Employee ? $user->branch : null;
+
+        return response()->json(['data' => [
+            'is_super_admin' => (bool) ($user->super_admin ?? false),
+            'role' => is_object($role) ? ($role->name ?? null) : (is_string($role) ? $role : null),
+            'branch' => $branch?->only(['id', 'name', 'name_ar']),
+            'permissions' => $permissionKeys,
+            'permission_details' => $permissionDetails,
+        ]]);
+    }
 
     private function canManage(Request $request): bool
     {
