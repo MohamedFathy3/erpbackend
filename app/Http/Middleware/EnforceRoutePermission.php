@@ -136,6 +136,13 @@ class EnforceRoutePermission
             };
         }
 
+        // Sales representative reports expose sales/commission data and have
+        // a dedicated permission so HR can be granted read-only access.
+        if ($resource === 'sales-representative' && ($segments[2] ?? '') === 'report'
+            && in_array(strtoupper($request->method()), ['GET', 'HEAD'], true)) {
+            return 'sales_representative_reports.view';
+        }
+
         // The POS selector reads representatives for the employee's branch;
         // representative management remains protected by representative.*.
         if ($resource === 'sales-representative' && ($segments[1] ?? '') === 'index') {

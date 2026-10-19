@@ -194,7 +194,7 @@ class SalesRepresentativeController extends BaseController
 
     public function report(Request $request, SalesRepresentative $salesRepresentative, SalesRepresentativeReportService $reports): \Illuminate\Http\JsonResponse
     {
-        $this->assertAdmin($request->user());
+        $this->assertCanViewReport($request->user());
 
         $filters = $request->validate([
             'from' => ['nullable', 'date'],
@@ -221,14 +221,17 @@ class SalesRepresentativeController extends BaseController
     }
 
 
-    private function assertAdmin(?object $actor): void
+    private function assertCanViewReport(?object $actor): void
     {
         $role = $actor?->role;
         $roleName = is_object($role) ? ($role->name ?? '') : ($role ?? '');
         $isAdmin = $actor instanceof Admin
             || (bool) ($actor?->super_admin ?? false)
             || in_array(strtolower((string) $roleName), ['admin', 'administrator', 'tenant_admin', 'company_admin'], true);
-        abort_unless($isAdmin, 403, 'هذه العملية متاحة للإدارة فقط.');
+        $hasReportPermission = $actor !== null
+            && method_exists($actor, 'hasPermission')
+            && $actor->hasPermission('sales_representative_reports.view');
+        abort_unless($isAdmin || $hasReportPermission, 403, 'ليس لديك صلاحية عرض تقارير مندوبي المبيعات.');
     }
 
     public function update(SalesRepresentativeRequest $request, SalesRepresentative $salesRepresentative)
