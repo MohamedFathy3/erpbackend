@@ -550,7 +550,12 @@ public function store(Request $request)
                 ], 400);
             }
 
+            // Products are tenant-wide catalog records. Their branch-specific
+            // availability and quantity live in product_warehouse, so the
+            // Product branch global scope must not reject a shared product
+            // before the warehouse stock check below runs.
             $product = Product::query()
+                ->withoutGlobalScope('branch')
                 ->where('tenant_id', $tenantId)
                 ->lockForUpdate()
                 ->find($item['product_id']);
