@@ -240,7 +240,7 @@ public function show(Product $product): ?\Illuminate\Http\JsonResponse
         $data = $request->validated();
 
         $product = $this->crudRepository->create(
-    collect($data)->except(['units', 'warehouse_ids', 'branch_ids'])->toArray()
+    collect($data)->except(['units', 'warehouse_ids', 'warehouse_stocks', 'branch_ids'])->toArray()
 );
 
         if (!empty($data['units']) && is_array($data['units'])) {
@@ -288,7 +288,7 @@ public function show(Product $product): ?\Illuminate\Http\JsonResponse
                 }
             }
         }
-$this->linkWarehouses($product, $data['warehouse_ids'] ?? null);
+$this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse_stocks'] ?? []);
         if (request('image') !== null) {
             $this->crudRepository->AddMediaCollection('image', $product);
         }
@@ -315,11 +315,11 @@ public function update(ProductUpdateRequest $request, Product $product)
         $data = $request->validated();
 
   $this->crudRepository->update(
-    collect($data)->except(['units', 'image', 'warehouse_ids', 'branch_ids'])->toArray(),
+    collect($data)->except(['units', 'image', 'warehouse_ids', 'warehouse_stocks', 'branch_ids'])->toArray(),
     $product->id
 );
 
-$this->linkWarehouses($product, $data['warehouse_ids'] ?? null);
+$this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse_stocks'] ?? []);
 
         if ($request->has('image') && $request->input('image') !== null) {
             $this->crudRepository->AddMediaCollection('image', $product);
@@ -1096,7 +1096,7 @@ public function productWarehouses(Request $request)
         ], 500);
     }
 }
-private function linkWarehouses(Product $product, ?array $warehouseIds): void
+private function linkWarehouses(Product $product, ?array $warehouseIds, array $warehouseStocks = []): void
 {
     $tenantId = $product->tenant_id;
 
@@ -1151,6 +1151,7 @@ private function linkWarehouses(Product $product, ?array $warehouseIds): void
         ]);
     }
 
+    $fallbackStock = (float) ($product->stock ?? 0);
     foreach ($ownedWarehouseIds as $warehouseId) {
         $pivot = ProductWarehouse::withoutGlobalScopes()->firstOrNew([
             'product_id' => $product->id,
@@ -1159,12 +1160,21 @@ private function linkWarehouses(Product $product, ?array $warehouseIds): void
 
         // Repair ownership only after verifying both related records belong
         // to this tenant, and never overwrite stock/cost on an existing row.
+        $hasExplicitStock = array_key_exists((string) $warehouseId, $warehouseStocks) || array_key_exists($warehouseId, $warehouseStocks);
+        $requestedStock = $warehouseStocks[$warehouseId] ?? $warehouseStocks[(string) $warehouseId] ?? null;
+        $stock = $hasExplicitStock ? (float) $requestedStock : ($pivot->exists ? (float) $pivot->stock : (count($ownedWarehouseIds) === 1 ? $fallbackStock : 0));
         $pivot->forceFill([
             'tenant_id' => $tenantId,
-            'stock' => $pivot->exists ? $pivot->stock : 0,
+            'stock' => $stock,
             'cost' => $pivot->exists ? $pivot->cost : ($product->cost ?? 0),
         ])->save();
     }
+    $product->forceFill([
+        'stock' => (float) ProductWarehouse::withoutGlobalScopes()
+            ->where('product_id', $product->id)
+            ->where('tenant_id', $tenantId)
+            ->sum('stock'),
+    ])->saveQuietly();
 }
 
 }

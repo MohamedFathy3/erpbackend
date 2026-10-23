@@ -42,6 +42,8 @@ class ProductUpdateRequest extends FormRequest
         
 'warehouse_ids'   => 'nullable|array',
 'warehouse_ids.*' => 'exists:warehouses,id',
+'warehouse_stocks' => 'nullable|array',
+'warehouse_stocks.*' => 'nullable|numeric|min:0',
 
             // units
             'units' => 'sometimes|array',

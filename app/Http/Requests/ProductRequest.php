@@ -48,7 +48,9 @@ class ProductRequest extends FormRequest
 
 
             'warehouse_ids'   => 'nullable|array',
-'warehouse_ids.*' => 'exists:warehouses,id',
+	'warehouse_ids.*' => 'exists:warehouses,id',
+            'warehouse_stocks' => 'nullable|array',
+            'warehouse_stocks.*' => 'nullable|numeric|min:0',
             // colors per unit - ✅ إزالة قواعد distinct
             'units.*.colors' => 'sometimes|array',
             'units.*.colors.*.color_id'   => 'required_with:units.*.colors|exists:colors,id',
