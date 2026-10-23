@@ -629,7 +629,7 @@ public function store(Request $request)
                     'reference_id' => $invoice->id,
                     'unit_cost' => (float) ($product->cost ?? 0),
                     'notes' => "POS invoice {$invoice->invoice_number}",
-                ]);
+                ], $tenantId);
 
                 $remainingStock -= $quantityFromWarehouse;
                 if ($remainingStock <= 0) break;
