@@ -184,6 +184,13 @@ public function purchasable(Request $request)
         $query->orderBy($orderBy, $direction);
 
         $products = $query->get();
+        if (!empty($filters['warehouse_id'])) {
+            $warehouseId = (int) $filters['warehouse_id'];
+            $products->each(function (Product $product) use ($warehouseId): void {
+                $warehouse = $product->warehouses->firstWhere('id', $warehouseId);
+                $product->setAttribute('display_stock', (float) ($warehouse?->pivot?->stock ?? 0));
+            });
+        }
 
         return ProductResource::collection($products)
             ->additional(JsonResponse::success());

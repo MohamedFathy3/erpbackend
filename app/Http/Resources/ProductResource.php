@@ -24,8 +24,9 @@ class ProductResource extends JsonResource
             'barcode'       => $this->barcode,
             'beginning_balance' => $this->beginning_balance,
 
-            // 👇 الكمية من المخزن
-            'stock'         => $this->stock ?? 0,
+            // The selected warehouse balance is set by ProductController when
+            // warehouse_id is supplied; otherwise retain the aggregate master stock.
+            'stock'         => $this->display_stock ?? $this->stock ?? 0,
 
             'reorder_level' => $this->reorder_level,
             'price'         => $this->price,
