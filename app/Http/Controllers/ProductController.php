@@ -129,7 +129,9 @@ public function purchasable(Request $request)
     try {
         $filters = $request->input('filters', []);
 
-        $query = Product::query()->with(['category', 'units.colors', 'warehouses', 'automotiveService']);
+        $query = Product::query()
+            ->withoutGlobalScope('branch')
+            ->with(['category', 'units.colors', 'warehouses', 'automotiveService']);
 
         // البحث النصي يجب أن يطبق على قاعدة البيانات نفسها، وليس أن يعيد كل المنتجات
         // ثم يعتمد على الواجهة لفلترتها.
@@ -166,6 +168,17 @@ public function purchasable(Request $request)
             });
         }
 
+        // Inventory branch views must include every product registered in any
+        // warehouse of the selected branch. The selected warehouse stock is
+        // projected separately below and must not remove the product row.
+        if (!empty($filters['branch_id'])) {
+            $branchId = (int) $filters['branch_id'];
+            $query->whereHas('warehouses', function ($q) use ($branchId) {
+                $q->withoutGlobalScope('branch')
+                    ->where('warehouses.branch_id', $branchId);
+            });
+        }
+
         // فلتر التصنيف
         if (!empty($filters['category_id'])) {
             $query->where('category_id', (int) $filters['category_id']);
@@ -184,8 +197,9 @@ public function purchasable(Request $request)
         $query->orderBy($orderBy, $direction);
 
         $products = $query->get();
-        if (!empty($filters['warehouse_id'])) {
-            $warehouseId = (int) $filters['warehouse_id'];
+        $stockWarehouseId = $filters['stock_warehouse_id'] ?? null;
+        if (!empty($stockWarehouseId)) {
+            $warehouseId = (int) $stockWarehouseId;
             $products->each(function (Product $product) use ($warehouseId): void {
                 $warehouse = $product->warehouses->firstWhere('id', $warehouseId);
                 $product->setAttribute('display_stock', (float) ($warehouse?->pivot?->stock ?? 0));
