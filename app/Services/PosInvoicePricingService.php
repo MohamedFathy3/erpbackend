@@ -9,7 +9,7 @@ class PosInvoicePricingService
      * Complimentary invoices always receive a full invoice-level discount.
      *
      * @param array<int, array{price: int|float|string, quantity: int|float|string, discount_percentage?: int|float|string}> $items
-     * @return array{gross_total: float, item_discount_total: float, after_item_discounts: float, invoice_discount_percentage: float, invoice_discount_amount: float, total_discount_amount: float, effective_discount_percentage: float, net_total: float}
+     * @return array{gross_total: float, item_discount_total: float, after_item_discounts: float, invoice_discount_percentage: float, invoice_discount_amount: float, total_discount_amount: float, effective_discount_percentage: float, net_total: float, extra_charge: float}
      */
     public function calculate(array $items, float $requestedInvoiceDiscountPercentage = 0, bool $isComplimentary = false, float $extraCharge = 0): array
     {
@@ -29,9 +29,11 @@ class PosInvoicePricingService
         $effectiveDiscountPercentage = $grossTotal > 0
             ? round($totalDiscountAmount / $grossTotal * 100, 2)
             : 0.0;
-        // extra_charge is a display-only POS note. It must not affect the
-        // invoice total, payments, sales, commission, workflow, or reports.
-        $netTotal = round(max(0.0, $afterItemDiscounts - $invoiceDiscountAmount), 2);
+        // Extra charges are part of the amount due. The frontend includes them
+        // in the displayed total, so the backend must include them when
+        // validating payments and persisting the invoice total as well.
+        $normalizedExtraCharge = round(max(0.0, $extraCharge), 2);
+        $netTotal = round(max(0.0, $afterItemDiscounts - $invoiceDiscountAmount) + $normalizedExtraCharge, 2);
 
         return [
             'gross_total' => round($grossTotal, 2),
@@ -42,7 +44,7 @@ class PosInvoicePricingService
             'total_discount_amount' => $totalDiscountAmount,
             'effective_discount_percentage' => $effectiveDiscountPercentage,
             'net_total' => $netTotal,
-            'extra_charge' => round(max(0.0, $extraCharge), 2),
+            'extra_charge' => $normalizedExtraCharge,
         ];
     }
 }
