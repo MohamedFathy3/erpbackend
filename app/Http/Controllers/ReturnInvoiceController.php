@@ -116,8 +116,8 @@ class ReturnInvoiceController extends Controller
                     'color'        => $invoiceItem->color ?? ($item['color'] ?? null),
                     'size'         => $invoiceItem->size ?? ($item['size'] ?? null),
                     'quantity'     => $item['quantity'],
-                    'price'        => $invoiceItem->price,
-                    'total'        => $invoiceItem->price * $item['quantity'],
+                    'price'        => $isComplimentary ? 0 : $invoiceItem->price,
+                    'total'        => $isComplimentary ? 0 : $invoiceItem->price * $item['quantity'],
                 ]);
 
                 $product->increment('stock', $item['quantity']);
