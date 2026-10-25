@@ -35,6 +35,7 @@ class ReturnInvoiceController extends Controller
                 })
                 ->latest('id')
                 ->firstOrFail();
+            $isComplimentary = (bool) $invoice->is_complimentary;
 
             // ============================================================
             // 2. التحقق من الكميات
@@ -69,9 +70,11 @@ class ReturnInvoiceController extends Controller
                 $itemsTotal += (float) $invoiceItem->price * (float) $item['quantity'];
             }
 
-            $total = round($itemsTotal, 2);
+            $total = $isComplimentary ? 0.0 : round($itemsTotal, 2);
 
-            $paymentsTotal = collect($request->payments)->sum('amount');
+            // Complimentary invoices never have money to refund, regardless
+            // of what the client sends in the payments payload.
+            $paymentsTotal = $isComplimentary ? 0.0 : collect($request->payments ?? [])->sum('amount');
 
             if ($paymentsTotal > $total + 0.01) {
                 throw new \RuntimeException('إجمالي المبلغ المسترد أكبر من قيمة المرتجع المستحقة.');
@@ -102,7 +105,10 @@ class ReturnInvoiceController extends Controller
                     abort(404, "المنتج باللون والمقاس المحددين غير موجود في الفاتورة");
                 }
 
-                $product = Product::findOrFail($item['product_id']);
+                $product = Product::query()
+                    ->withoutGlobalScope('branch')
+                    ->where('tenant_id', $invoice->tenant_id)
+                    ->findOrFail($item['product_id']);
 
                 $return->items()->create([
                     'product_id'   => $product->id,
