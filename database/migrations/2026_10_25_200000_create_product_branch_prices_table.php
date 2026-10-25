@@ -14,6 +14,7 @@ return new class extends Migration
             $table->unsignedBigInteger('branch_id');
             $table->unsignedBigInteger('product_id');
             $table->decimal('price', 10, 2)->default(0);
+            $table->softDeletes();
             $table->timestamps();
 
             $table->unique(['tenant_id', 'branch_id', 'product_id'], 'product_branch_price_unique');
