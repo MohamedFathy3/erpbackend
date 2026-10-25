@@ -21,6 +21,7 @@ use App\Models\InvoiceItem;
 use App\Models\ProductUnit;
 use App\Models\ProductUnitColor;
 use App\Models\ProductWarehouse;
+use App\Models\ProductBranchPrice;
 
 class ProductController extends BaseController
 {
@@ -131,7 +132,7 @@ public function purchasable(Request $request)
 
         $query = Product::query()
             ->withoutGlobalScope('branch')
-            ->with(['category', 'units.colors', 'warehouses', 'automotiveService']);
+            ->with(['category', 'units.colors', 'warehouses', 'automotiveService', 'branchPrices']);
 
         // البحث النصي يجب أن يطبق على قاعدة البيانات نفسها، وليس أن يعيد كل المنتجات
         // ثم يعتمد على الواجهة لفلترتها.
@@ -168,16 +169,9 @@ public function purchasable(Request $request)
             });
         }
 
-        // Inventory branch views must include every product registered in any
-        // warehouse of the selected branch. The selected warehouse stock is
-        // projected separately below and must not remove the product row.
-        if (!empty($filters['branch_id'])) {
-            $branchId = (int) $filters['branch_id'];
-            $query->whereHas('warehouses', function ($q) use ($branchId) {
-                $q->withoutGlobalScope('branch')
-                    ->where('warehouses.branch_id', $branchId);
-            });
-        }
+        // Products are a shared tenant catalog. A branch may have zero stock
+        // for a product created in another branch, but it must still see the
+        // product row and its own branch price.
 
         // فلتر التصنيف
         if (!empty($filters['category_id'])) {
@@ -197,6 +191,15 @@ public function purchasable(Request $request)
         $query->orderBy($orderBy, $direction);
 
         $products = $query->get();
+        $priceBranchId = !empty($filters['branch_id'])
+            ? (int) $filters['branch_id']
+            : ((int) ($request->user()?->branch_id ?: (app()->bound('currentBranchId') ? app('currentBranchId') : 0)) ?: null);
+        if ($priceBranchId) {
+            $products->each(function (Product $product) use ($priceBranchId): void {
+                $override = $product->branchPrices->firstWhere('branch_id', $priceBranchId);
+                $product->setAttribute('display_price', (float) ($override?->price ?? $product->price ?? 0));
+            });
+        }
         $stockWarehouseId = $filters['stock_warehouse_id'] ?? null;
         if (!empty($stockWarehouseId)) {
             $warehouseId = (int) $stockWarehouseId;
@@ -263,6 +266,7 @@ public function show(Product $product): ?\Illuminate\Http\JsonResponse
         $product = $this->crudRepository->create(
     collect($data)->except(['units', 'warehouse_ids', 'warehouse_stocks', 'branch_ids'])->toArray()
 );
+        $this->syncBranchPrice($product, $request, $data['price'] ?? null);
 
         if (!empty($data['units']) && is_array($data['units'])) {
             // إعادة تنظيم الوحدات
@@ -316,7 +320,7 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse
 
         DB::commit();
 
-        return new ProductResource($product->load('units.colors'));
+        return new ProductResource($product->load(['units.colors', 'branchPrices']));
 
     } catch (Exception $e) {
         DB::rollBack();
@@ -335,10 +339,12 @@ public function update(ProductUpdateRequest $request, Product $product)
     try {
         $data = $request->validated();
 
+  $updateData = collect($data)->except(['units', 'image', 'warehouse_ids', 'warehouse_stocks', 'branch_ids', 'price'])->toArray();
   $this->crudRepository->update(
-    collect($data)->except(['units', 'image', 'warehouse_ids', 'warehouse_stocks', 'branch_ids'])->toArray(),
+    $updateData,
     $product->id
 );
+        $this->syncBranchPrice($product, $request, $data['price'] ?? null);
 
 $this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse_stocks'] ?? []);
 
@@ -431,7 +437,7 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse
 
         return JsonResponse::respondSuccess(
             trans(JsonResponse::MSG_UPDATED_SUCCESSFULLY),
-            new ProductResource($product->load('units.colors'))
+            new ProductResource($product->load(['units.colors', 'branchPrices']))
         );
 
     } catch (\Exception $e) {
@@ -549,6 +555,9 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse
           ->with([
               'category',
               'automotiveService',
+              'branchPrices' => function ($query) use ($branchId) {
+                  $query->where('branch_id', $branchId);
+              },
               'units.colors',
               'warehouses' => function ($query) use ($branchId, $tenantId) {
                   $query->withoutGlobalScope('branch')
@@ -584,7 +593,9 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse
 
     // The POS must use stock for the selected branch, not the tenant-wide
     // product aggregate, so a pending transfer cannot make stock sellable.
-    $products->each(function (Product $product): void {
+    $products->each(function (Product $product) use ($branchId): void {
+        $override = $product->branchPrices->firstWhere('branch_id', $branchId);
+        $product->setAttribute('display_price', (float) ($override?->price ?? $product->price ?? 0));
         if ($product->automotiveService?->item_type === 'service') {
             $product->setAttribute('stock', 999999);
             return;
@@ -594,6 +605,22 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse
 
     return ProductResource::collection($products);
 }
+
+    private function syncBranchPrice(Product $product, Request $request, mixed $price): void
+    {
+        if ($price === null) return;
+
+        $branchId = (int) ($request->user()?->branch_id
+            ?: (app()->bound('currentBranchId') ? app('currentBranchId') : 0));
+        $tenantId = (int) ($request->user()?->tenant_id
+            ?: (app()->bound('currentTenantId') ? app('currentTenantId') : $product->tenant_id));
+        if (!$branchId || !$tenantId) return;
+
+        ProductBranchPrice::updateOrCreate(
+            ['tenant_id' => $tenantId, 'branch_id' => $branchId, 'product_id' => $product->id],
+            ['price' => round((float) $price, 2)]
+        );
+    }
 
     public function warehouseStock(Request $request)
     {

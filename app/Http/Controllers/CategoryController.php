@@ -20,14 +20,16 @@ class CategoryController extends BaseController
         $this->crudRepository = $pattern;
     }
 
-    public function index()
+    public function index(Request $request)
     {
         try {
-            $category = CategoryResource::collection($this->crudRepository->all(
-                [],
-                [],
-                ['*']
-            ));
+            // Categories are a tenant catalog, not a branch-owned record.
+            // Never let the branch scope hide categories created in another
+            // branch of the same tenant.
+            $query = Category::query()->withoutGlobalScope('branch');
+            $query->orderBy($request->input('orderBy', 'id'),
+                strtolower((string) $request->input('orderByDirection', 'asc')) === 'desc' ? 'desc' : 'asc');
+            $category = CategoryResource::collection($query->get());
             return $category->additional(JsonResponse::success());
         } catch (Exception $e) {
             return JsonResponse::respondError($e->getMessage());

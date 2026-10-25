@@ -9,6 +9,13 @@ class ProductResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $branchId = (int) ($request->user()?->branch_id
+            ?: (app()->bound('currentBranchId') ? app('currentBranchId') : 0));
+        $branchPrice = $this->relationLoaded('branchPrices')
+            ? $this->branchPrices->firstWhere('branch_id', $branchId)
+            : null;
+        $effectivePrice = $this->display_price ?? $branchPrice?->price ?? $this->price;
+
         return [
             'id'            => $this->id,
             'name'          => $this->name,
@@ -29,7 +36,8 @@ class ProductResource extends JsonResource
             'stock'         => $this->display_stock ?? $this->stock ?? 0,
 
             'reorder_level' => $this->reorder_level,
-            'price'         => $this->price,
+            'price'         => $effectivePrice,
+            'base_price'    => $this->price,
             'cost'          => $this->cost,
             'active'        => $this->active,
        // ✅ المخازن المرتبطة بالمنتج

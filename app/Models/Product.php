@@ -17,6 +17,13 @@ class Product extends BaseModel
 
     protected $guarded = ['id'];
 
+    public function resolveRouteBindingQuery($query, $value, $field = null)
+    {
+        return $query
+            ->withoutGlobalScope('branch')
+            ->where($field ?: $this->getRouteKeyName(), $value);
+    }
+
     protected $casts = [
         'active' => 'boolean',
     ];
@@ -58,6 +65,11 @@ class Product extends BaseModel
         return $this->belongsToMany(Warehouse::class, 'product_warehouse')
             ->withPivot(['stock', 'cost'])
             ->withTimestamps();
+    }
+
+    public function branchPrices()
+    {
+        return $this->hasMany(ProductBranchPrice::class);
     }
 
     public function purchaseInvoiceItems()
