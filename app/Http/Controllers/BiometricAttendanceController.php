@@ -9,6 +9,7 @@ use App\Services\BiometricAttendanceService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class BiometricAttendanceController extends Controller
 {
@@ -16,13 +17,27 @@ class BiometricAttendanceController extends Controller
 
     public function storeDevice(Request $request)
     {
-        $data = $request->validate(['name' => 'required|string|max:120', 'ip_address' => 'required|ip', 'port' => 'nullable|integer|min:1|max:65535', 'protocol' => 'nullable|in:tcp,udp', 'device_password' => 'nullable|integer|min:0', 'branch_id' => 'nullable|exists:branches,id', 'is_active' => 'boolean']);
+        $tenantId = (int) (app()->bound('currentTenantId') ? app('currentTenantId') : $request->user()?->tenant_id);
+        $data = $request->validate([
+            'name' => 'required|string|max:120',
+            'serial_number' => ['nullable', 'string', 'max:64', Rule::unique('biometric_devices', 'serial_number')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
+            'communication_mode' => 'nullable|in:pull,adms',
+            'ip_address' => 'required_if:communication_mode,pull|nullable|ip',
+            'port' => 'nullable|integer|min:1|max:65535',
+            'protocol' => 'nullable|in:tcp,udp',
+            'device_password' => 'nullable|integer|min:0',
+            'branch_id' => 'nullable|exists:branches,id',
+            'is_active' => 'boolean',
+        ]);
+        $data['communication_mode'] = $data['communication_mode'] ?? 'pull';
+        $data['ip_address'] = $data['ip_address'] ?? '0.0.0.0';
+        $data['port'] = $data['port'] ?? ($data['communication_mode'] === 'adms' ? 443 : 4370);
         return response()->json(['status' => true, 'data' => BiometricDevice::create($data)], 201);
     }
 
     public function updateDevice(Request $request, BiometricDevice $device)
     {
-        $data = $request->validate(['name' => 'sometimes|string|max:120', 'ip_address' => 'sometimes|ip', 'port' => 'sometimes|integer|min:1|max:65535', 'protocol' => 'sometimes|in:tcp,udp', 'device_password' => 'sometimes|integer|min:0', 'branch_id' => 'nullable|exists:branches,id', 'is_active' => 'boolean']);
+        $data = $request->validate(['name' => 'sometimes|string|max:120', 'serial_number' => ['sometimes', 'nullable', 'string', 'max:64', Rule::unique('biometric_devices', 'serial_number')->where(fn ($query) => $query->where('tenant_id', $device->tenant_id))->ignore($device->id)], 'communication_mode' => 'sometimes|in:pull,adms', 'ip_address' => 'sometimes|ip', 'port' => 'sometimes|integer|min:1|max:65535', 'protocol' => 'sometimes|in:tcp,udp', 'device_password' => 'sometimes|integer|min:0', 'branch_id' => 'nullable|exists:branches,id', 'is_active' => 'boolean']);
         $device->update($data);
         return response()->json(['status' => true, 'data' => $device->fresh('branch')]);
     }
