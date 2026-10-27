@@ -53,4 +53,9 @@ class Employee extends BaseModel implements Authenticatable
         return $this->hasMany(BiometricLog::class);
     }
 
+    public function shift()
+    {
+        return $this->belongsTo(Shift::class);
+    }
+
 }

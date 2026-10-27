@@ -1658,6 +1658,10 @@ Route::middleware([
         Route::post('/devices/{device}/users', [BiometricAttendanceController::class, 'storeDeviceUser']);
         Route::get('/mappings', [BiometricAttendanceController::class, 'mappings']);
         Route::patch('/mappings/{employee}', [BiometricAttendanceController::class, 'updateMapping']);
+        Route::get('/shifts', [BiometricAttendanceController::class, 'shifts']);
+        Route::post('/shifts', [BiometricAttendanceController::class, 'storeShift']);
+        Route::patch('/shifts/{shift}', [BiometricAttendanceController::class, 'updateShift']);
+        Route::post('/shifts/{shift}/assign', [BiometricAttendanceController::class, 'assignShift']);
         Route::get('/rules', [BiometricAttendanceController::class, 'rules']);
         Route::post('/rules', [BiometricAttendanceController::class, 'storeRule']);
         Route::patch('/rules/{rule}', [BiometricAttendanceController::class, 'updateRule']);

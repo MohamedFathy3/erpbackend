@@ -6,6 +6,7 @@ use App\Models\Attendance;
 use App\Models\BiometricDevice;
 use App\Models\BiometricLog;
 use App\Models\Employee;
+use App\Models\Shift;
 use App\Services\BiometricAgentAttendanceService;
 use App\Services\BiometricAttendanceService;
 use Carbon\Carbon;
@@ -148,6 +149,45 @@ class BiometricAttendanceController extends Controller
         $data = $request->validate(['biometric_user_id' => 'nullable|string|max:32']);
         $employee->update($data);
         return response()->json(['status' => true, 'data' => $employee->only(['id', 'employee_code', 'name', 'biometric_user_id'])]);
+    }
+
+    public function shifts()
+    {
+        return response()->json(['status' => true, 'data' => Shift::withCount('employees')->with('employees:id,name,employee_code,shift_id')->latest()->get()]);
+    }
+
+    public function storeShift(Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:120',
+            'start_time' => 'required|date_format:H:i',
+            'end_time' => 'required|date_format:H:i',
+            'grace_minutes' => 'required|integer|min:0|max:1440',
+            'is_active' => 'boolean',
+        ]);
+        return response()->json(['status' => true, 'data' => Shift::create($data)], 201);
+    }
+
+    public function updateShift(Request $request, Shift $shift)
+    {
+        $shift->update($request->validate([
+            'name' => 'sometimes|string|max:120',
+            'start_time' => 'sometimes|date_format:H:i',
+            'end_time' => 'sometimes|date_format:H:i',
+            'grace_minutes' => 'sometimes|integer|min:0|max:1440',
+            'is_active' => 'sometimes|boolean',
+        ]));
+        return response()->json(['status' => true, 'data' => $shift->fresh()]);
+    }
+
+    public function assignShift(Request $request, Shift $shift)
+    {
+        $data = $request->validate(['employee_ids' => 'array', 'employee_ids.*' => 'integer|exists:employees,id']);
+        Employee::where('shift_id', $shift->id)->update(['shift_id' => null]);
+        if (!empty($data['employee_ids'])) {
+            Employee::whereIn('id', $data['employee_ids'])->update(['shift_id' => $shift->id]);
+        }
+        return response()->json(['status' => true, 'data' => $shift->load('employees:id,name,employee_code,shift_id')]);
     }
 
     public function rules() { return response()->json(['status' => true, 'data' => AttendanceRule::latest()->get()]); }
