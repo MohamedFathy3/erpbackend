@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 use App\Models\AttendanceRule;
 use App\Models\Attendance;
 use App\Models\BiometricDevice;
+use App\Models\BiometricLog;
 use App\Models\Employee;
+use App\Services\BiometricAgentAttendanceService;
 use App\Services\BiometricAttendanceService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -58,7 +60,72 @@ class BiometricAttendanceController extends Controller
             return response()->json(['status' => false, 'message' => $e->getMessage()], 503);
         }
     }
-    public function deviceUsers(BiometricDevice $device, BiometricAttendanceService $service) { return response()->json(['status' => true, 'data' => $service->deviceUsers($device)]); }
+    public function deviceUsers(BiometricDevice $device, BiometricAttendanceService $service)
+    {
+        if ($device->communication_mode !== 'adms') {
+            return response()->json(['status' => true, 'data' => $service->deviceUsers($device)]);
+        }
+
+        $users = BiometricLog::withoutGlobalScopes()
+            ->with('employee')
+            ->where('tenant_id', $device->tenant_id)
+            ->where('device_id', $device->id)
+            ->orderByDesc('recorded_at')
+            ->get()
+            ->groupBy('device_user_id')
+            ->map(function ($logs, string $userId): array {
+                $latest = $logs->first();
+                $employee = $logs->firstWhere('employee_id', '!=', null)?->employee
+                    ?: Employee::withoutGlobalScopes()
+                        ->where('tenant_id', $latest->tenant_id)
+                        ->where('biometric_user_id', $userId)
+                        ->first(['id', 'name', 'employee_code']);
+
+                return [
+                    'uid' => (int) ($latest->payload['uid'] ?? 0),
+                    'user_id' => $userId,
+                    'name' => (string) ($latest->payload['name'] ?? ''),
+                    'role' => 0,
+                    'card_no' => '',
+                    'last_seen_at' => $latest->recorded_at,
+                    'punch_count' => $logs->count(),
+                    'employee' => $employee?->only(['id', 'name', 'employee_code']),
+                ];
+            })
+            ->values();
+
+        return response()->json(['status' => true, 'data' => $users]);
+    }
+
+    public function assignDeviceUser(Request $request, BiometricDevice $device, string $userId, BiometricAgentAttendanceService $attendanceService)
+    {
+        $data = $request->validate(['employee_id' => 'required|integer|exists:employees,id']);
+        $employee = Employee::withoutGlobalScopes()
+            ->where('tenant_id', $device->tenant_id)
+            ->findOrFail($data['employee_id']);
+
+        Employee::withoutGlobalScopes()
+            ->where('tenant_id', $device->tenant_id)
+            ->where('biometric_user_id', $userId)
+            ->where('id', '<>', $employee->id)
+            ->update(['biometric_user_id' => null]);
+
+        $employee->forceFill(['biometric_user_id' => $userId])->save();
+        $logs = BiometricLog::withoutGlobalScopes()
+            ->where('tenant_id', $device->tenant_id)
+            ->where('device_id', $device->id)
+            ->where('device_user_id', $userId)
+            ->get();
+        $logs->each->update(['employee_id' => $employee->id]);
+        $logs->pluck('recorded_at')->map(fn ($date) => Carbon::parse($date)->startOfDay()->toDateString())->unique()->each(
+            fn (string $date) => $attendanceService->refreshEmployeeDay($employee, Carbon::parse($date)),
+        );
+
+        return response()->json(['status' => true, 'data' => [
+            'employee' => $employee->only(['id', 'name', 'employee_code', 'biometric_user_id']),
+            'updated_logs' => $logs->count(),
+        ]);
+    }
 
     public function storeDeviceUser(Request $request, BiometricDevice $device, BiometricAttendanceService $service)
     {
