@@ -14,8 +14,8 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Receives the HTTP ADMS/PUSH protocol emitted by ZKTeco terminals.
  * These routes intentionally do not use Sanctum: the terminal cannot send
- * an ERP user token. Device identity is established by serial number and the
- * tenant is resolved from the public tenant hostname.
+ * an ERP user token. Device identity and tenant are established from the
+ * registered serial number, so all SaaS tenants can use one endpoint.
  */
 class AdmsController extends Controller
 {
@@ -166,31 +166,16 @@ class AdmsController extends Controller
         if ($serial === '' || !preg_match('/^[A-Za-z0-9_.:-]{1,64}$/', $serial)) {
             abort(422, 'The ZKTeco serial number (SN) is required.');
         }
-        $tenantId = app()->bound('currentTenantId') ? (int) app('currentTenantId') : 0;
-        if (!$tenantId) {
-            abort(404, 'Tenant could not be resolved from the device hostname.');
-        }
-
         $device = BiometricDevice::withoutGlobalScopes()
-            ->where('tenant_id', $tenantId)
             ->where('serial_number', $serial)
             ->first();
-        if (!$device && $create) {
-            $device = BiometricDevice::withoutGlobalScopes()->create([
-                'tenant_id' => $tenantId,
-                'name' => 'ZKTeco ' . $serial,
-                'serial_number' => $serial,
-                'ip_address' => $request->ip() ?: '0.0.0.0',
-                'port' => 4370,
-                'protocol' => 'tcp',
-                'device_password' => 0,
-                'communication_mode' => 'adms',
-                'is_active' => true,
-            ]);
-        }
         if (!$device) {
-            abort(404, 'This biometric device is not registered for this workspace.');
+            abort(404, 'This ZKTeco serial number is not registered. Add it from the ERP biometric settings first.');
         }
+        if (!$device->is_active) {
+            abort(403, 'This biometric device is inactive.');
+        }
+        app()->instance('currentTenantId', (int) $device->tenant_id);
         return $device;
     }
 
