@@ -36,6 +36,7 @@ return Application::configure(basePath: dirname(__DIR__))
             EnforceRoutePermission::class,
             EnsureTenantSubscriptionActive::class,
         ]);
+        $middleware->validateCsrfTokens(except: ['iclock/*']);
 
         $middleware->alias([
             'verified' => \App\Http\Middleware\EnsureEmailIsVerified::class,
