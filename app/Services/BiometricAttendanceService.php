@@ -13,7 +13,7 @@ use RuntimeException;
 
 class BiometricAttendanceService
 {
-    public function sync(BiometricDevice $device): array
+    public function sync(BiometricDevice $device, ?Carbon $from = null, ?Carbon $to = null): array
     {
         $this->assertReachable($device, 1.5);
         $zk = new ZKTeco($device->ip_address, (int) $device->port, timeout: 3, password: (int) $device->device_password, protocol: $device->protocol);
@@ -22,7 +22,19 @@ class BiometricAttendanceService
         try {
             $users = collect($zk->getUsers());
             $employees = Employee::query()->where('is_active', true)->get()->keyBy(fn ($e) => (string) $e->biometric_user_id);
-            $logs = $zk->getAttendances();
+            $logs = collect($zk->getAttendances())
+                ->filter(function (array $raw) use ($from, $to): bool {
+                    if (!$from && !$to) return true;
+
+                    $timestamp = $raw['record_time'] ?? $raw['timestamp'] ?? null;
+                    if ($timestamp === null) return false;
+
+                    $recordedAt = Carbon::parse($timestamp);
+                    return (!$from || $recordedAt->greaterThanOrEqualTo($from->copy()->startOfDay()))
+                        && (!$to || $recordedAt->lessThanOrEqualTo($to->copy()->endOfDay()));
+                })
+                ->values()
+                ->all();
             $imported = 0;
             $unmatched = [];
             foreach ($logs as $raw) {
@@ -40,7 +52,14 @@ class BiometricAttendanceService
             }
             $this->rebuildAttendance($device, $logs);
             $device->update(['last_synced_at' => now(), 'last_error' => null]);
-            return ['imported' => $imported, 'unmatched_user_ids' => array_keys($unmatched), 'device_users' => $users->count()];
+            return [
+                'imported' => $imported,
+                'unmatched_user_ids' => array_keys($unmatched),
+                'device_users' => $users->count(),
+                'period_start' => $from?->toDateString(),
+                'period_end' => $to?->toDateString(),
+                'scanned' => count($logs),
+            ];
         } catch (\Throwable $e) {
             $device->update(['last_error' => $e->getMessage()]);
             throw $e;

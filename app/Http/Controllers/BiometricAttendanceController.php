@@ -53,10 +53,19 @@ class BiometricAttendanceController extends Controller
             return response()->json(['status' => false, 'message' => $e->getMessage()], 503);
         }
     }
-    public function syncDevice(BiometricDevice $device, BiometricAttendanceService $service)
+    public function syncDevice(Request $request, BiometricDevice $device, BiometricAttendanceService $service)
     {
+        $data = $request->validate([
+            'period_start' => 'nullable|required_with:period_end|date',
+            'period_end' => 'nullable|required_with:period_start|date|after_or_equal:period_start',
+        ]);
+
         try {
-            return response()->json(['status' => true, 'data' => $service->sync($device)]);
+            return response()->json(['status' => true, 'data' => $service->sync(
+                $device,
+                isset($data['period_start']) ? Carbon::parse($data['period_start']) : null,
+                isset($data['period_end']) ? Carbon::parse($data['period_end']) : null,
+            )]);
         } catch (\Throwable $e) {
             return response()->json(['status' => false, 'message' => $e->getMessage()], 503);
         }
@@ -215,12 +224,19 @@ class BiometricAttendanceController extends Controller
         $data = $request->validate([
             'period_start' => 'required|date',
             'period_end' => 'required|date|after_or_equal:period_start',
+            'employee_id' => 'nullable|integer',
         ]);
         $from = Carbon::parse($data['period_start']);
         $to = Carbon::parse($data['period_end']);
         $rule = AttendanceRule::where('is_active', true)->latest('id')->first();
-        $employees = Employee::query()->where('is_active', true)->orderBy('name')->get();
-        $attendance = Attendance::with('employee')->whereBetween('date', [$from->toDateString(), $to->toDateString()])->orderBy('date')->get();
+        $employeesQuery = Employee::query()->where('is_active', true);
+        $attendanceQuery = Attendance::with('employee')->whereBetween('date', [$from->toDateString(), $to->toDateString()]);
+        if (!empty($data['employee_id'])) {
+            $employeesQuery->whereKey($data['employee_id']);
+            $attendanceQuery->where('employee_id', $data['employee_id']);
+        }
+        $employees = $employeesQuery->orderBy('name')->get();
+        $attendance = $attendanceQuery->orderBy('date')->orderBy('employee_id')->get();
         $summary = $employees->map(fn (Employee $employee) => $service->previewPayroll($employee, $from, $to, $rule));
 
         return response()->json(['status' => true, 'data' => [
