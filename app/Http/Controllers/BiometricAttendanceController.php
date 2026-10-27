@@ -124,7 +124,7 @@ class BiometricAttendanceController extends Controller
         return response()->json(['status' => true, 'data' => [
             'employee' => $employee->only(['id', 'name', 'employee_code', 'biometric_user_id']),
             'updated_logs' => $logs->count(),
-        ]);
+        ]]);
     }
 
     public function storeDeviceUser(Request $request, BiometricDevice $device, BiometricAttendanceService $service)
