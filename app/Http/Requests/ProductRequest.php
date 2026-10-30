@@ -3,7 +3,6 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class ProductRequest extends FormRequest
 {
@@ -14,77 +13,62 @@ class ProductRequest extends FormRequest
 
     public function rules(): array
     {
-        $productId = $this->route('product');
-
         return [
-            // product
-            'name'            => 'required|string|max:255',
-            'description'     => 'nullable|string',
-            'image_url'       => 'nullable|string',
-            'category_id'     => 'required|exists:categories,id',
-            'sku' => [
-                'nullable',
-                'string',
-                Rule::unique('products', 'sku')->ignore($productId),
-            ],
-            'barcode' => [
-                'nullable',
-                'string',
-                Rule::unique('products', 'barcode')->ignore($productId),
-            ],
-            'stock'           => 'nullable|integer|min:0',
-            'beginning_balance' => 'nullable|boolean',
-            'reorder_level'   => 'nullable|integer|min:0',
-            'price'           => 'nullable|numeric|min:0',
-            'cost'            => 'nullable|numeric|min:0',
+            'name'             => 'required|string|max:255',
+            'name_ar'          => 'nullable|string|max:255',
+            'description'      => 'nullable|string',
+            'description_ar'   => 'nullable|string',
+            'sku'              => 'required|string|max:100',
+            'barcode'          => 'nullable|string|max:100',
+            'category_id'      => 'nullable|exists:categories,id',
+            'price'            => 'nullable|numeric|min:0',
+            'cost'             => 'nullable|numeric|min:0',
+            'reorder_level'    => 'nullable|integer|min:0',
+            'active'           => 'nullable|boolean',
+            'has_variants'     => 'nullable|boolean',
+            'valuation_method' => 'nullable|in:fifo,lifo,weighted_average',
+            'image'            => 'nullable',
+            'image_url'        => 'nullable|string',
 
-            // units
-            'units' => 'sometimes|array',
-            'units.*.unit_id'             => 'required|exists:units,id',
-            'units.*.cost_price'          => 'required|numeric|min:0',
-            'units.*.sell_price'          => 'required|numeric|min:0',
+            'warehouse_ids'       => 'nullable|array',
+            'warehouse_ids.*'     => 'integer|exists:warehouses,id',
+            'warehouse_stocks'    => 'nullable|array',
+            'warehouse_stocks.*'  => 'numeric|min:0',
+
+            'branch_ids'          => 'nullable|array',
+            'branch_ids.*'        => 'integer|exists:branches,id',
+
+            'units'                       => 'nullable|array',
+            'units.*.unit_id'             => 'required_with:units|integer|exists:units,id',
+            'units.*.cost_price'          => 'nullable|numeric|min:0',
+            'units.*.sell_price'          => 'nullable|numeric|min:0',
             'units.*.barcode'             => 'nullable|string',
+            'units.*.colors'              => 'nullable|array',
+            'units.*.colors.*.color_id'   => 'required_with:units.*.colors|integer|exists:colors,id',
+            'units.*.colors.*.stock'      => 'nullable|numeric|min:0',
 
-
-
-            'warehouse_ids'   => 'nullable|array',
-	'warehouse_ids.*' => 'exists:warehouses,id',
-            'warehouse_stocks' => 'nullable|array',
-            'warehouse_stocks.*' => 'nullable|numeric|min:0',
-            // colors per unit - ✅ إزالة قواعد distinct
-            'units.*.colors' => 'sometimes|array',
-            'units.*.colors.*.color_id'   => 'required_with:units.*.colors|exists:colors,id',
-            'units.*.colors.*.stock'      => 'required_with:units.*.colors|integer|min:0',
+            'stock' => 'nullable|numeric|min:0',
         ];
     }
 
     /**
-     * بعد التحقق من الصلاحية، نقوم بتنقية البيانات من التكرار
+     * ✅ فك الـ JSON string لو جاي كـ string
      */
-    public function validated($key = null, $default = null)
+    protected function prepareForValidation(): void
     {
-        $validated = parent::validated($key, $default);
+        $this->decodeJsonArrayField('warehouse_stocks');
+        $this->decodeJsonArrayField('warehouse_ids');
+        $this->decodeJsonArrayField('branch_ids');
+    }
 
-        // تنقية الـ units من الألوان المكررة
-        if (isset($validated['units']) && is_array($validated['units'])) {
-            foreach ($validated['units'] as &$unit) {
-                if (isset($unit['colors']) && is_array($unit['colors'])) {
-                    // إزالة الألوان المكررة بناءً على color_id
-                    $uniqueColors = [];
-                    $seenColorIds = [];
-
-                    foreach ($unit['colors'] as $color) {
-                        if (!in_array($color['color_id'], $seenColorIds)) {
-                            $uniqueColors[] = $color;
-                            $seenColorIds[] = $color['color_id'];
-                        }
-                    }
-
-                    $unit['colors'] = $uniqueColors;
-                }
+    private function decodeJsonArrayField(string $field): void
+    {
+        $value = $this->input($field);
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            if (is_array($decoded)) {
+                $this->merge([$field => $decoded]);
             }
         }
-
-        return $validated;
     }
 }

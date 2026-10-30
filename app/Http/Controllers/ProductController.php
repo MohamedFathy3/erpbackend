@@ -125,7 +125,7 @@ public function purchasable(Request $request)
 }
 
 
-  public function index(Request $request)
+public function index(Request $request)
 {
     try {
         $filters = $request->input('filters', []);
@@ -134,8 +134,6 @@ public function purchasable(Request $request)
             ->withoutGlobalScope('branch')
             ->with(['category', 'units.colors', 'warehouses', 'automotiveService', 'branchPrices']);
 
-        // البحث النصي يجب أن يطبق على قاعدة البيانات نفسها، وليس أن يعيد كل المنتجات
-        // ثم يعتمد على الواجهة لفلترتها.
         if (!empty($filters['name'])) {
             $name = trim((string) $filters['name']);
             $hasArabicNameColumn = Schema::hasColumn('products', 'name_ar');
@@ -161,27 +159,25 @@ public function purchasable(Request $request)
             });
         }
 
-        // فلتر المخزن
-        if (!empty($filters['warehouse_id'])) {
-            $warehouseId = (int) $filters['warehouse_id'];
-            $query->whereHas('warehouses', function ($q) use ($warehouseId) {
-                $q->where('warehouses.id', $warehouseId);
-            });
+        // فلتر المخزن: من جدول product_warehouse مباشرة بدون أي Scope للفرع
+        $warehouseFilterId = (int) ($filters['stock_warehouse_id'] ?? $filters['warehouse_id'] ?? 0);
+        if ($warehouseFilterId) {
+            $query->whereIn(
+                'products.id',
+                ProductWarehouse::withoutGlobalScopes()
+                    ->where('warehouse_id', $warehouseFilterId)
+                    ->select('product_id')
+            );
         }
 
-        // Products are a shared tenant catalog. A branch may have zero stock
-        // for a product created in another branch, but it must still see the
-        // product row and its own branch price.
-
-        // فلتر التصنيف
         if (!empty($filters['category_id'])) {
             $query->where('category_id', (int) $filters['category_id']);
         }
 
-        // فلتر الحالة (active / inactive)
         if (array_key_exists('active', $filters)) {
             $query->where('active', filter_var($filters['active'], FILTER_VALIDATE_BOOLEAN));
         }
+
         if (array_key_exists('beginning_balance', $filters)) {
             $query->where('beginning_balance', filter_var($filters['beginning_balance'], FILTER_VALIDATE_BOOLEAN));
         }
@@ -191,31 +187,51 @@ public function purchasable(Request $request)
         $query->orderBy($orderBy, $direction);
 
         $products = $query->get();
+
         $priceBranchId = !empty($filters['branch_id'])
             ? (int) $filters['branch_id']
             : ((int) ($request->user()?->branch_id ?: (app()->bound('currentBranchId') ? app('currentBranchId') : 0)) ?: null);
+
         if ($priceBranchId) {
             $products->each(function (Product $product) use ($priceBranchId): void {
                 $override = $product->branchPrices->firstWhere('branch_id', $priceBranchId);
                 $product->setAttribute('display_price', (float) ($override?->price ?? $product->price ?? 0));
             });
         }
-        $stockWarehouseId = $filters['stock_warehouse_id'] ?? null;
-        if (!empty($stockWarehouseId)) {
-            $warehouseId = (int) $stockWarehouseId;
-            $products->each(function (Product $product) use ($warehouseId): void {
-                $warehouse = $product->warehouses->firstWhere('id', $warehouseId);
-                $product->setAttribute('display_stock', (float) ($warehouse?->pivot?->stock ?? 0));
-            });
-        }
 
-        return ProductResource::collection($products)
-            ->additional(JsonResponse::success());
+        // كميات كل المخازن لكل المنتجات (استعلام واحد)
+        $stocksByProduct = ProductWarehouse::withoutGlobalScopes()
+            ->whereIn('product_id', $products->pluck('id'))
+            ->get(['product_id', 'warehouse_id', 'stock'])
+            ->groupBy('product_id');
+
+        $data = $products->map(function (Product $product) use ($stocksByProduct, $warehouseFilterId) {
+            $map = ($stocksByProduct[$product->id] ?? collect())
+                ->mapWithKeys(fn ($pw) => [(int) $pw->warehouse_id => (float) $pw->stock])
+                ->all();
+
+            if ($warehouseFilterId) {
+                $product->setAttribute('display_stock', (float) ($map[$warehouseFilterId] ?? 0));
+            }
+$row = (new ProductResource($product))->resolve();
+return $this->withComputedStock($row, $map);
+        })->values();
+
+        return response()->json(array_merge(['data' => $data], JsonResponse::success()));
     } catch (Exception $e) {
         return JsonResponse::respondError($e->getMessage());
     }
 }
-
+private function withComputedStock(array $row, array $map): array
+{
+    $row['warehouse_stocks'] = (object) $map;
+    $row['warehouse_ids']    = array_map('intval', array_keys($map));
+    // لو للمنتج صفوف مخازن: المجموع. لو مفيش: نترك القيمة المسجلة كما هي.
+    if (!empty($map)) {
+        $row['stock'] = (float) array_sum($map);
+    }
+    return $row;
+}
 public function lowStockAlerts(Request $request)
 {
     try {
@@ -243,77 +259,78 @@ public function lowStockAlerts(Request $request)
     }
 }
 
-public function show(Product $product): ?\Illuminate\Http\JsonResponse
+public function show(Product $product)
 {
     try {
-        return JsonResponse::respondSuccess(
-            'Item Fetched Successfully',
-            new ProductResource($product->load('warehouses'))
-        );
+        // ✅ بدون deleted_at على product_warehouse
+        $stocks = DB::table('product_warehouse')
+            ->where('product_id', $product->id)
+            ->get(['warehouse_id', 'stock'])
+            ->groupBy('warehouse_id')
+            ->map(fn ($group) => (float) $group->sum('stock'))
+            ->all();
+
+        $product->unsetRelation('warehouses');
+        $product->load(['units.colors', 'branchPrices', 'warehouses']);
+
+        $row = (new ProductResource($product))->resolve();
+
+        $row['warehouse_stocks'] = (object) $stocks;
+        $row['warehouse_ids']    = array_map('intval', array_keys($stocks));
+        $row['stock']            = (float) array_sum($stocks);
+
+        return response()->json([
+            'result'  => 'Success',
+            'message' => 'Item Fetched Successfully',
+            'data'    => $row,
+            'status'  => 200,
+        ]);
     } catch (Exception $e) {
         return JsonResponse::respondError($e->getMessage());
     }
 }
 
-
-   public function store(ProductRequest $request)
+public function store(ProductRequest $request)
 {
     DB::beginTransaction();
 
     try {
         $data = $request->validated();
 
-        $product = $this->crudRepository->create(
-    collect($data)->except(['units', 'warehouse_ids', 'warehouse_stocks', 'branch_ids'])->toArray()
-);
+      // ✅ استثنِ الحقول اللي بتتعامل يدوياً
+$createData = collect($data)->except([
+    'units', 'warehouse_ids', 'warehouse_stocks', 'branch_ids', 'stock',
+    'image', 'image_url'
+])->toArray();
+
+// ✅ فلترة: احتفظ بس بالأعمدة الموجودة فعلاً في جدول products
+$createData = collect($createData)
+    ->filter(fn ($v, $k) => \Illuminate\Support\Facades\Schema::hasColumn('products', $k))
+    ->toArray();
+
+$product = $this->crudRepository->create($createData);
+
         $this->syncBranchPrice($product, $request, $data['price'] ?? null);
 
-        if (!empty($data['units']) && is_array($data['units'])) {
-            // إعادة تنظيم الوحدات
-            $organizedUnits = [];
+        // الوحدات والألوان
+        $this->syncProductUnits($product, $data['units'] ?? [], false);
 
-            foreach ($data['units'] as $unitData) {
-                $unitId = $unitData['unit_id'];
+        // ✅ المخازن — خد من $data (validated) مش من $request
+        $warehouseIds = array_key_exists('warehouse_ids', $data)
+            ? array_map('intval', (array) $data['warehouse_ids'])
+            : null;
 
-                if (!isset($organizedUnits[$unitId])) {
-                    // أول مرة نشوف فيها الـ unit_id
-                    $organizedUnits[$unitId] = [
-                        'unit_id' => $unitId,
-                        'cost_price' => $unitData['cost_price'],
-                        'sell_price' => $unitData['sell_price'],
-                        'barcode' => $unitData['barcode'] ?? null,
-                        'colors' => []
-                    ];
-                }
+        $warehouseStocks = $this->normalizeWarehouseStocksInput(
+            $data['warehouse_stocks'] ?? []
+        );
 
-                // إضافة الألوان
-                if (!empty($unitData['colors'])) {
-                    foreach ($unitData['colors'] as $colorData) {
-                        $organizedUnits[$unitId]['colors'][] = $colorData;
-                    }
-                }
-            }
+        $this->linkWarehouses(
+            $product,
+            $warehouseIds,
+            $warehouseStocks,
+            false
+        );
 
-            // إدخال الوحدات المنظمة
-            foreach ($organizedUnits as $unitData) {
-                $productUnit = $product->units()->create([
-                    'unit_id'     => $unitData['unit_id'],
-                    'cost_price'  => $unitData['cost_price'],
-                    'sell_price'  => $unitData['sell_price'],
-                    'barcode'     => $unitData['barcode'] ?? null,
-                ]);
-
-                if (!empty($unitData['colors'])) {
-                    foreach ($unitData['colors'] as $colorData) {
-                        $productUnit->colors()->create([
-                            'color_id' => $colorData['color_id'],
-                            'stock'    => $colorData['stock'],
-                        ]);
-                    }
-                }
-            }
-        }
-$this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse_stocks'] ?? []);
         if (request('image') !== null) {
             $this->crudRepository->AddMediaCollection('image', $product);
         }
@@ -321,7 +338,6 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse
         DB::commit();
 
         return new ProductResource($product->load(['units.colors', 'branchPrices']));
-
     } catch (Exception $e) {
         DB::rollBack();
         return JsonResponse::respondError($e->getMessage());
@@ -329,122 +345,211 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse
 }
 
 
-
     
+
 
 public function update(ProductUpdateRequest $request, Product $product)
 {
-    DB::beginTransaction();
-
     try {
-        $data = $request->validated();
+        $result = DB::transaction(function () use ($request, $product) {
 
-  $updateData = collect($data)->except(['units', 'image', 'warehouse_ids', 'warehouse_stocks', 'branch_ids', 'price'])->toArray();
-  $this->crudRepository->update(
-    $updateData,
-    $product->id
-);
-        $this->syncBranchPrice($product, $request, $data['price'] ?? null);
+            $data = $request->validated();
 
-$this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse_stocks'] ?? []);
+            $product = Product::query()
+                ->lockForUpdate()
+                ->findOrFail($product->id);
 
-        if ($request->has('image') && $request->input('image') !== null) {
-            $this->crudRepository->AddMediaCollection('image', $product);
-        }
+            \Log::info('PRODUCT UPDATE HIT', [
+                'product_id' => $product->id,
+                'tenant_id' => $product->tenant_id,
+                'method' => $request->method(),
+                'warehouse_ids' => $data['warehouse_ids'] ?? null,
+                'warehouse_stocks' => $data['warehouse_stocks'] ?? null,
+            ]);
 
-        if (!empty($data['units']) && is_array($data['units'])) {
-            // تنظيم الوحدات وإزالة الألوان المكررة
-            $organizedUnits = [];
+            // 1. تحديث بيانات المنتج الأساسية فقط
+            $updateData = collect($data)->except([
+                'units',
+                'image',
+                'image_url',
+                'warehouse_ids',
+                'warehouse_stocks',
+                'sync_warehouses',
+                'branch_ids',
+                'price',
+                'stock',
+            ])->toArray();
 
-            foreach ($data['units'] as $unitData) {
-                $unitId = $unitData['unit_id'];
+            $updateData = collect($updateData)
+                ->filter(fn ($value, $key) =>
+                    Schema::hasColumn('products', $key)
+                )
+                ->toArray();
 
-                if (!isset($organizedUnits[$unitId])) {
-                    $organizedUnits[$unitId] = [
-                        'unit_id' => $unitId,
-                        'cost_price' => $unitData['cost_price'],
-                        'sell_price' => $unitData['sell_price'],
-                        'barcode' => $unitData['barcode'] ?? null,
-                        'colors' => []
-                    ];
-                }
-
-                // إزالة الألوان المكررة
-                if (!empty($unitData['colors'])) {
-                    foreach ($unitData['colors'] as $colorData) {
-                        $colorExists = false;
-                        foreach ($organizedUnits[$unitId]['colors'] as $existingColor) {
-                            if ($existingColor['color_id'] == $colorData['color_id']) {
-                                $colorExists = true;
-                                break;
-                            }
-                        }
-
-                        if (!$colorExists) {
-                            $organizedUnits[$unitId]['colors'][] = $colorData;
-                        }
-                    }
-                }
-            }
-
-            // الحصول على الـ unit_ids الموجودة حالياً
-            $existingUnitIds = $product->units()->pluck('unit_id')->toArray();
-            $newUnitIds = array_keys($organizedUnits);
-
-            // حذف الوحدات التي لم تعد موجودة
-            $unitsToDelete = array_diff($existingUnitIds, $newUnitIds);
-            if (!empty($unitsToDelete)) {
-                $product->units()->whereIn('unit_id', $unitsToDelete)->each(function ($unit) {
-                    $unit->colors()->delete();
-                    $unit->delete();
-                });
-            }
-
-            // تحديث أو إضافة الوحدات الجديدة
-            foreach ($organizedUnits as $unitId => $unitData) {
-                // ✅ استخدام updateOrCreate بدلاً من create
-                $productUnit = $product->units()->updateOrCreate(
-                    ['unit_id' => $unitId],
-                    [
-                        'cost_price' => $unitData['cost_price'],
-                        'sell_price' => $unitData['sell_price'],
-                        'barcode' => $unitData['barcode'] ?? null,
-                    ]
+            if (!empty($updateData)) {
+                $this->crudRepository->update(
+                    $updateData,
+                    $product->id
                 );
-
-                // حذف الألوان القديمة لهذه الوحدة
-                $productUnit->colors()->delete();
-
-                // إضافة الألوان الجديدة
-                if (!empty($unitData['colors'])) {
-                    foreach ($unitData['colors'] as $colorData) {
-                        $productUnit->colors()->create([
-                            'color_id' => $colorData['color_id'],
-                            'stock'    => $colorData['stock'],
-                        ]);
-                    }
-                }
             }
-        } else {
-            // إذا ما فيش units، احذف كل الحجات القديمة
-            $product->units()->each(function ($unit) {
-                $unit->colors()->delete();
-                $unit->delete();
-            });
-        }
 
-        DB::commit();
+            $product->refresh();
+
+            // 2. تحديث سعر الفرع فقط لو price اتبعت
+            if (array_key_exists('price', $data)) {
+                $this->syncBranchPrice(
+                    $product,
+                    $request,
+                    $data['price']
+                );
+            }
+
+            // 3. تجهيز كميات المخازن
+            $warehouseStocks = $this->normalizeWarehouseStocksInput(
+                $data['warehouse_stocks'] ?? []
+            );
+
+            // لو warehouse_ids اتبعتت، نستخدمها.
+            // لو لم تُرسل، نحدث المخازن الموجودة فقط،
+            // ونضيف أي مخزن موجود في مفاتيح warehouse_stocks.
+            if (array_key_exists('warehouse_ids', $data)) {
+                $warehouseIds = array_map(
+                    'intval',
+                    $data['warehouse_ids']
+                );
+            } else {
+                $warehouseIds = DB::table('product_warehouse')
+                    ->where('product_id', $product->id)
+                    ->pluck('warehouse_id')
+                    ->map(fn ($id) => (int) $id)
+                    ->all();
+
+                $warehouseIds = array_merge(
+                    $warehouseIds,
+                    array_map('intval', array_keys($warehouseStocks))
+                );
+            }
+
+            $warehouseIds = array_values(array_unique($warehouseIds));
+
+            // الحذف لا يحدث إلا بطلب صريح
+            $shouldSyncWarehouses = (bool) (
+                $data['sync_warehouses'] ?? false
+            );
+
+            \Log::info('WAREHOUSE DATA BEFORE UPDATE', [
+                'product_id' => $product->id,
+                'warehouse_ids' => $warehouseIds,
+                'warehouse_stocks' => $warehouseStocks,
+                'sync_warehouses' => $shouldSyncWarehouses,
+            ]);
+
+
+            $removedIds = array_values(array_diff(
+    array_map('intval', $data['removed_warehouse_ids'] ?? []),
+    $warehouseIds
+));
+
+if ($removedIds) {
+    DB::table('product_warehouse')
+        ->where('product_id', $product->id)
+        ->whereIn('warehouse_id', $removedIds)
+        ->delete();
+}
+            // 4. تحديث المخازن
+            if (
+                array_key_exists('warehouse_ids', $data) ||
+                array_key_exists('warehouse_stocks', $data)
+            ) {
+                $this->linkWarehouses(
+                    $product,
+                    $warehouseIds,
+                    $warehouseStocks,
+                    $shouldSyncWarehouses
+                );
+            }
+
+            // 5. تحديث الوحدات فقط لو units اتبعتت
+            // مهم: عدم إرسال units لا يعني حذف الوحدات.
+            if (array_key_exists('units', $data)) {
+                $this->syncProductUnits(
+                    $product,
+                    $data['units'] ?? [],
+                    true
+                );
+            }
+
+            // 6. الصورة
+            if (
+                $request->has('image') &&
+                $request->input('image') !== null
+            ) {
+                $this->crudRepository->AddMediaCollection(
+                    'image',
+                    $product
+                );
+            }
+
+            // 7. قراءة الكميات النهائية من قاعدة البيانات
+            $finalRows = DB::table('product_warehouse')
+                ->where('product_id', $product->id)
+                ->orderBy('warehouse_id')
+                ->get(['warehouse_id', 'stock']);
+
+            $finalStocks = $finalRows
+                ->groupBy('warehouse_id')
+                ->map(fn ($rows) => (float) $rows->sum('stock'))
+                ->all();
+
+            $totalStock = (float) array_sum($finalStocks);
+
+            \Log::info('FINAL WAREHOUSE CHECK', [
+                'product_id' => $product->id,
+                'sent' => $warehouseStocks,
+                'database' => $finalStocks,
+                'total_stock' => $totalStock,
+            ]);
+
+            $product->refresh();
+
+            $row = (new ProductResource(
+                $product->load([
+                    'units.colors',
+                    'branchPrices',
+                    'warehouses',
+                ])
+            ))->resolve();
+
+            // إرجاع كميات المخازن في نفس استجابة التحديث
+            $row['warehouse_stocks'] = (object) $finalStocks;
+            $row['warehouse_ids'] = array_map(
+                'intval',
+                array_keys($finalStocks)
+            );
+            $row['stock'] = $totalStock;
+
+            return $row;
+        });
 
         return JsonResponse::respondSuccess(
             trans(JsonResponse::MSG_UPDATED_SUCCESSFULLY),
-            new ProductResource($product->load(['units.colors', 'branchPrices']))
+            $result
         );
 
-    } catch (\Exception $e) {
-        DB::rollBack();
+    } catch (\Throwable $e) {
+
+        \Log::error('PRODUCT UPDATE FAILED', [
+            'product_id' => $product->id,
+            'message' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+            'trace' => $e->getTraceAsString(),
+        ]);
+
         return JsonResponse::respondError($e->getMessage());
     }
 }
+
 
 
     public function destroy(Request $request): ?\Illuminate\Http\JsonResponse
@@ -480,7 +585,89 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse
         }
     }
 
+private function syncProductUnits(Product $product, array $units, bool $isUpdate = false): void
+{
+    if (empty($units) || !is_array($units)) {
+        if ($isUpdate) {
+            $product->units()->each(function ($unit) {
+                $unit->colors()->delete();
+                $unit->delete();
+            });
+        }
+        return;
+    }
 
+    // تجميع الوحدات
+    $organizedUnits = [];
+    foreach ($units as $unitData) {
+        $unitId = $unitData['unit_id'];
+        if (!isset($organizedUnits[$unitId])) {
+            $organizedUnits[$unitId] = [
+                'unit_id'    => $unitId,
+                'cost_price' => $unitData['cost_price'] ?? 0,
+                'sell_price' => $unitData['sell_price'] ?? 0,
+                'barcode'    => $unitData['barcode'] ?? null,
+                'colors'     => [],
+            ];
+        }
+        if (!empty($unitData['colors'])) {
+            foreach ($unitData['colors'] as $colorData) {
+                $exists = false;
+                foreach ($organizedUnits[$unitId]['colors'] as $existing) {
+                    if ($existing['color_id'] == $colorData['color_id']) {
+                        $exists = true;
+                        break;
+                    }
+                }
+                if (!$exists) {
+                    $organizedUnits[$unitId]['colors'][] = $colorData;
+                }
+            }
+        }
+    }
+
+    if ($isUpdate) {
+        $existingUnitIds = $product->units()->pluck('unit_id')->toArray();
+        $newUnitIds      = array_keys($organizedUnits);
+        $unitsToDelete   = array_diff($existingUnitIds, $newUnitIds);
+
+        if (!empty($unitsToDelete)) {
+            $product->units()->whereIn('unit_id', $unitsToDelete)->each(function ($unit) {
+                $unit->colors()->delete();
+                $unit->delete();
+            });
+        }
+    }
+
+    foreach ($organizedUnits as $unitId => $unitData) {
+        $productUnit = $isUpdate
+            ? $product->units()->updateOrCreate(
+                ['unit_id' => $unitId],
+                [
+                    'cost_price' => $unitData['cost_price'],
+                    'sell_price' => $unitData['sell_price'],
+                    'barcode'    => $unitData['barcode'] ?? null,
+                ]
+            )
+            : $product->units()->create([
+                'unit_id'    => $unitId,
+                'cost_price' => $unitData['cost_price'],
+                'sell_price' => $unitData['sell_price'],
+                'barcode'    => $unitData['barcode'] ?? null,
+            ]);
+
+        if ($isUpdate) {
+            $productUnit->colors()->delete();
+        }
+
+        foreach ($unitData['colors'] as $colorData) {
+            $productUnit->colors()->create([
+                'color_id' => $colorData['color_id'],
+                'stock'    => $colorData['stock'] ?? 0,
+            ]);
+        }
+    }
+}
     public function searchByProductName(Request $request)
     {
         $request->validate([
@@ -918,13 +1105,17 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse
                     );
                 }
 
-                $product->update([
-                    'stock' => $newStock,
-                    'cost' => $request->cost,
-                    'beginning_balance' => true,
-                ]);
+            $total = (float) ProductWarehouse::withoutGlobalScopes()
+    ->where('product_id', $productId)
+    ->sum('stock');
 
-                return ['stock' => $newStock, 'warehouse_id' => $targetWarehouseId];
+$product->update([
+    'stock' => $total,            // مجموع كل المخازن، وليس كمية مخزن واحد
+    'cost' => $request->cost,
+    'beginning_balance' => true,
+]);
+
+return ['stock' => $total, 'warehouse_stock' => $newStock, 'warehouse_id' => $targetWarehouseId];
             });
 
             return response()->json([
@@ -1144,85 +1335,249 @@ public function productWarehouses(Request $request)
         ], 500);
     }
 }
-private function linkWarehouses(Product $product, ?array $warehouseIds, array $warehouseStocks = []): void
+/**
+ * ✅ تطبيع مدخلات warehouse_stocks من أي شكل:
+ *    - array بمفاتيح int
+ *    - array بمفاتيح string
+ *    - JSON string
+ *    - object من Laravel
+ */
+private function normalizeWarehouseStocksInput(mixed $input): array
 {
-    $tenantId = $product->tenant_id;
+    if (is_string($input)) {
+        $input = json_decode($input, true);
 
-    if (empty($warehouseIds)) {
-        // Keep current links, including legacy rows hidden by the pivot's
-        // tenant scope, so they can be reconciled below instead of duplicated.
-        $existingWarehouseIds = ProductWarehouse::withoutGlobalScopes()
-            ->where('product_id', $product->id)
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new \InvalidArgumentException(
+                'Invalid warehouse_stocks JSON: ' . json_last_error_msg()
+            );
+        }
+    }
+
+    if (is_object($input)) {
+        $input = (array) $input;
+    }
+
+    if (!is_array($input)) {
+        throw new \InvalidArgumentException(
+            'warehouse_stocks must be an object or array.'
+        );
+    }
+
+    $normalized = [];
+
+    foreach ($input as $warehouseId => $stock) {
+        $originalKey = (string) $warehouseId;
+
+        if (
+            !ctype_digit($originalKey) ||
+            (int) $originalKey <= 0
+        ) {
+            throw new \InvalidArgumentException(
+                "Invalid warehouse ID in warehouse_stocks. Received key: {$originalKey}"
+            );
+        }
+
+        $warehouseId = (int) $originalKey;
+
+        if (!is_numeric($stock) || !is_finite((float) $stock) || (float) $stock < 0) {
+            throw new \InvalidArgumentException(
+                "Invalid stock value for warehouse {$warehouseId}."
+            );
+        }
+
+        $normalized[(string) $warehouseId] = (float) $stock;
+    }
+
+    return $normalized;
+}
+
+
+
+private function linkWarehouses(
+    Product $product,
+    ?array $warehouseIds,
+    array $warehouseStocks = [],
+    bool $sync = false
+): void {
+
+    $tenantId = (int) $product->tenant_id;
+    $productId = (int) $product->id;
+    $table = 'product_warehouse';
+
+    // توحيد مفاتيح الكميات
+    $normalizedStocks = [];
+
+    foreach ($warehouseStocks as $key => $value) {
+        $warehouseId = (int) $key;
+
+        if ($warehouseId <= 0) {
+            throw new \InvalidArgumentException('Invalid warehouse ID.');
+        }
+
+        if (!is_numeric($value) || (float) $value < 0) {
+            throw new \InvalidArgumentException(
+                "Invalid stock for warehouse {$warehouseId}."
+            );
+        }
+
+        $normalizedStocks[(string) $warehouseId] = (float) $value;
+    }
+
+    // لو لم تُرسل قائمة المخازن، نستخدم المخازن الموجودة
+    if ($warehouseIds === null) {
+        $warehouseIds = DB::table($table)
+            ->where('product_id', $productId)
             ->pluck('warehouse_id')
             ->map(fn ($id) => (int) $id)
             ->all();
 
-        // Ignore any corrupt cross-tenant links; never adopt them.
-        $warehouseIds = empty($existingWarehouseIds) ? [] :
-            \App\Models\Warehouse::withoutGlobalScopes()
-                ->where('tenant_id', $tenantId)
-                ->whereIn('id', $existingWarehouseIds)
-                ->pluck('id')
-                ->map(fn ($id) => (int) $id)
-                ->all();
         if (empty($warehouseIds)) {
-            // ✅ اختار المخزن الرئيسي لنفس الـ tenant فقط
-            $main = \App\Models\Warehouse::withoutGlobalScopes()->where('tenant_id', $tenantId)
-            ->whereNull('deleted_at')
-            ->orderByDesc('main_branch')
-            ->orderBy('id')
-            ->first();
+            $mainWarehouse = DB::table('warehouses')
+                ->where('tenant_id', $tenantId)
+                ->whereNull('deleted_at')
+                ->orderByDesc('main_branch')
+                ->orderBy('id')
+                ->first();
 
-            $warehouseIds = $main ? [$main->id] : [];
+            $warehouseIds = $mainWarehouse
+                ? [(int) $mainWarehouse->id]
+                : [];
         }
     }
 
-    if (empty($warehouseIds)) {
-        \Log::warning("No warehouse found for product {$product->id} (tenant {$tenantId})");
-        return;
-    }
+    // إضافة أي مخزن تم إرسال كمية له
+    $warehouseIds = array_values(array_unique(array_merge(
+        array_map('intval', $warehouseIds),
+        array_map('intval', array_keys($normalizedStocks))
+    )));
 
-    // A stale/null tenant_id can hide an existing pivot row from Eloquent's
-    // global scope, although the database unique key still sees that row.
-    // Validate every warehouse against the product tenant before bypassing it.
-    $warehouseIds = array_values(array_unique(array_map('intval', $warehouseIds)));
-    $ownedWarehouseIds = \App\Models\Warehouse::withoutGlobalScopes()
-        ->where('tenant_id', $tenantId)
-        ->whereIn('id', $warehouseIds)
-        ->pluck('id')
-        ->map(fn ($id) => (int) $id)
-        ->all();
+    // التحقق من أن كل المخازن تابعة لنفس Tenant
+    $ownedWarehouseIds = empty($warehouseIds)
+        ? []
+        : DB::table('warehouses')
+            ->where('tenant_id', $tenantId)
+            ->whereNull('deleted_at')
+            ->whereIn('id', $warehouseIds)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
 
     if (count($ownedWarehouseIds) !== count($warehouseIds)) {
         throw \Illuminate\Validation\ValidationException::withMessages([
-            'warehouse_ids' => 'One or more selected warehouses do not belong to this tenant.',
+            'warehouse_ids' => [
+                'One or more warehouses do not belong to this tenant.'
+            ],
         ]);
     }
 
-    $fallbackStock = (float) ($product->stock ?? 0);
+    // تحديث أو إنشاء الكميات
     foreach ($ownedWarehouseIds as $warehouseId) {
-        $pivot = ProductWarehouse::withoutGlobalScopes()->firstOrNew([
-            'product_id' => $product->id,
-            'warehouse_id' => $warehouseId,
+
+        $warehouseKey = (string) $warehouseId;
+
+        $existingRows = DB::table($table)
+            ->where('product_id', $productId)
+            ->where('warehouse_id', $warehouseId)
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+
+        $keepRow = $existingRows->first();
+
+        // حذف التكرارات مع الاحتفاظ بأول سجل
+        if ($existingRows->count() > 1) {
+            $duplicateIds = $existingRows
+                ->slice(1)
+                ->pluck('id')
+                ->all();
+
+            DB::table($table)
+                ->whereIn('id', $duplicateIds)
+                ->delete();
+        }
+
+        // لو الكمية اتبعتت نستخدمها.
+        // لو لم تُرسل نحافظ على الكمية القديمة.
+        if (array_key_exists($warehouseKey, $normalizedStocks)) {
+            $stock = $normalizedStocks[$warehouseKey];
+        } elseif ($keepRow) {
+            $stock = (float) $keepRow->stock;
+        } else {
+            $stock = 0;
+        }
+
+        $now = now();
+
+        if ($keepRow) {
+            DB::table($table)
+                ->where('id', $keepRow->id)
+                ->update([
+                    'tenant_id' => $tenantId,
+                    'stock' => $stock,
+                    'cost' => $keepRow->cost ?? ($product->cost ?? 0),
+                    'updated_at' => $now,
+                ]);
+        } else {
+            DB::table($table)->insert([
+                'tenant_id' => $tenantId,
+                'product_id' => $productId,
+                'warehouse_id' => $warehouseId,
+                'stock' => $stock,
+                'cost' => $product->cost ?? 0,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+
+        // التحقق من الكمية المحفوظة
+        $savedStock = (float) DB::table($table)
+            ->where('product_id', $productId)
+            ->where('warehouse_id', $warehouseId)
+            ->sum('stock');
+
+        if (abs($savedStock - $stock) > 0.0001) {
+            throw new \RuntimeException(
+                "Warehouse stock verification failed. " .
+                "Product: {$productId}, " .
+                "Warehouse: {$warehouseId}, " .
+                "Target: {$stock}, Saved: {$savedStock}"
+            );
+        }
+    }
+
+    // حذف المخازن غير المحددة عند الطلب الصريح فقط
+    if ($sync) {
+        DB::table($table)
+            ->where('product_id', $productId)
+            ->whereNotIn('warehouse_id', $ownedWarehouseIds)
+            ->delete();
+    }
+
+    // تحديث إجمالي مخزون المنتج
+    $totalStock = (float) DB::table($table)
+        ->where('product_id', $productId)
+        ->sum('stock');
+
+    DB::table('products')
+        ->where('id', $productId)
+        ->update([
+            'stock' => $totalStock,
+            'updated_at' => now(),
         ]);
 
-        // Repair ownership only after verifying both related records belong
-        // to this tenant, and never overwrite stock/cost on an existing row.
-        $hasExplicitStock = array_key_exists((string) $warehouseId, $warehouseStocks) || array_key_exists($warehouseId, $warehouseStocks);
-        $requestedStock = $warehouseStocks[$warehouseId] ?? $warehouseStocks[(string) $warehouseId] ?? null;
-        $stock = $hasExplicitStock ? (float) $requestedStock : ($pivot->exists ? (float) $pivot->stock : (count($ownedWarehouseIds) === 1 ? $fallbackStock : 0));
-        $pivot->forceFill([
-            'tenant_id' => $tenantId,
-            'stock' => $stock,
-            'cost' => $pivot->exists ? $pivot->cost : ($product->cost ?? 0),
-        ])->save();
-    }
-    $product->forceFill([
-        'stock' => (float) ProductWarehouse::withoutGlobalScopes()
-            ->where('product_id', $product->id)
-            ->where('tenant_id', $tenantId)
-            ->sum('stock'),
-    ])->saveQuietly();
+    \Log::info('LINK WAREHOUSES COMPLETED', [
+        'product_id' => $productId,
+        'tenant_id' => $tenantId,
+        'total_stock' => $totalStock,
+        'warehouse_stocks' => DB::table($table)
+            ->where('product_id', $productId)
+            ->pluck('stock', 'warehouse_id')
+            ->toArray(),
+        'sync' => $sync,
+    ]);
 }
+
+
 
 }

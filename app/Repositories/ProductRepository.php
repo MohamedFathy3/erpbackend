@@ -1,18 +1,18 @@
 <?php
 
-namespace App\Repositories;
+    namespace App\Repositories;
 
-use App\Interfaces\ProductRepositoryInterface;
-use App\Models\Product;
-use Illuminate\Database\Eloquent\Model;
+    use App\Interfaces\ProductRepositoryInterface;
+    use App\Models\Product;
+    use Illuminate\Database\Eloquent\Model;
 
-class ProductRepository extends CrudRepository implements ProductRepositoryInterface
-{
-    protected Model $model;
-
-    public function __construct(Product $model)
+    class ProductRepository extends CrudRepository implements ProductRepositoryInterface
     {
-        $this->model = $model;
+        protected Model $model;
+
+        public function __construct(Product $model)
+        {
+            $this->model = $model;
+        }
     }
-}
 

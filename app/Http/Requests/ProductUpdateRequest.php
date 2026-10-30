@@ -3,7 +3,7 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 class ProductUpdateRequest extends FormRequest
 {
@@ -14,78 +14,138 @@ class ProductUpdateRequest extends FormRequest
 
     public function rules(): array
     {
-        $productId = $this->route('product');
-
         return [
-            // product
-            'name'            => 'nullable|string|max:255',
-            'description'     => 'nullable|string',
-            'image_url'       => 'nullable|string',
-            'image'           => 'nullable|integer|exists:media,id',
-            'category_id'     => 'nullable|exists:categories,id',
-            'sku' => [
-                'nullable',
-                'string',
-                Rule::unique('products', 'sku')->ignore($productId),
-            ],
-            'barcode' => [
-                'nullable',
-                'string',
-                Rule::unique('products', 'barcode')->ignore($productId),
-            ],
-            'stock'           => 'nullable|integer|min:0',
-            'beginning_balance' => 'nullable|boolean',
-            'reorder_level'   => 'nullable|integer|min:0',
-            'price'           => 'nullable|numeric|min:0',
-            'cost'            => 'nullable|numeric|min:0',
+            'name' => 'sometimes|required|string|max:255',
+            'description' => 'sometimes|nullable|string',
+            'sku' => 'sometimes|required|string|max:100',
+            'barcode' => 'sometimes|nullable|string|max:100',
 
-        
-'warehouse_ids'   => 'nullable|array',
-'warehouse_ids.*' => 'exists:warehouses,id',
-'warehouse_stocks' => 'nullable|array',
-'warehouse_stocks.*' => 'nullable|numeric|min:0',
+            'category_id' => 'sometimes|nullable|exists:categories,id',
 
-            // units
-            'units' => 'sometimes|array',
-            'units.*.unit_id'             => 'nullable|exists:units,id',
-            'units.*.cost_price'          => 'nullable|numeric|min:0',
-            'units.*.sell_price'          => 'nullable|numeric|min:0',
-            'units.*.barcode'             => 'nullable|string',
+            'price' => 'sometimes|nullable|numeric|min:0',
+            'cost' => 'sometimes|nullable|numeric|min:0',
+            'stock' => 'sometimes|nullable|numeric|min:0',
 
-            // colors per unit - ✅ إزالة قواعد distinct
-            'units.*.colors' => 'sometimes|array',
-            'units.*.colors.*.color_id'   => 'required_with:units.*.colors|exists:colors,id',
-            'units.*.colors.*.stock'      => 'required_with:units.*.colors|integer|min:0',
+            'reorder_level' => 'sometimes|nullable|integer|min:0',
+            'active' => 'sometimes|nullable|boolean',
+            'has_variants' => 'sometimes|nullable|boolean',
+
+            'valuation_method' => 'sometimes|nullable|in:fifo,lifo,weighted_average',
+
+            'image' => 'sometimes|nullable',
+            'image_url' => 'sometimes|nullable|string',
+
+            // Warehouses
+            'warehouse_ids' => 'sometimes|array',
+            'warehouse_ids.*' => 'integer|distinct|min:1|exists:warehouses,id',
+
+            'warehouse_stocks' => 'sometimes|array',
+            'warehouse_stocks.*' => 'required|numeric|min:0',
+
+            'sync_warehouses' => 'sometimes|boolean',
+
+            // Branches
+            'branch_ids' => 'sometimes|nullable|array',
+            'branch_ids.*' => 'integer|exists:branches,id',
+'removed_warehouse_ids' => 'sometimes|array',
+'removed_warehouse_ids.*' => 'integer|min:1',
+            // Units
+            'units' => 'sometimes|nullable|array',
+            'units.*.unit_id' => 'required|integer|exists:units,id',
+            'units.*.cost_price' => 'nullable|numeric|min:0',
+            'units.*.sell_price' => 'nullable|numeric|min:0',
+            'units.*.barcode' => 'nullable|string',
+            'units.*.colors' => 'nullable|array',
+            'units.*.colors.*.color_id' => 'required|integer|exists:colors,id',
+            'units.*.colors.*.stock' => 'nullable|numeric|min:0',
         ];
     }
 
-    /**
-     * بعد التحقق من الصلاحية، نقوم بتنقية البيانات من التكرار
-     */
-    public function validated($key = null, $default = null)
-    {
-        $validated = parent::validated($key, $default);
+protected function prepareForValidation(): void
+{
+   foreach (['warehouse_stocks', 'warehouse_ids', 'removed_warehouse_ids', 'branch_ids', 'units'] as $field) {
+        $value = $this->input($field);
 
-        // تنقية الـ units من الألوان المكررة
-        if (isset($validated['units']) && is_array($validated['units'])) {
-            foreach ($validated['units'] as &$unit) {
-                if (isset($unit['colors']) && is_array($unit['colors'])) {
-                    // إزالة الألوان المكررة بناءً على color_id
-                    $uniqueColors = [];
-                    $seenColorIds = [];
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
 
-                    foreach ($unit['colors'] as $color) {
-                        if (!in_array($color['color_id'], $seenColorIds)) {
-                            $uniqueColors[] = $color;
-                            $seenColorIds[] = $color['color_id'];
-                        }
-                    }
-
-                    $unit['colors'] = $uniqueColors;
-                }
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $this->merge([$field => $decoded]);
             }
         }
+    }
+    
 
-        return $validated;
+    // ✅ تحويل [{warehouse_id: 7, qty: 2}, ...] إلى {7: 2, ...}
+    $stocks = $this->input('warehouse_stocks');
+
+    if (is_array($stocks) && !empty($stocks) && array_is_list($stocks)) {
+        $map = [];
+
+        foreach ($stocks as $row) {
+            if (!is_array($row)) {
+                return; // شكل غير مدعوم، نسيبه يفشل في الـ validation
+            }
+
+            $id  = $row['warehouse_id'] ?? null;
+            $qty = $row['qty'] ?? $row['stock'] ?? $row['quantity'] ?? null;
+
+            if ($id === null || $qty === null) {
+                return;
+            }
+
+            $map[(int) $id] = $qty;
+        }
+
+        $this->merge(['warehouse_stocks' => $map]);
+    }
+}
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator) {
+            $stocks = $this->input('warehouse_stocks', []);
+            $warehouseIds = $this->input('warehouse_ids', []);
+
+            if (!is_array($stocks) || !is_array($warehouseIds)) {
+                return;
+            }
+
+            // امنع إرسال warehouse_stocks كقائمة [10, 15]
+          // ارفض فقط لو العناصر نفسها مش أرقام (يعني قائمة كائنات زي [{warehouse_id, qty}])
+foreach ($stocks as $value) {
+    if (is_array($value) || is_object($value)) {
+        $validator->errors()->add(
+            'warehouse_stocks',
+            'يجب إرسال كميات المخازن ككائن مفاتيحه هي IDs المخازن، وليس كمصفوفة كميات.'
+        );
+        return;
+    }
+}
+
+            $selectedIds = array_map('strval', $warehouseIds);
+
+            foreach ($stocks as $warehouseId => $quantity) {
+                $id = (string) $warehouseId;
+
+                // المفتاح لازم يكون رقم مخزن موجب
+                if (!ctype_digit($id) || (int) $id <= 0) {
+                    $validator->errors()->add(
+                        "warehouse_stocks.$id",
+                        "Invalid warehouse ID: $id"
+                    );
+
+                    continue;
+                }
+
+                // كل مخزن له كمية لازم يكون موجودًا في warehouse_ids
+              if ($this->has('warehouse_ids') && !in_array($id, $selectedIds, true)) {
+    $validator->errors()->add(
+        "warehouse_stocks.$id",
+        "Warehouse $id is missing from warehouse_ids."
+    );
+}
+            }
+        });
     }
 }
