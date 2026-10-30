@@ -18,78 +18,69 @@ class BaseModel extends Model
 {
     use SoftDeletes, LogsActivity;
 
- protected static function booted(): void
-{
-    // ✅ 1. tenant scope — آمن
-    static::addGlobalScope('tenant', function (Builder $builder): void {
-        $model = $builder->getModel();
-        if ($model instanceof Tenant || !Schema::hasColumn($model->getTable(), 'tenant_id')) {
-            return;
-        }
-        $user = auth()->user();
-        if ($user && !((bool) ($user->super_admin ?? false))) {
-            $tenantId = $user->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
-            if ($tenantId) {
-                $builder->where($model->qualifyColumn('tenant_id'), $tenantId);
-            } else {
-                $builder->whereRaw('1 = 0');
+    protected static function booted(): void
+    {
+        static::addGlobalScope('tenant', function (Builder $builder): void {
+            $model = $builder->getModel();
+            if ($model instanceof Tenant || !Schema::hasColumn($model->getTable(), 'tenant_id')) {
+                return;
             }
-        }
-    });
 
-    // ✅ 2. branch scope — آمن
-    static::addGlobalScope('branch', function (Builder $builder): void {
-        $model = $builder->getModel();
-        if (!Schema::hasColumn($model->getTable(), 'branch_id')) return;
-        $user = auth()->user();
-        $branchId = $user?->branch_id ?: (app()->bound('currentBranchId') ? app('currentBranchId') : null);
-        if ($user && !($user->super_admin ?? false) && $branchId) {
-            $builder->where($model->qualifyColumn('branch_id'), (int) $branchId);
-        }
-    });
-
-    // ✅ 3. ✅✅✅ الحل: أزل SoftDeletingScope لو الجدول مش فيه deleted_at
-    static::addGlobalScope('safe_soft_delete', function (Builder $builder): void {
-        $model = $builder->getModel();
-        if (!Schema::hasColumn($model->getTable(), 'deleted_at')) {
-            $builder->withoutGlobalScope(
-                \Illuminate\Database\Eloquent\SoftDeletingScope::class
-            );
-        }
-    });
-
-    // ⬇️ باقي الكود زي ما هو (creating callbacks) - مش محتاج تعديل
-    static::creating(function (Model $model): void {
-        if (!Schema::hasColumn($model->getTable(), 'tenant_id') || $model instanceof Tenant || $model->tenant_id) {
-            return;
-        }
-        $user = auth()->user();
-        $tenantId = $user?->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
-        if ($user && (bool) ($user->super_admin ?? false)) {
-            $requestedTenantId = request()->input('tenant_id');
-            $tenantId = $requestedTenantId ? (int) $requestedTenantId : $tenantId;
-            if ($tenantId && !Tenant::withoutGlobalScopes()->whereKey($tenantId)->exists()) {
-                throw new LogicException('The selected tenant does not exist.');
+            $user = auth()->user();
+            if ($user && !((bool) ($user->super_admin ?? false))) {
+                $tenantId = $user->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
+                // Fail closed: an authenticated account without a tenant must never
+                // receive rows from every workspace.
+                if ($tenantId) {
+                    $builder->where($model->qualifyColumn('tenant_id'), $tenantId);
+                } else {
+                    $builder->whereRaw('1 = 0');
+                }
             }
-        }
-        if ($user && $tenantId) {
-            $model->tenant_id = $tenantId;
-        } elseif ($user && !((bool) ($user->super_admin ?? false))) {
-            throw new LogicException('Cannot create a tenant-owned record without a tenant.');
-        } elseif ($user && (bool) ($user->super_admin ?? false)) {
-            throw new LogicException('Super admin must select a tenant before creating this record.');
-        }
-    });
+        });
+        static::addGlobalScope('branch', function (Builder $builder): void {
+            $model = $builder->getModel();
+            if (!Schema::hasColumn($model->getTable(), 'branch_id')) return;
+            $user = auth()->user();
+            $branchId = $user?->branch_id ?: (app()->bound('currentBranchId') ? app('currentBranchId') : null);
+            if ($user && !($user->super_admin ?? false) && $branchId) {
+                $builder->where($model->qualifyColumn('branch_id'), (int) $branchId);
+            }
+        });
 
-    static::creating(function (Model $model): void {
-        if (!Schema::hasColumn($model->getTable(), 'branch_id') || $model->branch_id) return;
-        $user = auth()->user();
-        $branchId = $user?->branch_id ?: (app()->bound('currentBranchId') ? app('currentBranchId') : null);
-        if ($user && !($user->super_admin ?? false) && $branchId) {
-            $model->branch_id = (int) $branchId;
-        }
-    });
-}
+        static::creating(function (Model $model): void {
+            if (!Schema::hasColumn($model->getTable(), 'tenant_id') || $model instanceof Tenant || $model->tenant_id) {
+                return;
+            }
+
+            $user = auth()->user();
+            $tenantId = $user?->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
+            if ($user && (bool) ($user->super_admin ?? false)) {
+                $requestedTenantId = request()->input('tenant_id');
+                $tenantId = $requestedTenantId ? (int) $requestedTenantId : $tenantId;
+                if ($tenantId && !Tenant::withoutGlobalScopes()->whereKey($tenantId)->exists()) {
+                    throw new LogicException('The selected tenant does not exist.');
+                }
+            }
+
+            if ($user && $tenantId) {
+                $model->tenant_id = $tenantId;
+            } elseif ($user && !((bool) ($user->super_admin ?? false))) {
+                throw new LogicException('Cannot create a tenant-owned record without a tenant.');
+            } elseif ($user && (bool) ($user->super_admin ?? false)) {
+                throw new LogicException('Super admin must select a tenant before creating this record.');
+            }
+        });
+        static::creating(function (Model $model): void {
+            if (!Schema::hasColumn($model->getTable(), 'branch_id') || $model->branch_id) return;
+            $user = auth()->user();
+            $branchId = $user?->branch_id ?: (app()->bound('currentBranchId') ? app('currentBranchId') : null);
+            if ($user && !($user->super_admin ?? false) && $branchId) {
+                $model->branch_id = (int) $branchId;
+            }
+        });
+    }
+
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()->logOnly(['*'])->logOnlyDirty();

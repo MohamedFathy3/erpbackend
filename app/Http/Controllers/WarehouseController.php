@@ -58,28 +58,18 @@ class WarehouseController extends BaseController
     }
 
 
-public function update(WarehouseRequest $request, Warehouse $warehouse)
-{
-    try {
-        $data = $request->validated();
-        $branchId = $data['branch_id'] ?? null;
-        unset($data['branch_id']);
-
-        $this->crudRepository->update($data, $warehouse->id);
-
-        // belongsTo: عمود مباشر
-        $warehouse->branch_id = $branchId;
-        $warehouse->save();
-
-        activity()->performedOn($warehouse)
-            ->withProperties(['attributes' => $warehouse])
-            ->log('update');
-
-        return JsonResponse::respondSuccess(trans(JsonResponse::MSG_UPDATED_SUCCESSFULLY));
-    } catch (Exception $e) {
-        return JsonResponse::respondError($e->getMessage());
+    public function update(WarehouseRequest $request, Warehouse $warehouse)
+    {
+        try {
+            $this->crudRepository->update($request->validated(), $warehouse->id);
+            activity()->performedOn($warehouse)->withProperties(['attributes' => $warehouse])->log('update');
+            return JsonResponse::respondSuccess(trans(JsonResponse::MSG_UPDATED_SUCCESSFULLY));
+        } catch (Exception $e) {
+            return JsonResponse::respondError($e->getMessage());
+        }
     }
-}
+
+
     public function destroy(Request $request): ?\Illuminate\Http\JsonResponse
     {
         try {
