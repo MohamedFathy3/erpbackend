@@ -125,7 +125,7 @@ public function purchasable(Request $request)
 }
 
 
-  public function index(Request $request)
+public function index(Request $request)
 {
     try {
         $filters = $request->input('filters', []);
@@ -134,8 +134,7 @@ public function purchasable(Request $request)
             ->withoutGlobalScope('branch')
             ->with(['category', 'units.colors', 'warehouses', 'automotiveService', 'branchPrices']);
 
-        // البحث النصي يجب أن يطبق على قاعدة البيانات نفسها، وليس أن يعيد كل المنتجات
-        // ثم يعتمد على الواجهة لفلترتها.
+        // ───────── البحث النصي ─────────
         if (!empty($filters['name'])) {
             $name = trim((string) $filters['name']);
             $hasArabicNameColumn = Schema::hasColumn('products', 'name_ar');
@@ -161,27 +160,49 @@ public function purchasable(Request $request)
             });
         }
 
-        // فلتر المخزن
-        if (!empty($filters['warehouse_id'])) {
-            $warehouseId = (int) $filters['warehouse_id'];
-            $query->whereHas('warehouses', function ($q) use ($warehouseId) {
-                $q->where('warehouses.id', $warehouseId);
+        // ───────── المخزن الرئيسي (fallback) ─────────
+        $tenantId = (int) ($request->user()?->tenant_id
+            ?: (app()->bound('currentTenantId') ? app('currentTenantId') : 0));
+
+        $mainWarehouseId = (int) \App\Models\Warehouse::withoutGlobalScopes()
+            ->where('tenant_id', $tenantId)
+            ->whereNull('deleted_at')
+            ->orderByDesc('main_branch')
+            ->orderBy('id')
+            ->value('id');
+
+        // ───────── فلتر المخزن ─────────
+        $warehouseFilterId = (int) ($filters['stock_warehouse_id'] ?? $filters['warehouse_id'] ?? 0);
+
+        if ($warehouseFilterId) {
+            $query->where(function ($q) use ($warehouseFilterId, $mainWarehouseId) {
+                // منتجات ليها صف في المخزن المختار
+                $q->whereIn(
+                    'products.id',
+                    ProductWarehouse::withoutGlobalScopes()
+                        ->where('warehouse_id', $warehouseFilterId)
+                        ->select('product_id')
+                );
+
+                // منتجات مالهاش أي صف مخزن: تتحسب على المخزن الرئيسي
+                if ($warehouseFilterId === $mainWarehouseId) {
+                    $q->orWhereNotIn(
+                        'products.id',
+                        ProductWarehouse::withoutGlobalScopes()->select('product_id')
+                    );
+                }
             });
         }
 
-        // Products are a shared tenant catalog. A branch may have zero stock
-        // for a product created in another branch, but it must still see the
-        // product row and its own branch price.
-
-        // فلتر التصنيف
+        // ───────── باقي الفلاتر ─────────
         if (!empty($filters['category_id'])) {
             $query->where('category_id', (int) $filters['category_id']);
         }
 
-        // فلتر الحالة (active / inactive)
         if (array_key_exists('active', $filters)) {
             $query->where('active', filter_var($filters['active'], FILTER_VALIDATE_BOOLEAN));
         }
+
         if (array_key_exists('beginning_balance', $filters)) {
             $query->where('beginning_balance', filter_var($filters['beginning_balance'], FILTER_VALIDATE_BOOLEAN));
         }
@@ -191,26 +212,56 @@ public function purchasable(Request $request)
         $query->orderBy($orderBy, $direction);
 
         $products = $query->get();
+
+        // ───────── سعر الفرع ─────────
         $priceBranchId = !empty($filters['branch_id'])
             ? (int) $filters['branch_id']
             : ((int) ($request->user()?->branch_id ?: (app()->bound('currentBranchId') ? app('currentBranchId') : 0)) ?: null);
+
         if ($priceBranchId) {
             $products->each(function (Product $product) use ($priceBranchId): void {
                 $override = $product->branchPrices->firstWhere('branch_id', $priceBranchId);
                 $product->setAttribute('display_price', (float) ($override?->price ?? $product->price ?? 0));
             });
         }
-        $stockWarehouseId = $filters['stock_warehouse_id'] ?? null;
-        if (!empty($stockWarehouseId)) {
-            $warehouseId = (int) $stockWarehouseId;
-            $products->each(function (Product $product) use ($warehouseId): void {
-                $warehouse = $product->warehouses->firstWhere('id', $warehouseId);
-                $product->setAttribute('display_stock', (float) ($warehouse?->pivot?->stock ?? 0));
-            });
-        }
 
-        return ProductResource::collection($products)
-            ->additional(JsonResponse::success());
+        // ───────── كميات كل المخازن (استعلام واحد) ─────────
+        $stocksByProduct = ProductWarehouse::withoutGlobalScopes()
+            ->whereIn('product_id', $products->pluck('id'))
+            ->get(['product_id', 'warehouse_id', 'stock'])
+            ->groupBy('product_id');
+
+        $data = $products->map(function (Product $product) use ($stocksByProduct, $warehouseFilterId, $mainWarehouseId) {
+            $map = ($stocksByProduct[$product->id] ?? collect())
+                ->mapWithKeys(fn ($pw) => [(int) $pw->warehouse_id => (float) $pw->stock])
+                ->all();
+
+            $row = (new ProductResource($product))->resolve();
+
+            $row['warehouse_stocks'] = (object) $map;
+            $row['warehouse_ids']    = array_map('intval', array_keys($map));
+
+            // الإجمالي: مجموع المخازن لو للمنتج صفوف، وإلا القيمة المسجلة
+            if (!empty($map)) {
+                $row['stock'] = (float) array_sum($map);
+            }
+
+            // كمية المخزن المختار
+            if ($warehouseFilterId) {
+                if (array_key_exists($warehouseFilterId, $map)) {
+                    $row['display_stock'] = $map[$warehouseFilterId];
+                } elseif (empty($map) && $warehouseFilterId === $mainWarehouseId) {
+                    // مالوش مخزن: نعرض stock المنتج نفسه
+                    $row['display_stock'] = (float) ($product->stock ?? 0);
+                } else {
+                    $row['display_stock'] = 0.0;
+                }
+            }
+
+            return $row;
+        })->values();
+
+        return response()->json(array_merge(['data' => $data], JsonResponse::success()));
     } catch (Exception $e) {
         return JsonResponse::respondError($e->getMessage());
     }
@@ -246,10 +297,30 @@ public function lowStockAlerts(Request $request)
 public function show(Product $product): ?\Illuminate\Http\JsonResponse
 {
     try {
-        return JsonResponse::respondSuccess(
-            'Item Fetched Successfully',
-            new ProductResource($product->load('warehouses'))
-        );
+        $stocks = DB::table('product_warehouse')
+            ->where('product_id', $product->id)
+            ->get(['warehouse_id', 'stock'])
+            ->groupBy('warehouse_id')
+            ->map(fn ($group) => (float) $group->sum('stock'))
+            ->all();
+
+        $product->load(['units.colors', 'branchPrices', 'warehouses']);
+
+        $row = (new ProductResource($product))->resolve();
+
+        $row['warehouse_stocks'] = (object) $stocks;
+        $row['warehouse_ids']    = array_map('intval', array_keys($stocks));
+
+        if (!empty($stocks)) {
+            $row['stock'] = (float) array_sum($stocks);
+        }
+
+        return response()->json([
+            'result'  => 'Success',
+            'message' => 'Item Fetched Successfully',
+            'data'    => $row,
+            'status'  => 200,
+        ]);
     } catch (Exception $e) {
         return JsonResponse::respondError($e->getMessage());
     }
@@ -339,12 +410,23 @@ public function update(ProductUpdateRequest $request, Product $product)
     try {
         $data = $request->validated();
 
-  $updateData = collect($data)->except(['units', 'image', 'warehouse_ids', 'warehouse_stocks', 'branch_ids', 'price'])->toArray();
+$updateData = collect($data)->except([
+    'units', 'image', 'image_url', 'warehouse_ids', 'warehouse_stocks',
+    'removed_warehouse_ids', 'branch_ids', 'price', 'stock',
+])->filter(fn ($v, $k) => \Illuminate\Support\Facades\Schema::hasColumn('products', $k))
+  ->toArray();
   $this->crudRepository->update(
     $updateData,
     $product->id
 );
         $this->syncBranchPrice($product, $request, $data['price'] ?? null);
+        $removed = array_map('intval', $data['removed_warehouse_ids'] ?? []);
+if ($removed) {
+    ProductWarehouse::withoutGlobalScopes()
+        ->where('product_id', $product->id)
+        ->whereIn('warehouse_id', $removed)
+        ->delete();
+}
 
 $this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse_stocks'] ?? []);
 
