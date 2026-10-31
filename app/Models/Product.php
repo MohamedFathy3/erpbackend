@@ -72,6 +72,9 @@ class Product extends BaseModel
         return $this->hasMany(ProductBranchPrice::class);
     }
 
+    public function bomVersions() { return $this->hasMany(\App\Manufacturing\Models\BomVersion::class); }
+    public function manufacturingOrders() { return $this->hasMany(\App\Manufacturing\Models\ManufacturingOrder::class); }
+
     public function purchaseInvoiceItems()
     {
         return $this->hasMany(PurchaseInvoiceItem::class);
