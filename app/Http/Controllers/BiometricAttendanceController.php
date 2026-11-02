@@ -97,7 +97,7 @@ class BiometricAttendanceController extends Controller
                     'name' => (string) ($latest->payload['name'] ?? ''),
                     'role' => 0,
                     'card_no' => '',
-                    'last_seen_at' => $latest->recorded_at,
+                    'last_seen_at' => Carbon::parse($latest->getRawOriginal('recorded_at'), config('services.biometric_timezone', 'Africa/Cairo'))->toIso8601String(),
                     'punch_count' => $logs->count(),
                     'employee' => $employee?->only(['id', 'name', 'employee_code']),
                 ];

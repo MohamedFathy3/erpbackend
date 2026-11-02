@@ -101,7 +101,7 @@ class AdmsController extends Controller
             try {
                 $rows[] = [
                     'user_id' => $userId,
-                    'recorded_at' => Carbon::parse($timestamp),
+                    'recorded_at' => Carbon::parse($timestamp, config('services.biometric_timezone', 'Africa/Cairo')),
                     'state' => isset($parts[2]) && is_numeric($parts[2]) ? (int) $parts[2] : null,
                     'verify_mode' => isset($parts[3]) && is_numeric($parts[3]) ? (int) $parts[3] : null,
                     'work_code' => isset($parts[4]) ? trim((string) $parts[4]) : null,

@@ -35,4 +35,6 @@ return [
         ],
     ],
 
+    'biometric_timezone' => env('BIOMETRIC_TIMEZONE', 'Africa/Cairo'),
+
 ];
