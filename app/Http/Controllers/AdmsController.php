@@ -41,6 +41,27 @@ class AdmsController extends Controller
 
         if ($request->isMethod('GET') || $body === '') {
             $this->touch($device);
+            if ($request->isMethod('GET')) {
+                $now = Carbon::now(config('services.biometric_timezone', 'Africa/Cairo'));
+                $timeZoneMinutes = intdiv($now->getOffset(), 60);
+                $options = "GET OPTION FROM: {$device->serial_number}\r\n"
+                    . "Stamp=9999\r\n"
+                    . "OpStamp={$now->timestamp}\r\n"
+                    . "ErrorDelay=60\r\n"
+                    . "Delay=30\r\n"
+                    . "ResLogDay=18250\r\n"
+                    . "ResLogDelCount=10000\r\n"
+                    . "ResLogCount=50000\r\n"
+                    . "TransTimes=00:00;14:05\r\n"
+                    . "TransInterval=1\r\n"
+                    . "TransFlag=1111000000\r\n"
+                    . "TimeZone={$timeZoneMinutes}\r\n"
+                    . "Realtime=1\r\n"
+                    . "Encrypt=0\r\n";
+
+                return response($options, 200, ['Content-Type' => 'text/plain; charset=utf-8']);
+            }
+
             return response("OK\r\n", 200, ['Content-Type' => 'text/plain; charset=utf-8']);
         }
 
