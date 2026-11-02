@@ -50,7 +50,7 @@ class DashboardController extends Controller
         $employeesQuery = Employee::query();
         if ($isAdmin) $employeesQuery->withoutGlobalScope('branch');
         if ($branchId) $employeesQuery->where('branch_id', $branchId);
-        $employees = $employeesQuery->where('active', true)->orderBy('name')->get(['id', 'name', 'branch_id']);
+        $employees = $employeesQuery->where('is_active', true)->orderBy('name')->get(['id', 'name', 'branch_id']);
 
         $posNetSales = (float) $posSales->sum(fn ($invoice) => (float) $invoice->net_amount);
         $salesTotal = (float) $sales->sum(fn ($invoice) => $invoice->net_total ?? $invoice->total_amount ?? 0) + $posNetSales;
@@ -154,7 +154,7 @@ class DashboardController extends Controller
         $customerDue = (float) (clone $sales)->sum(DB::raw('GREATEST(net_total - paid_amount, 0)')) + (float) Invoice::query()->when($branchId, fn ($q) => $q->where('branch_id', $branchId))->sum('remaining_amount');
         $supplierDue = (float) (clone $purchases)->sum(DB::raw('GREATEST(total_amount - paid_amount, 0)'));
         $topCustomer = (clone $monthSales)->select('customer_id')->selectRaw('SUM(net_total) as total')->whereNotNull('customer_id')->groupBy('customer_id')->orderByDesc('total')->with('customer:id,name')->first();
-        $employeesCount = Employee::query()->where('active', true)->when($branchId, fn ($q) => $q->where('branch_id', $branchId))->count();
+        $employeesCount = Employee::query()->where('is_active', true)->when($branchId, fn ($q) => $q->where('branch_id', $branchId))->count();
         $todaySales = (clone $sales)->whereDate('invoice_date', $today);
         $lowStock = Product::whereColumn('stock', '<=', DB::raw('CASE WHEN reorder_level > 0 THEN reorder_level ELSE 5 END'))->count();
         $projects = Project::query();
