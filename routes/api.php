@@ -1616,6 +1616,7 @@ Route::middleware([
         AttendanceController::class,
         'index'
     ]);
+    Route::get('/attendance/dashboard-today', [AttendanceController::class, 'dashboardToday']);
 
     Route::post('attendance/restore', [
         AttendanceController::class,

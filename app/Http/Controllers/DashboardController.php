@@ -140,7 +140,17 @@ class DashboardController extends Controller
             ->sum('total_amount');
         $monthPurchaseTotal = (float) $monthPurchases->sum('total_amount') - (float) $monthPurchaseReturns;
         $posSales = Invoice::query()->when($branchId, fn ($q) => $q->where('branch_id', $branchId))->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to);
-        $expenses = Finance::query()->whereNotIn('category', ['revenue', 'income'])->where('is_tracking_only', false)->whereDate('date', '>=', $from)->whereDate('date', '<=', $to);
+        $expenses = Finance::query()->whereNotIn('category', ['revenue', 'income'])->where('is_tracking_only', false)->whereDate('date', '>=', $from)->whereDate('date', '<=', $to)->when($branchId, fn ($q) => $q->where('branch_id', $branchId));
+        $otherRevenues = Revenue::query()->whereDate('date', '>=', $from)->whereDate('date', '<=', $to)->when($branchId, fn ($q) => $q->where('branch_id', $branchId));
+        $salesCost = (float) (clone $monthSales)->with('items.product')->get()->sum(
+            fn ($invoice) => $invoice->items->sum(fn ($item) => (float) $item->quantity * (float) ($item->product?->cost ?? 0))
+        );
+        $posSalesCost = (float) (clone $posSales)->with(['items.product', 'returns.items.product'])->get()->sum(function ($invoice) {
+            $invoiceCost = $invoice->items->sum(fn ($item) => (float) $item->quantity * (float) ($item->product?->cost ?? 0));
+            $returnedCost = $invoice->returns->reject(fn ($return) => $return->workflow_status === 'cancelled')
+                ->sum(fn ($return) => $return->items->sum(fn ($item) => (float) $item->quantity * (float) ($item->product?->cost ?? 0)));
+            return max(0, $invoiceCost - $returnedCost);
+        });
         $customerDue = (float) (clone $sales)->sum(DB::raw('GREATEST(net_total - paid_amount, 0)')) + (float) Invoice::query()->when($branchId, fn ($q) => $q->where('branch_id', $branchId))->sum('remaining_amount');
         $supplierDue = (float) (clone $purchases)->sum(DB::raw('GREATEST(total_amount - paid_amount, 0)'));
         $topCustomer = (clone $monthSales)->select('customer_id')->selectRaw('SUM(net_total) as total')->whereNotNull('customer_id')->groupBy('customer_id')->orderByDesc('total')->with('customer:id,name')->first();
@@ -158,7 +168,8 @@ class DashboardController extends Controller
             'total_sales' => (float) $sales->sum('net_total'),
             'total_sales_amount' => (float) $sales->sum('net_total'),
             'month_purchases' => $monthPurchaseTotal,
-            'net_profit_before_overheads' => (float) $monthSales->sum('net_total') + (float) $posSales->sum('net_amount') - $monthPurchaseTotal - (float) $expenses->sum('amount'),
+            'net_profit_before_overheads' => (float) $monthSales->sum('net_total') + (float) $posSales->sum('net_amount') - $salesCost - $posSalesCost + (float) $otherRevenues->sum('amount') - (float) $expenses->sum('amount'),
+            'net_profit' => (float) $monthSales->sum('net_total') + (float) $posSales->sum('net_amount') - $salesCost - $posSalesCost + (float) $otherRevenues->sum('amount') - (float) $expenses->sum('amount'),
             'sales_invoices_count' => (int) $monthSales->count() + (int) $posSales->count(),
             'purchase_invoices_count' => (int) $monthPurchases->count(),
             'supplier_due' => round($supplierDue, 2),

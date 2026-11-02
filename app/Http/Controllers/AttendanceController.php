@@ -36,6 +36,19 @@ class AttendanceController extends BaseController
         }
     }
 
+    public function dashboardToday(Request $request)
+    {
+        $branchId = $request->integer('branch_id') ?: null;
+        $attendance = Attendance::query()
+            ->with('employee')
+            ->whereDate('date', now()->toDateString())
+            ->when($branchId, fn ($query) => $query->whereHas('employee', fn ($employeeQuery) => $employeeQuery->where('branch_id', $branchId)))
+            ->orderBy('check_in')
+            ->get();
+
+        return AttendanceResource::collection($attendance)->additional(JsonResponse::success());
+    }
+
     public function store(AttendanceRequest $request)
     {
         try {

@@ -292,7 +292,12 @@ class CashierShiftController extends Controller
      */
     public function index(Request $request)
     {
+        $filters = $request->validate([
+            'status' => ['sometimes', 'in:open,closed'],
+            'branch_id' => ['sometimes', 'integer'],
+        ]);
         $shifts = CashierShift::with(['employee', 'admin'])
+            ->when(isset($filters['status']), fn ($query) => $query->where('status', $filters['status']))
             ->when($request->filled('branch_id'), function ($query) use ($request) {
                 $query->whereHas('employee', function ($q) use ($request) {
                     $q->where('branch_id', $request->branch_id);
