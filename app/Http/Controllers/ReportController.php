@@ -184,7 +184,7 @@ class ReportController extends Controller
         }
 
         $user = auth()->user();
-        if ($user && $user instanceof \App\Models\Employee && $user->branch_id) {
+        if ($user && $user instanceof \App\Models\Employee && $user->branch_id && !\App\Models\BaseModel::userHasAllBranchAccess($user)) {
             $query->whereHas('employee', fn ($q) => $q->where('branch_id', $user->branch_id));
         }
 
@@ -221,7 +221,7 @@ class ReportController extends Controller
     private function applyBranchScope($query, array &$filters): void
     {
         $user = auth()->user();
-        if ($user && $user instanceof \App\Models\Employee && $user->branch_id) {
+        if ($user && $user instanceof \App\Models\Employee && $user->branch_id && !\App\Models\BaseModel::userHasAllBranchAccess($user)) {
             $query->where('branch_id', $user->branch_id);
             $filters['branch_id'] = $user->branch_id;
             return;

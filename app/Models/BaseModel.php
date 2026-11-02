@@ -18,6 +18,13 @@ class BaseModel extends Model
 {
     use SoftDeletes, LogsActivity;
 
+    public static function userHasAllBranchAccess(?Model $user = null): bool
+    {
+        $user ??= auth()->user();
+        return (bool) ($user && (($user->super_admin ?? false)
+            || (method_exists($user, 'hasPermission') && $user->hasPermission('all_branch'))));
+    }
+
     protected static function booted(): void
     {
         static::addGlobalScope('tenant', function (Builder $builder): void {
@@ -43,7 +50,7 @@ class BaseModel extends Model
             if (!Schema::hasColumn($model->getTable(), 'branch_id')) return;
             $user = auth()->user();
             $branchId = $user?->branch_id ?: (app()->bound('currentBranchId') ? app('currentBranchId') : null);
-            if ($user && !($user->super_admin ?? false) && $branchId) {
+            if ($user && !static::userHasAllBranchAccess($user) && $branchId) {
                 $builder->where($model->qualifyColumn('branch_id'), (int) $branchId);
             }
         });

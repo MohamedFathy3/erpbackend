@@ -131,8 +131,10 @@ public function index(Request $request)
         $filters = $request->input('filters', []);
 
         $query = Product::query()
-            ->withoutGlobalScope('branch')
             ->with(['category', 'units.colors', 'warehouses', 'automotiveService', 'branchPrices']);
+        if (\App\Models\BaseModel::userHasAllBranchAccess($request->user())) {
+            $query->withoutGlobalScope('branch');
+        }
 
         // ───────── البحث النصي ─────────
         if (!empty($filters['name'])) {
@@ -624,9 +626,9 @@ $this->linkWarehouses($product, $warehouseIds, $data['warehouse_stocks'] ?? []);
       $tenantId = $user?->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : null);
 
       abort_unless($user && $tenantId, 403, 'A tenant context is required.');
-      if ($user instanceof Employee) {
+      if ($user instanceof Employee && !\App\Models\BaseModel::userHasAllBranchAccess($user)) {
           abort_unless((int) $user->branch_id > 0 && (int) $user->branch_id === $branchId, 403, 'You may only view your assigned branch catalog.');
-      } elseif (!($user->super_admin ?? false) && $user->branch_id) {
+      } elseif (!\App\Models\BaseModel::userHasAllBranchAccess($user) && !($user->super_admin ?? false) && $user->branch_id) {
           abort_unless((int) $user->branch_id === $branchId, 403, 'You may only view your assigned branch catalog.');
       }
 
@@ -1256,7 +1258,7 @@ private function resolveProductBranchId(Request $request, array $data): ?int
 
     $branchId = (int) $branchId;
     $user = $request->user();
-    if ($user && !($user->super_admin ?? false) && $user->branch_id
+    if ($user && !\App\Models\BaseModel::userHasAllBranchAccess($user) && $user->branch_id
         && (int) $user->branch_id !== $branchId) {
         throw \Illuminate\Validation\ValidationException::withMessages([
             'branch_id' => 'You may only use your assigned branch.',

@@ -32,7 +32,7 @@ class BranchController extends BaseController
                 if (Schema::hasColumn('branches', 'tenant_id')) {
                     $query->where('tenant_id', (int) ($user->tenant_id ?? 0));
                 }
-                if (!$user->hasPermission('branches.view')) {
+                if (!$user->hasPermission('branches.view') && !\App\Models\BaseModel::userHasAllBranchAccess($user)) {
                     $query->whereKey((int) ($user->branch_id ?? 0));
                 }
             } elseif ($user && !($user->super_admin ?? false) && $user->branch_id) {
@@ -61,7 +61,7 @@ class BranchController extends BaseController
         $user = $request->user();
         if ($user instanceof Employee && !($user->super_admin ?? false)) {
             abort_unless(
-                $user->hasPermission('branches.view') || (int) $user->branch_id === (int) $branch->id,
+                $user->hasPermission('branches.view') || \App\Models\BaseModel::userHasAllBranchAccess($user) || (int) $user->branch_id === (int) $branch->id,
                 403,
                 'ليس لديك صلاحية عرض هذا الفرع.'
             );
