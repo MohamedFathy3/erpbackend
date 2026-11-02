@@ -65,6 +65,13 @@ class AdmsController extends Controller
             $this->touch($device);
         }
 
+        if ($device) {
+            $now = Carbon::now(config('services.biometric_timezone', 'Africa/Cairo'));
+            $commandId = $now->timestamp;
+            $command = sprintf('C:%d:SET OPTIONS DateTime=%s' . "\r\n", $commandId, $now->format('Y-m-d H:i:s'));
+            return response($command, 200, ['Content-Type' => 'text/plain; charset=utf-8']);
+        }
+
         // A valid empty command response tells the terminal that the server
         // is online and that no remote command is waiting.
         return response("OK\r\n", 200, ['Content-Type' => 'text/plain; charset=utf-8']);
