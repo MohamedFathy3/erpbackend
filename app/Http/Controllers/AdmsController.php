@@ -8,7 +8,9 @@ use App\Models\Employee;
 use App\Services\BiometricAgentAttendanceService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -65,7 +67,7 @@ class AdmsController extends Controller
             $this->touch($device);
         }
 
-        if ($device) {
+        if ($device && Cache::store('file')->add('adms-time-sync:' . $device->id, true, 60)) {
             $now = Carbon::now(config('services.biometric_timezone', 'Africa/Cairo'));
             $commandId = $now->timestamp;
             $command = sprintf('C:%d:SET OPTIONS DateTime=%s' . "\r\n", $commandId, $now->format('Y-m-d H:i:s'));
@@ -82,6 +84,13 @@ class AdmsController extends Controller
         $device = $this->resolveDevice($request, false);
         if ($device) {
             $this->touch($device);
+        }
+        $body = trim((string) $request->getContent());
+        if ($body !== '') {
+            Log::info('ADMS device command result', [
+                'serial_number' => $device?->serial_number,
+                'body' => $body,
+            ]);
         }
         return response("OK\r\n", 200, ['Content-Type' => 'text/plain; charset=utf-8']);
     }
