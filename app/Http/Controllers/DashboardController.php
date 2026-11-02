@@ -125,34 +125,48 @@ class DashboardController extends Controller
     {
         $branchId = $request->integer('branch_id') ?: null;
         $today = now()->toDateString();
-        $monthStart = now()->startOfMonth()->toDateString();
+        $from = $request->input('from', now()->startOfMonth()->toDateString());
+        $to = $request->input('to', $today);
 
         $sales = SalesInvoice::query()->when($branchId, fn ($q) => $q->where('branch_id', $branchId));
         $purchases = PurchaseInvoice::query()->when($branchId, fn ($q) => $q->where('branch_id', $branchId));
-        $monthSales = (clone $sales)->whereDate('invoice_date', '>=', $monthStart);
-        $monthPurchases = (clone $purchases)->whereDate('invoice_date', '>=', $monthStart);
+        $monthSales = (clone $sales)->whereDate('invoice_date', '>=', $from)->whereDate('invoice_date', '<=', $to);
+        $monthPurchases = (clone $purchases)->whereDate('invoice_date', '>=', $from)->whereDate('invoice_date', '<=', $to);
         $monthPurchaseReturns = PurchaseReturn::query()
             ->where(fn ($query) => $query->whereNull('workflow_status')->orWhere('workflow_status', '!=', 'cancelled'))
-            ->whereDate('return_date', '>=', $monthStart)
-            ->whereDate('return_date', '<=', $today)
+            ->whereDate('return_date', '>=', $from)
+            ->whereDate('return_date', '<=', $to)
             ->when($branchId, fn ($query) => $query->where('branch_id', $branchId))
             ->sum('total_amount');
         $monthPurchaseTotal = (float) $monthPurchases->sum('total_amount') - (float) $monthPurchaseReturns;
+        $posSales = Invoice::query()->when($branchId, fn ($q) => $q->where('branch_id', $branchId))->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to);
+        $expenses = Finance::query()->whereNotIn('category', ['revenue', 'income'])->where('is_tracking_only', false)->whereDate('date', '>=', $from)->whereDate('date', '<=', $to);
+        $customerDue = (float) (clone $sales)->sum(DB::raw('GREATEST(net_total - paid_amount, 0)')) + (float) Invoice::query()->when($branchId, fn ($q) => $q->where('branch_id', $branchId))->sum('remaining_amount');
+        $supplierDue = (float) (clone $purchases)->sum(DB::raw('GREATEST(total_amount - paid_amount, 0)'));
+        $topCustomer = (clone $monthSales)->select('customer_id')->selectRaw('SUM(net_total) as total')->whereNotNull('customer_id')->groupBy('customer_id')->orderByDesc('total')->with('customer:id,name')->first();
+        $employeesCount = Employee::query()->where('active', true)->when($branchId, fn ($q) => $q->where('branch_id', $branchId))->count();
         $todaySales = (clone $sales)->whereDate('invoice_date', $today);
         $lowStock = Product::whereColumn('stock', '<=', DB::raw('CASE WHEN reorder_level > 0 THEN reorder_level ELSE 5 END'))->count();
         $projects = Project::query();
         $claims = ProjectClaim::query();
-        $manufacturing = ManufacturingOrder::query();
+        $manufacturing = ManufacturingOrder::query()->when($branchId, fn ($q) => $q->where('branch_id', $branchId));
 
         return response()->json(['status' => true, 'data' => [
+            'filters' => ['from' => $from, 'to' => $to, 'branch_id' => $branchId],
             'today_sales' => (float) $todaySales->sum('net_total'),
-            'month_sales' => (float) $monthSales->sum('net_total'),
+            'month_sales' => (float) $monthSales->sum('net_total') + (float) $posSales->sum('net_amount'),
             'total_sales' => (float) $sales->sum('net_total'),
             'total_sales_amount' => (float) $sales->sum('net_total'),
             'month_purchases' => $monthPurchaseTotal,
-            'net_profit_before_overheads' => (float) $monthSales->sum('net_total') - $monthPurchaseTotal,
-            'sales_invoices_count' => (int) $sales->count(),
-            'purchase_invoices_count' => (int) $purchases->count(),
+            'net_profit_before_overheads' => (float) $monthSales->sum('net_total') + (float) $posSales->sum('net_amount') - $monthPurchaseTotal - (float) $expenses->sum('amount'),
+            'sales_invoices_count' => (int) $monthSales->count() + (int) $posSales->count(),
+            'purchase_invoices_count' => (int) $monthPurchases->count(),
+            'supplier_due' => round($supplierDue, 2),
+            'customer_due' => round($customerDue, 2),
+            'top_customer' => $topCustomer ? ['name' => $topCustomer->customer?->name, 'total' => round((float) $topCustomer->total, 2)] : null,
+            'employees_count' => $employeesCount,
+            'daily_expenses' => (float) (clone $expenses)->whereDate('date', $today)->sum('amount'),
+            'expenses' => (float) $expenses->sum('amount'),
             'customers_count' => Customer::count(),
             'loyalty_points' => (int) Customer::sum('point'),
             'products_count' => Product::count(),
@@ -176,6 +190,7 @@ class DashboardController extends Controller
                 'completed_orders' => (int) (clone $manufacturing)->where('status', 'completed')->count(),
                 'planned_quantity' => (float) (clone $manufacturing)->sum('planned_quantity'),
                 'produced_quantity' => (float) (clone $manufacturing)->sum('produced_quantity'),
+                'scrapped_quantity' => (float) (clone $manufacturing)->sum('scrapped_quantity'),
                 'actual_cost' => (float) ManufacturingCostEntry::sum('amount'),
                 'planned_cost' => (float) (clone $manufacturing)->sum('planned_cost'),
             ],
