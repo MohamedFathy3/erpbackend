@@ -25,6 +25,7 @@ class ManufacturingFeatureTest extends TestCase
     public function test_idempotency_and_stock_movements_are_unique_per_action(): void
     {
         $this->assertTrue(DB::getSchemaBuilder()->hasTable('manufacturing_idempotency_keys'));
+        $this->assertTrue(DB::getSchemaBuilder()->hasColumn('manufacturing_idempotency_keys', 'tenant_id'));
         $this->assertTrue(DB::getSchemaBuilder()->hasTable('manufacturing_stock_movements'));
     }
 }

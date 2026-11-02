@@ -40,6 +40,12 @@ class ProductResource extends JsonResource
             'base_price'    => $this->price,
             'cost'          => $this->cost,
             'active'        => $this->active,
+            'product_type'  => $this->product_type ?? 'good',
+            'stock_unit'    => $this->stock_unit,
+            'base_unit'     => $this->base_unit,
+            'conversion_factor' => $this->conversion_factor,
+            'tracking'      => $this->tracking ?? 'none',
+            'dimensions'    => $this->dimensions,
        // ✅ المخازن المرتبطة بالمنتج
             'warehouse_ids' => $this->whenLoaded('warehouses', fn () =>
                 $this->warehouses->pluck('id')->values()

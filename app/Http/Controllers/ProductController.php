@@ -335,9 +335,10 @@ public function show(Product $product): ?\Illuminate\Http\JsonResponse
         $data = $request->validated();
 
         $product = $this->crudRepository->create(
-    collect($data)->except(['units', 'warehouse_ids', 'warehouse_stocks', 'branch_ids'])->toArray()
+    collect($data)->except(['units', 'warehouse_ids', 'warehouse_stocks', 'branch_ids', 'branch_id'])->toArray()
 );
-        $this->syncBranchPrice($product, $request, $data['price'] ?? null);
+        $branchId = $this->resolveProductBranchId($request, $data);
+        $this->syncBranchPrice($product, $request, $data['price'] ?? null, $branchId);
 
         if (!empty($data['units']) && is_array($data['units'])) {
             // إعادة تنظيم الوحدات
@@ -384,7 +385,11 @@ public function show(Product $product): ?\Illuminate\Http\JsonResponse
                 }
             }
         }
-$this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse_stocks'] ?? []);
+$warehouseIds = $data['warehouse_ids'] ?? [];
+if (empty($warehouseIds) && $branchId) {
+    $warehouseIds = $this->warehouseIdsForBranch($product, $branchId);
+}
+$this->linkWarehouses($product, $warehouseIds, $data['warehouse_stocks'] ?? []);
         if (request('image') !== null) {
             $this->crudRepository->AddMediaCollection('image', $product);
         }
@@ -393,6 +398,9 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse
 
         return new ProductResource($product->load(['units.colors', 'branchPrices']));
 
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        DB::rollBack();
+        throw $e;
     } catch (Exception $e) {
         DB::rollBack();
         return JsonResponse::respondError($e->getMessage());
@@ -412,14 +420,15 @@ public function update(ProductUpdateRequest $request, Product $product)
 
 $updateData = collect($data)->except([
     'units', 'image', 'image_url', 'warehouse_ids', 'warehouse_stocks',
-    'removed_warehouse_ids', 'branch_ids', 'price', 'stock',
+    'removed_warehouse_ids', 'branch_ids', 'branch_id', 'price', 'stock',
 ])->filter(fn ($v, $k) => \Illuminate\Support\Facades\Schema::hasColumn('products', $k))
   ->toArray();
   $this->crudRepository->update(
     $updateData,
     $product->id
 );
-        $this->syncBranchPrice($product, $request, $data['price'] ?? null);
+        $branchId = $this->resolveProductBranchId($request, $data);
+        $this->syncBranchPrice($product, $request, $data['price'] ?? null, $branchId);
         $removed = array_map('intval', $data['removed_warehouse_ids'] ?? []);
 if ($removed) {
     ProductWarehouse::withoutGlobalScopes()
@@ -428,7 +437,11 @@ if ($removed) {
         ->delete();
 }
 
-$this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse_stocks'] ?? []);
+$warehouseIds = $data['warehouse_ids'] ?? [];
+if (empty($warehouseIds) && $branchId) {
+    $warehouseIds = $this->warehouseIdsForBranch($product, $branchId);
+}
+$this->linkWarehouses($product, $warehouseIds, $data['warehouse_stocks'] ?? []);
 
         if ($request->has('image') && $request->input('image') !== null) {
             $this->crudRepository->AddMediaCollection('image', $product);
@@ -522,6 +535,9 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse
             new ProductResource($product->load(['units.colors', 'branchPrices']))
         );
 
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        DB::rollBack();
+        throw $e;
     } catch (\Exception $e) {
         DB::rollBack();
         return JsonResponse::respondError($e->getMessage());
@@ -688,11 +704,12 @@ $this->linkWarehouses($product, $data['warehouse_ids'] ?? null, $data['warehouse
     return ProductResource::collection($products);
 }
 
-    private function syncBranchPrice(Product $product, Request $request, mixed $price): void
+    private function syncBranchPrice(Product $product, Request $request, mixed $price, ?int $branchId = null): void
     {
         if ($price === null) return;
 
-        $branchId = (int) ($request->user()?->branch_id
+        $branchId = (int) ($branchId
+            ?: $request->user()?->branch_id
             ?: (app()->bound('currentBranchId') ? app('currentBranchId') : 0));
         $tenantId = (int) ($request->user()?->tenant_id
             ?: (app()->bound('currentTenantId') ? app('currentTenantId') : $product->tenant_id));
@@ -1226,6 +1243,54 @@ public function productWarehouses(Request $request)
         ], 500);
     }
 }
+private function resolveProductBranchId(Request $request, array $data): ?int
+{
+    $branchId = $data['branch_id']
+        ?? (($data['branch_ids'] ?? []) ? reset($data['branch_ids']) : null)
+        ?? $request->user()?->branch_id
+        ?? (app()->bound('currentBranchId') ? app('currentBranchId') : null);
+
+    if (!$branchId) {
+        return null;
+    }
+
+    $branchId = (int) $branchId;
+    $user = $request->user();
+    if ($user && !($user->super_admin ?? false) && $user->branch_id
+        && (int) $user->branch_id !== $branchId) {
+        throw \Illuminate\Validation\ValidationException::withMessages([
+            'branch_id' => 'You may only use your assigned branch.',
+        ]);
+    }
+
+    return $branchId;
+}
+
+private function warehouseIdsForBranch(Product $product, int $branchId): array
+{
+    $tenantId = (int) ($product->tenant_id
+        ?: request()->user()?->tenant_id
+        ?: (app()->bound('currentTenantId') ? app('currentTenantId') : 0));
+
+    $query = \App\Models\Warehouse::withoutGlobalScopes()
+        ->where('tenant_id', $tenantId)
+        ->where('branch_id', $branchId)
+        ->whereNull('deleted_at');
+
+    if (Schema::hasColumn('warehouses', 'active')) {
+        $query->where('active', true);
+    }
+
+    $warehouseId = $query->orderByDesc('main_branch')->orderBy('id')->value('id');
+    if (!$warehouseId) {
+        throw \Illuminate\Validation\ValidationException::withMessages([
+            'branch_id' => 'No active warehouse is configured for the selected branch.',
+        ]);
+    }
+
+    return [(int) $warehouseId];
+}
+
 private function linkWarehouses(Product $product, ?array $warehouseIds, array $warehouseStocks = []): void
 {
     $tenantId = $product->tenant_id;

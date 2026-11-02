@@ -12,6 +12,37 @@ class ProductRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        foreach (['warehouse_ids', 'warehouse_stocks', 'branch_ids', 'units'] as $field) {
+            $value = $this->input($field);
+            if (is_string($value)) {
+                $decoded = json_decode($value, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $this->merge([$field => $decoded]);
+                }
+            }
+        }
+
+        $stocks = $this->input('warehouse_stocks');
+        if (is_array($stocks) && array_is_list($stocks) && is_array($stocks[0] ?? null)) {
+            $stockMap = [];
+            $validRows = true;
+            foreach ($stocks as $row) {
+                $warehouseId = $row['warehouse_id'] ?? null;
+                $quantity = $row['qty'] ?? $row['stock'] ?? $row['quantity'] ?? null;
+                if ($warehouseId === null || $quantity === null) {
+                    $validRows = false;
+                    break;
+                }
+                $stockMap[(int) $warehouseId] = $quantity;
+            }
+            if ($validRows) {
+                $this->merge(['warehouse_stocks' => $stockMap]);
+            }
+        }
+    }
+
     public function rules(): array
     {
         $productId = $this->route('product');
@@ -21,7 +52,10 @@ class ProductRequest extends FormRequest
             'name'            => 'required|string|max:255',
             'description'     => 'nullable|string',
             'image_url'       => 'nullable|string',
-            'category_id'     => 'required|exists:categories,id',
+            'category_id'     => 'nullable|exists:categories,id',
+            'branch_id'       => 'nullable|integer|exists:branches,id',
+            'branch_ids'      => 'nullable|array',
+            'branch_ids.*'    => 'integer|exists:branches,id',
             'sku' => [
                 'nullable',
                 'string',
@@ -32,11 +66,21 @@ class ProductRequest extends FormRequest
                 'string',
                 Rule::unique('products', 'barcode')->ignore($productId),
             ],
-            'stock'           => 'nullable|integer|min:0',
+            'stock'           => 'nullable|numeric|min:0',
             'beginning_balance' => 'nullable|boolean',
             'reorder_level'   => 'nullable|integer|min:0',
             'price'           => 'nullable|numeric|min:0',
             'cost'            => 'nullable|numeric|min:0',
+            'product_type'      => ['nullable', Rule::in(['good', 'service', 'material', 'semi_finished', 'finished'])],
+            'stock_unit'        => 'nullable|string|max:32',
+            'base_unit'         => 'nullable|string|max:32',
+            'conversion_factor' => 'nullable|numeric|gt:0',
+            'tracking'          => ['nullable', Rule::in(['none', 'lot', 'serial'])],
+            'dimensions'        => 'nullable|array',
+            'dimensions.width'  => 'nullable|numeric|min:0',
+            'dimensions.height' => 'nullable|numeric|min:0',
+            'dimensions.depth'  => 'nullable|numeric|min:0',
+            'dimensions.unit'   => 'nullable|string|max:16',
 
             // units
             'units' => 'sometimes|array',
@@ -48,7 +92,7 @@ class ProductRequest extends FormRequest
 
 
             'warehouse_ids'   => 'nullable|array',
-	'warehouse_ids.*' => 'exists:warehouses,id',
+            'warehouse_ids.*' => 'exists:warehouses,id',
             'warehouse_stocks' => 'nullable|array',
             'warehouse_stocks.*' => 'nullable|numeric|min:0',
             // colors per unit - ✅ إزالة قواعد distinct

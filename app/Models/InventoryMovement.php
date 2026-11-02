@@ -10,8 +10,8 @@ class InventoryMovement extends BaseModel
     protected $guarded = ['id'];
 
     protected $casts = [
-        'quantity_delta' => 'decimal:3',
-        'balance_after' => 'decimal:3',
+        'quantity_delta' => 'decimal:6',
+        'balance_after' => 'decimal:6',
         'quantity' => 'decimal:4',
         'unit_cost' => 'decimal:4',
         'total_cost' => 'decimal:2',
