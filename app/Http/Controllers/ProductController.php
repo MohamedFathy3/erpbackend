@@ -223,7 +223,8 @@ public function index(Request $request)
         if ($priceBranchId) {
             $products->each(function (Product $product) use ($priceBranchId): void {
                 $override = $product->branchPrices->firstWhere('branch_id', $priceBranchId);
-                $product->setAttribute('display_price', (float) ($override?->price ?? $product->price ?? 0));
+                $overridePrice = (float) ($override?->price ?? 0);
+                $product->setAttribute('display_price', $overridePrice > 0 ? $overridePrice : (float) ($product->price ?? 0));
             });
         }
 
@@ -701,7 +702,8 @@ $this->linkWarehouses($product, $warehouseIds, $data['warehouse_stocks'] ?? []);
     // product aggregate, so a pending transfer cannot make stock sellable.
     $products->each(function (Product $product) use ($branchId): void {
         $override = $product->branchPrices->firstWhere('branch_id', $branchId);
-        $product->setAttribute('display_price', (float) ($override?->price ?? $product->price ?? 0));
+        $overridePrice = (float) ($override?->price ?? 0);
+        $product->setAttribute('display_price', $overridePrice > 0 ? $overridePrice : (float) ($product->price ?? 0));
         if ($product->automotiveService?->item_type === 'service') {
             $product->setAttribute('stock', 999999);
             return;

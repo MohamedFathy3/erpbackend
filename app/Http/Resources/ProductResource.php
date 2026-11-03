@@ -14,7 +14,13 @@ class ProductResource extends JsonResource
         $branchPrice = $this->relationLoaded('branchPrices')
             ? $this->branchPrices->firstWhere('branch_id', $branchId)
             : null;
-        $effectivePrice = $this->display_price ?? $branchPrice?->price ?? $this->price;
+        $displayPrice = $this->display_price;
+        $branchPriceValue = $branchPrice?->price;
+        $effectivePrice = $displayPrice !== null && (float) $displayPrice > 0
+            ? (float) $displayPrice
+            : (($branchPriceValue !== null && (float) $branchPriceValue > 0)
+                ? (float) $branchPriceValue
+                : (float) ($this->price ?? 0));
 
         return [
             'id'            => $this->id,
