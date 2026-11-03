@@ -44,6 +44,10 @@ class ProductResource extends JsonResource
             'reorder_level' => $this->reorder_level,
             'price'         => $effectivePrice,
             'base_price'    => $this->price,
+            'branch_prices' => $this->whenLoaded('branchPrices', fn () => $this->branchPrices->map(fn ($branchPrice) => [
+                'branch_id' => (int) $branchPrice->branch_id,
+                'price' => (float) $branchPrice->price,
+            ])->values()),
             'cost'          => $this->cost,
             'active'        => $this->active,
             'product_type'  => $this->product_type ?? 'good',

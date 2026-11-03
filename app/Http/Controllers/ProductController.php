@@ -22,6 +22,7 @@ use App\Models\ProductUnit;
 use App\Models\ProductUnitColor;
 use App\Models\ProductWarehouse;
 use App\Models\ProductBranchPrice;
+use App\Models\Branch;
 
 class ProductController extends BaseController
 {
@@ -338,10 +339,16 @@ public function show(Product $product): ?\Illuminate\Http\JsonResponse
         $data = $request->validated();
 
         $product = $this->crudRepository->create(
-    collect($data)->except(['units', 'warehouse_ids', 'warehouse_stocks', 'branch_ids', 'branch_id'])->toArray()
+    collect($data)->except(['units', 'warehouse_ids', 'warehouse_stocks', 'branch_ids', 'branch_id', 'branch_prices'])->toArray()
 );
         $branchId = $this->resolveProductBranchId($request, $data);
-        $this->syncBranchPrice($product, $request, $data['price'] ?? null, $branchId);
+        $canManageAllBranches = \App\Models\BaseModel::userHasAllBranchAccess($request->user());
+        if ($branchId && !$canManageAllBranches) {
+            $this->syncBranchPrice($product, $request, $data['price'] ?? null, $branchId);
+        }
+        if (array_key_exists('branch_prices', $data)) {
+            $this->syncBranchPrices($product, $request, $data['branch_prices'] ?? []);
+        }
 
         if (!empty($data['units']) && is_array($data['units'])) {
             // إعادة تنظيم الوحدات
@@ -421,15 +428,15 @@ public function update(ProductUpdateRequest $request, Product $product)
     try {
         $data = $request->validated();
         $branchId = $this->resolveProductBranchId($request, $data);
+        $canManageAllBranches = \App\Models\BaseModel::userHasAllBranchAccess($request->user());
 
 $updateData = collect($data)->except([
     'units', 'image', 'image_url', 'warehouse_ids', 'warehouse_stocks',
-    'removed_warehouse_ids', 'branch_ids', 'branch_id', 'price', 'stock',
+    'removed_warehouse_ids', 'branch_ids', 'branch_id', 'branch_prices', 'price', 'stock',
 ])->filter(fn ($v, $k) => \Illuminate\Support\Facades\Schema::hasColumn('products', $k))
   ->toArray();
-        // No branch context means this is the tenant-wide/base selling price.
-        // Branch-scoped edits continue to be stored in product_branch_prices.
-        if (!$branchId && array_key_exists('price', $data) && $data['price'] !== null) {
+        // The all-branches admin price is the fallback for branches without an override.
+        if ((!$branchId || $canManageAllBranches) && array_key_exists('price', $data) && $data['price'] !== null) {
             $updateData['price'] = round((float) $data['price'], 2);
         }
 
@@ -437,7 +444,12 @@ $updateData = collect($data)->except([
     $updateData,
     $product->id
 );
-        $this->syncBranchPrice($product, $request, $data['price'] ?? null, $branchId);
+        if ($branchId && !$canManageAllBranches) {
+            $this->syncBranchPrice($product, $request, $data['price'] ?? null, $branchId);
+        }
+        if (array_key_exists('branch_prices', $data)) {
+            $this->syncBranchPrices($product, $request, $data['branch_prices'] ?? []);
+        }
         $removed = array_map('intval', $data['removed_warehouse_ids'] ?? []);
 if ($removed) {
     ProductWarehouse::withoutGlobalScopes()
@@ -729,6 +741,58 @@ $this->linkWarehouses($product, $warehouseIds, $data['warehouse_stocks'] ?? []);
             ['tenant_id' => $tenantId, 'branch_id' => $branchId, 'product_id' => $product->id],
             ['price' => round((float) $price, 2)]
         );
+    }
+
+    private function syncBranchPrices(Product $product, Request $request, array $branchPrices): void
+    {
+        $user = $request->user();
+        $tenantId = (int) ($user?->tenant_id
+            ?: (app()->bound('currentTenantId') ? app('currentTenantId') : $product->tenant_id));
+        $canManageAllBranches = \App\Models\BaseModel::userHasAllBranchAccess($user);
+        $allowedBranchId = (int) ($user?->branch_id
+            ?: (app()->bound('currentBranchId') ? app('currentBranchId') : 0));
+
+        foreach ($branchPrices as $branchPriceData) {
+            $branchId = (int) ($branchPriceData['branch_id'] ?? 0);
+            if (!$branchId) {
+                continue;
+            }
+
+            if (!$canManageAllBranches && $allowedBranchId && $allowedBranchId !== $branchId) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'branch_prices' => 'You may only update prices for your assigned branch.',
+                ]);
+            }
+
+            $branchExists = Branch::withoutGlobalScope('branch')
+                ->where('tenant_id', $tenantId)
+                ->whereKey($branchId)
+                ->exists();
+            if (!$tenantId || !$branchExists) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'branch_prices' => 'A selected branch does not belong to this tenant.',
+                ]);
+            }
+
+            $price = round((float) $branchPriceData['price'], 2);
+            $record = ProductBranchPrice::withoutGlobalScopes(['tenant', 'branch'])
+                ->withTrashed()
+                ->firstOrNew([
+                    'tenant_id' => $tenantId,
+                    'branch_id' => $branchId,
+                    'product_id' => $product->id,
+                ]);
+            $record->tenant_id = $tenantId;
+            $record->branch_id = $branchId;
+            $record->product_id = $product->id;
+            $record->price = $price;
+
+            if ($record->exists && $record->trashed()) {
+                $record->restore();
+            } else {
+                $record->save();
+            }
+        }
     }
 
     public function warehouseStock(Request $request)

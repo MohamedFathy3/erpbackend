@@ -14,7 +14,7 @@ class ProductRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        foreach (['warehouse_ids', 'warehouse_stocks', 'branch_ids', 'units'] as $field) {
+        foreach (['warehouse_ids', 'warehouse_stocks', 'branch_ids', 'branch_prices', 'units'] as $field) {
             $value = $this->input($field);
             if (is_string($value)) {
                 $decoded = json_decode($value, true);
@@ -56,6 +56,9 @@ class ProductRequest extends FormRequest
             'branch_id'       => 'nullable|integer|exists:branches,id',
             'branch_ids'      => 'nullable|array',
             'branch_ids.*'    => 'integer|exists:branches,id',
+            'branch_prices' => 'nullable|array',
+            'branch_prices.*.branch_id' => 'required|integer|exists:branches,id',
+            'branch_prices.*.price' => 'required|numeric|min:0',
             'sku' => [
                 'nullable',
                 'string',
