@@ -80,7 +80,7 @@ class BiometricAttendanceController extends Controller
             ->with('employee')
             ->where('tenant_id', $device->tenant_id)
             ->where('device_id', $device->id)
-            ->orderByDesc('recorded_at')
+            ->orderByDesc('created_at')
             ->get()
             ->groupBy('device_user_id')
             ->map(function ($logs, string $userId): array {
@@ -97,7 +97,8 @@ class BiometricAttendanceController extends Controller
                     'name' => (string) ($latest->payload['name'] ?? ''),
                     'role' => 0,
                     'card_no' => '',
-                    'last_seen_at' => Carbon::parse($latest->getRawOriginal('recorded_at'), config('services.biometric_timezone', 'Africa/Cairo'))->toIso8601String(),
+                    'created_at' => $latest->created_at?->toIso8601String(),
+                    'last_seen_at' => $latest->created_at?->toIso8601String(),
                     'punch_count' => $logs->count(),
                     'employee' => $employee?->only(['id', 'name', 'employee_code']),
                 ];
@@ -127,9 +128,13 @@ class BiometricAttendanceController extends Controller
             ->where('device_user_id', $userId)
             ->get();
         $logs->each->update(['employee_id' => $employee->id]);
-        $logs->pluck('recorded_at')->map(fn ($date) => Carbon::parse($date)->startOfDay()->toDateString())->unique()->each(
-            fn (string $date) => $attendanceService->refreshEmployeeDay($employee, Carbon::parse($date)),
-        );
+        $timezone = config('services.biometric_timezone', 'Africa/Cairo');
+        $logs->filter(fn (BiometricLog $log) => $log->created_at !== null)
+            ->groupBy(fn (BiometricLog $log) => $log->created_at->copy()->setTimezone($timezone)->toDateString())
+            ->each(fn ($dayLogs) => $attendanceService->refreshEmployeeDay(
+                $employee,
+                $dayLogs->first()->created_at->copy()->setTimezone($timezone),
+            ));
 
         return response()->json(['status' => true, 'data' => [
             'employee' => $employee->only(['id', 'name', 'employee_code', 'biometric_user_id']),

@@ -37,6 +37,7 @@ class BiometricAttendanceService
                 ->all();
             $imported = 0;
             $unmatched = [];
+            $storedLogs = [];
             foreach ($logs as $raw) {
                 $userId = (string) ($raw['user_id'] ?? $raw['uid'] ?? '');
                 $recordedAt = Carbon::parse($raw['record_time'] ?? $raw['timestamp'] ?? now());
@@ -47,10 +48,11 @@ class BiometricAttendanceService
                     'employee_id' => $employee?->id, 'state' => isset($raw['state']) ? (int) $raw['state'] : null,
                     'payload' => $raw,
                 ]);
+                $storedLogs[] = $log;
                 if ($log->wasRecentlyCreated) $imported++;
                 if (!$employee) { $unmatched[$userId] = true; continue; }
             }
-            $this->rebuildAttendance($device, $logs);
+            $this->rebuildAttendance($device, $storedLogs);
             $device->update(['last_synced_at' => now(), 'last_error' => null]);
             return [
                 'imported' => $imported,
@@ -149,21 +151,18 @@ class BiometricAttendanceService
 
     private function rebuildAttendance(BiometricDevice $device, array $logs): void
     {
-        $grouped = collect($logs)->filter(fn ($log) => !empty($log['user_id']) || !empty($log['uid']))->groupBy(function ($log) { return (string) ($log['user_id'] ?? $log['uid']); });
-        foreach ($grouped as $userId => $items) {
-            $employee = Employee::where('biometric_user_id', $userId)->orWhere('employee_code', $userId)->first();
-            if (!$employee) continue;
-            foreach ($items->groupBy(fn ($log) => Carbon::parse($log['record_time'] ?? $log['timestamp'])->toDateString()) as $date => $dayLogs) {
-                $ordered = $dayLogs->sortBy(fn ($log) => $log['record_time'] ?? $log['timestamp'])->values();
-                $in = $ordered->first(fn ($l) => (int) ($l['state'] ?? 0) === 0) ?: $ordered->first();
-                $out = $ordered->reverse()->first(fn ($l) => in_array((int) ($l['state'] ?? -1), [1, 5], true)) ?: ($ordered->count() > 1 ? $ordered->last() : null);
-                $checkIn = Carbon::parse($in['record_time'] ?? $in['timestamp']);
-                $checkOut = $out ? Carbon::parse($out['record_time'] ?? $out['timestamp']) : null;
-                $rule = AttendanceRule::where('is_active', true)->latest('id')->first();
-                $start = Carbon::parse($date . ' ' . ($rule?->work_start ?: '08:00'));
-                $late = max(0, $start->diffInMinutes($checkIn, false) - (int) ($rule?->grace_minutes ?? 15));
-                $worked = $checkOut ? $checkIn->diffInMinutes($checkOut) : 0;
-                Attendance::updateOrCreate(['employee_id' => $employee->id, 'date' => $date], ['device_id' => $device->id, 'check_in' => $checkIn->format('H:i:s'), 'check_out' => $checkOut?->format('H:i:s'), 'status' => $late > 0 ? 'late' : 'present', 'source' => 'biometric', 'late_minutes' => $late, 'worked_minutes' => $worked]);
+        $timezone = config('services.biometric_timezone', 'Africa/Cairo');
+        $refreshDays = [];
+        foreach ($logs as $log) {
+            if (!$log instanceof BiometricLog || !$log->employee_id || !$log->created_at) continue;
+            $receivedAt = $log->created_at->copy()->setTimezone($timezone);
+            $refreshDays[$log->employee_id . ':' . $receivedAt->toDateString()] = [$log->employee_id, $receivedAt];
+        }
+
+        foreach ($refreshDays as [$employeeId, $receivedAt]) {
+            $employee = Employee::query()->where('tenant_id', $device->tenant_id)->find($employeeId);
+            if ($employee) {
+                app(BiometricAgentAttendanceService::class)->refreshEmployeeDay($employee, $receivedAt);
             }
         }
     }

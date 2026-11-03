@@ -192,7 +192,7 @@ class AdmsController extends Controller
         });
 
         if ($log->wasRecentlyCreated && $employee) {
-            app(BiometricAgentAttendanceService::class)->refreshEmployeeDay($employee, $row['recorded_at']);
+            app(BiometricAgentAttendanceService::class)->refreshEmployeeDay($employee, $log->created_at);
         }
         return $log->wasRecentlyCreated;
     }

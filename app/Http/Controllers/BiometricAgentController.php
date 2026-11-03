@@ -250,7 +250,10 @@ class BiometricAgentController extends Controller
 
             $accepted[] = strtolower($event['event_key']);
             if ($log->employee_id) {
-                $refreshDays[$log->employee_id . ':' . $recordedAt->toDateString()] = [$log->employee_id, $recordedAt->copy()];
+                $createdAt = $log->created_at?->copy()->setTimezone(config('services.biometric_timezone', 'Africa/Cairo'));
+                if ($createdAt) {
+                    $refreshDays[$log->employee_id . ':' . $createdAt->toDateString()] = [$log->employee_id, $createdAt];
+                }
             }
             $device->forceFill(['last_synced_at' => now(), 'last_error' => null])->save();
         }
