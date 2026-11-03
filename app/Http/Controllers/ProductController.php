@@ -419,17 +419,23 @@ public function update(ProductUpdateRequest $request, Product $product)
 
     try {
         $data = $request->validated();
+        $branchId = $this->resolveProductBranchId($request, $data);
 
 $updateData = collect($data)->except([
     'units', 'image', 'image_url', 'warehouse_ids', 'warehouse_stocks',
     'removed_warehouse_ids', 'branch_ids', 'branch_id', 'price', 'stock',
 ])->filter(fn ($v, $k) => \Illuminate\Support\Facades\Schema::hasColumn('products', $k))
   ->toArray();
+        // No branch context means this is the tenant-wide/base selling price.
+        // Branch-scoped edits continue to be stored in product_branch_prices.
+        if (!$branchId && array_key_exists('price', $data) && $data['price'] !== null) {
+            $updateData['price'] = round((float) $data['price'], 2);
+        }
+
   $this->crudRepository->update(
     $updateData,
     $product->id
 );
-        $branchId = $this->resolveProductBranchId($request, $data);
         $this->syncBranchPrice($product, $request, $data['price'] ?? null, $branchId);
         $removed = array_map('intval', $data['removed_warehouse_ids'] ?? []);
 if ($removed) {
@@ -534,7 +540,7 @@ $this->linkWarehouses($product, $warehouseIds, $data['warehouse_stocks'] ?? []);
 
         return JsonResponse::respondSuccess(
             trans(JsonResponse::MSG_UPDATED_SUCCESSFULLY),
-            new ProductResource($product->load(['units.colors', 'branchPrices']))
+            new ProductResource($product->refresh()->load(['units.colors', 'branchPrices']))
         );
 
     } catch (\Illuminate\Validation\ValidationException $e) {
