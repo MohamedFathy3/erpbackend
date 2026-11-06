@@ -68,6 +68,7 @@ use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\GoogleIntegrationController;
 use App\Http\Controllers\SuperAdminOverviewController;
 use App\Http\Controllers\AIChatController;
+use App\RecipeProduction\Http\Controllers\RecipeProductionController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -2402,4 +2403,16 @@ Route::middleware(['auth:sanctum', 'resolve.tenant'])->prefix('manufacturing/v2'
     Route::post('orders/from-invoice/{invoice}', [$c,'orderFromInvoice']); Route::post('orders/{manufacturingOrder}/start', [$c,'start']);
     Route::get('orders/{manufacturingOrder}/availability', [$c,'availability']); Route::post('orders/{manufacturingOrder}/reserve', [$c,'reserve']); Route::post('orders/{manufacturingOrder}/issue', [$c,'issue']); Route::post('orders/{manufacturingOrder}/return', [$c,'returnMaterial']); Route::post('orders/{manufacturingOrder}/scrap', [$c,'scrap']);
     Route::post('orders/{manufacturingOrder}/operations/{operation}', [$c,'operation']); Route::post('orders/{manufacturingOrder}/quality', [$c,'quality']); Route::post('orders/{manufacturingOrder}/receive', [$c,'receive']); Route::post('orders/{manufacturingOrder}/cancel', [$c,'cancel']); Route::post('orders/{manufacturingOrder}/close', [$c,'close']);
+});
+
+// Independent Recipe & Production Management module. It does not reuse the legacy Manufacturing controllers.
+Route::middleware(['auth:sanctum', 'resolve.tenant'])->prefix('recipe-production')->group(function () {
+    $c = RecipeProductionController::class;
+    Route::get('dashboard', [$c, 'dashboard']);
+    Route::get('products', [$c, 'products']);
+    Route::get('categories', [$c, 'categories']); Route::post('categories', [$c, 'categoryStore']); Route::put('categories/{category}', [$c, 'categoryUpdate']); Route::delete('categories/{category}', [$c, 'categoryDestroy']);
+    Route::get('materials', [$c, 'materials']); Route::post('materials', [$c, 'materialStore']); Route::put('materials/{material}', [$c, 'materialUpdate']); Route::delete('materials/{material}', [$c, 'materialDestroy']);
+    Route::get('recipes', [$c, 'recipes']); Route::post('recipes', [$c, 'recipeStore']); Route::put('recipes/{recipe}', [$c, 'recipeUpdate']); Route::delete('recipes/{recipe}', [$c, 'recipeDestroy']);
+    Route::get('orders', [$c, 'orders']); Route::post('orders', [$c, 'orderStore']); Route::get('orders/{order}', [$c, 'orderShow']); Route::post('orders/{order}/confirm', [$c, 'confirm']);
+    Route::get('reports/costs', [$c, 'report']);
 });
