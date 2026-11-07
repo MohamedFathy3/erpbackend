@@ -108,7 +108,7 @@ class ManufacturingService
                 'planned_cost' => $data['planned_cost'] ?? 0,
                 'status' => 'draft',
                 'planned_at' => $data['planned_at'] ?? null,
-                'created_by' => $this->userId,
+                'created_by' => $this->persistedUserId(),
                 'notes' => $data['notes'] ?? null,
             ]);
 
@@ -257,7 +257,7 @@ class ManufacturingService
             'from_status' => $previousStatus,
             'to_status' => $status,
             'reason' => $reason,
-            'created_by' => $this->userId,
+            'created_by' => $this->persistedUserId(),
             'idempotency_key' => $key,
         ]);
 
@@ -623,7 +623,7 @@ class ManufacturingService
                     'quantity' => $data['quantity'] ?? $order->planned_quantity,
                     'result' => $data['result'],
                     'reason' => $data['reason'] ?? null,
-                    'inspected_by' => $this->userId,
+                    'inspected_by' => $this->persistedUserId(),
                 ]);
 
                 if ($data['result'] === 'reject' && $order->status !== 'quality_hold') {
@@ -827,7 +827,7 @@ class ManufacturingService
             'balance_after' => max(0, $after),
             'reference_type' => ManufacturingOrder::class,
             'reference_id' => $order->id,
-            'created_by' => $this->userId,
+            'created_by' => $this->persistedUserId(),
             'notes' => $notes,
             'unit_cost' => $unitCost,
             'total_cost' => abs($delta) * $unitCost,
@@ -850,8 +850,20 @@ class ManufacturingService
             'quantity' => $quantity,
             'unit_cost' => $unitCost,
             'idempotency_key' => $key,
-            'created_by' => $this->userId,
+            'created_by' => $this->persistedUserId(),
         ]);
+    }
+
+    /** Return an actor id only when it exists in the users table referenced by manufacturing FKs. */
+    private function persistedUserId(): ?int
+    {
+        if (!$this->userId) {
+            return null;
+        }
+
+        return DB::table('users')->where('id', $this->userId)->exists()
+            ? $this->userId
+            : null;
     }
 
     private function totalOrderCost(ManufacturingOrder $order): float
