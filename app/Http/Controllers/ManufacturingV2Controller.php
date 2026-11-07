@@ -131,19 +131,74 @@ class ManufacturingV2Controller extends Controller
                     ->where('status', 'active')
                     ->update(['status' => 'obsolete']);
             }
-            $items=$d['items']; unset($d['items']);
-            $bom=BomVersion::create($d+['created_by'=>auth()->id()]);
+            $items=$this->normalizeBomItems($d['items']); unset($d['items']);
+            $actorId = auth()->id();
+            $creatorId = $actorId && \DB::table('users')->where('id', $actorId)->exists() ? $actorId : null;
+            $bom=BomVersion::create($d+['created_by'=>$creatorId]);
             foreach($items as $item) $bom->items()->create($item);
             return response()->json($bom->load(['product','items.component','items.childBom']),201);
         });
     }
     public function bomShow(BomVersion $bomVersion) { return $bomVersion->load(['product','items.component','items.childBom']); }
-    public function bomUpdate(Request $r,BomVersion $bomVersion) { abort_if($bomVersion->status==='active'||$bomVersion->orders()->exists(),422,'BOM revisions used by orders are immutable; create a new version.');$d=$r->validate(['version'=>'sometimes|string|max:50','status'=>['sometimes',Rule::in(['draft','active','obsolete'])],'yield_quantity'=>'sometimes|numeric|gt:0','effective_from'=>'nullable|date','effective_to'=>'nullable|date|after_or_equal:effective_from','notes'=>'nullable|string','items'=>'sometimes|array|min:1','items.*.component_product_id'=>'required|exists:products,id','items.*.quantity'=>'required|numeric|gt:0','items.*.scrap_percent'=>'nullable|numeric|min:0|max:100','items.*.unit'=>'nullable|string|max:32','items.*.is_optional'=>'nullable|boolean','items.*.specifications'=>'nullable|array','items.*.specifications.width'=>'nullable|numeric|gt:0','items.*.specifications.length'=>'nullable|numeric|gt:0','items.*.specifications.thickness'=>'nullable|numeric|gt:0','items.*.specifications.unit'=>'nullable|string|max:16','items.*.specifications.material_grade'=>'nullable|string|max:100','items.*.specifications.finish'=>'nullable|string|max:100','items.*.child_bom_version_id'=>'nullable|exists:bom_versions,id']);return \DB::transaction(function()use($d,$bomVersion){$items=$d['items']??null;unset($d['items']);if(($d['status']??null)==='active')BomVersion::where('product_id',$bomVersion->product_id)->where('branch_id',$bomVersion->branch_id)->where('id','!=',$bomVersion->id)->where('status','active')->update(['status'=>'obsolete']);$bomVersion->update($d);if($items!==null){$bomVersion->items()->delete();foreach($items as $item)$bomVersion->items()->create($item);}return $bomVersion->load(['product','items.component','items.childBom']);}); }
+    public function bomUpdate(Request $r, BomVersion $bomVersion)
+    {
+        abort_if($bomVersion->status === 'active' || $bomVersion->orders()->exists(), 422, 'BOM revisions used by orders are immutable; create a new version.');
+        $d = $r->validate([
+            'version' => 'sometimes|string|max:50',
+            'status' => ['sometimes', Rule::in(['draft', 'active', 'obsolete'])],
+            'yield_quantity' => 'sometimes|numeric|gt:0',
+            'effective_from' => 'nullable|date',
+            'effective_to' => 'nullable|date|after_or_equal:effective_from',
+            'notes' => 'nullable|string',
+            'items' => 'sometimes|array|min:1',
+            'items.*.component_product_id' => 'required|exists:products,id',
+            'items.*.quantity' => 'required|numeric|gt:0',
+            'items.*.scrap_percent' => 'nullable|numeric|min:0|max:100',
+            'items.*.unit' => 'nullable|string|max:32',
+            'items.*.is_optional' => 'nullable|boolean',
+            'items.*.child_bom_version_id' => 'nullable|exists:bom_versions,id',
+        ]);
+        return \DB::transaction(function () use ($d, $bomVersion) {
+            $items = isset($d['items']) ? $this->normalizeBomItems($d['items']) : null;
+            unset($d['items']);
+            if (($d['status'] ?? null) === 'active') {
+                BomVersion::where('product_id', $bomVersion->product_id)->where('branch_id', $bomVersion->branch_id)
+                    ->where('id', '!=', $bomVersion->id)->where('status', 'active')->update(['status' => 'obsolete']);
+            }
+            $bomVersion->update($d);
+            if ($items !== null) {
+                $bomVersion->items()->delete();
+                foreach ($items as $item) $bomVersion->items()->create($item);
+            }
+            return $bomVersion->load(['product', 'items.component', 'items.childBom']);
+        });
+    }
+
+    private function normalizeBomItems(array $items): array
+    {
+        foreach ($items as &$item) {
+            $component = Product::findOrFail($item['component_product_id']);
+            abort_unless(in_array($component->product_type, ['material', 'semi_finished'], true), 422,
+                'BOM components must be an inventory material or a semi-finished product.');
+            $baseUnit = $component->base_unit;
+            $stockUnit = $component->stock_unit;
+            $sourceUnit = $baseUnit ?: $stockUnit;
+            abort_unless($sourceUnit, 422, "Set a base or stock unit on product {$component->name} before adding it to a BOM.");
+            if (!empty($item['unit']) && !in_array($item['unit'], array_filter([$baseUnit, $stockUnit]), true)) {
+                abort(422, "BOM unit must match the selected product's base or stock unit ({$sourceUnit}).");
+            }
+            $item['unit'] = $sourceUnit;
+            unset($item['specifications']); // dimensions, colors, and material attributes live on the product record.
+        }
+        unset($item);
+        return $items;
+    }
+
     public function bomDestroy(BomVersion $bomVersion) { abort_if($bomVersion->status==='active'||$bomVersion->orders()->exists(),422,'Active or used BOM revisions are immutable');$bomVersion->delete();return response()->noContent(); }
 
     public function productStore(Request $r) { $d=$r->validate(['name'=>'required|string','sku'=>'nullable|string','product_type'=>['required',Rule::in(['good','service','material','semi_finished','finished'])],'stock_unit'=>'nullable|string','base_unit'=>'nullable|string','conversion_factor'=>'nullable|numeric|gt:0','tracking'=>['nullable',Rule::in(['none','lot','serial'])],'dimensions'=>'nullable|array','price'=>'nullable|numeric','cost'=>'nullable|numeric']);return Product::create($d); }
     public function productUpdate(Request $r,Product $product) { $d=$r->validate(['name'=>'sometimes|string','product_type'=>[Rule::in(['good','service','material','semi_finished','finished'])],'stock_unit'=>'nullable|string','base_unit'=>'nullable|string','conversion_factor'=>'nullable|numeric|gt:0','tracking'=>[Rule::in(['none','lot','serial'])],'dimensions'=>'nullable|array']);$product->update($d);return $product->fresh(); }
-    public function productIndex(Request $r) { return Product::where(function($q){$q->whereIn('product_type',['good','service','material','semi_finished','finished'])->orWhereNull('product_type');})->paginate($r->integer('per_page',25)); }
+    public function productIndex(Request $r) { return Product::with(['units.unit','units.colors.color'])->where(function($q){$q->whereIn('product_type',['good','service','material','semi_finished','finished'])->orWhereNull('product_type');})->paginate($r->integer('per_page',250)); }
 
     public function equipmentIndex() { return ManufacturingEquipment::latest()->paginate(25); }
     public function equipmentStore(Request $r) { return ManufacturingEquipment::create($r->validate(['code'=>'required|string|unique:manufacturing_equipment,code','name'=>'required|string','branch_id'=>'nullable|exists:branches,id','status'=>'nullable|string','hourly_rate'=>'nullable|numeric|min:0','notes'=>'nullable|string'])); }
