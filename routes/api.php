@@ -2395,7 +2395,7 @@ Route::middleware([
 // Manufacturing v2 module: additive API for the revisioned, idempotent production workflows.
 Route::middleware(['auth:sanctum', 'resolve.tenant'])->prefix('manufacturing/v2')->group(function () {
     $c = \App\Http\Controllers\ManufacturingV2Controller::class;
-    Route::get('overview', [$c, 'overview']);
+    Route::get('overview', [$c, 'overview']); Route::get('reports', [$c, 'reports']);
     Route::get('boms', [$c,'bomIndex']); Route::post('boms', [$c,'bomStore']); Route::get('boms/{bomVersion}', [$c,'bomShow']); Route::put('boms/{bomVersion}', [$c,'bomUpdate']); Route::delete('boms/{bomVersion}', [$c,'bomDestroy']);
     Route::get('products', [$c,'productIndex']); Route::post('products', [$c,'productStore']); Route::put('products/{product}', [$c,'productUpdate']);
     Route::get('equipment', [$c,'equipmentIndex']); Route::post('equipment', [$c,'equipmentStore']); Route::put('equipment/{equipment}', [$c,'equipmentUpdate']); Route::delete('equipment/{equipment}', [$c,'equipmentDestroy']);

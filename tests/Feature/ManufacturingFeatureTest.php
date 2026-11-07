@@ -14,6 +14,9 @@ class ManufacturingFeatureTest extends TestCase
         $this->assertTrue(DB::getSchemaBuilder()->hasTable('bom_versions'));
         $this->assertTrue(DB::getSchemaBuilder()->hasTable('bom_items'));
         $this->assertTrue(DB::getSchemaBuilder()->hasTable('manufacturing_order_status_histories'));
+        $this->assertTrue(DB::getSchemaBuilder()->hasColumn('bom_items', 'specifications'));
+        $this->assertTrue(DB::getSchemaBuilder()->hasColumn('manufacturing_stock_movements', 'manufacturing_operation_id'));
+        $this->assertTrue(DB::getSchemaBuilder()->hasColumn('manufacturing_stock_movements', 'reason'));
     }
 
     public function test_manufacturing_quantities_are_decimal(): void

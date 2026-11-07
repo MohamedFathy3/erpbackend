@@ -498,12 +498,15 @@ class ManufacturingService
         });
     }
 
-    public function scrap(ManufacturingOrder $order, array $items, string $key): ManufacturingOrder
+    public function scrap(ManufacturingOrder $order, array $items, string $key, ?int $operationId = null, ?string $reason = null): ManufacturingOrder
     {
-        return $this->idempotent($key, 'scrap', function () use ($order, $items, $key): ManufacturingOrder {
-            return DB::transaction(function () use ($order, $items, $key): ManufacturingOrder {
+        return $this->idempotent($key, 'scrap', function () use ($order, $items, $key, $operationId, $reason): ManufacturingOrder {
+            return DB::transaction(function () use ($order, $items, $key, $operationId, $reason): ManufacturingOrder {
                 if (in_array($order->status, ['cancelled', 'closed'], true)) {
                     throw new RuntimeException('Materials cannot be scrapped for a cancelled or closed order.');
+                }
+                if ($operationId !== null) {
+                    $order->operations()->findOrFail($operationId);
                 }
                 foreach ($this->groupItems($items) as $materialId => $quantity) {
                     $material = $order->materials()->lockForUpdate()->findOrFail($materialId);
@@ -520,7 +523,8 @@ class ManufacturingService
 
                     $material->increment('scrapped_quantity', $quantity);
                     $order->increment('scrapped_quantity', $quantity);
-                    $this->recordManufacturingMovement($order, $material->product_id, 'scrap', $quantity, $key . ':' . $materialId, (float) $material->unit_cost);
+                    $movement = $this->recordManufacturingMovement($order, $material->product_id, 'scrap', $quantity, $key . ':' . $materialId, (float) $material->unit_cost);
+                    $movement->update(['manufacturing_operation_id' => $operationId, 'reason' => $reason]);
                     ManufacturingCostEntry::create([
                         'manufacturing_order_id' => $order->id,
                         'cost_type' => 'scrap',
@@ -606,8 +610,11 @@ class ManufacturingService
                     throw new RuntimeException('Quality inspections require an active production order.');
                 }
 
-                if ($order->operations()->whereNotIn('status', ['completed', 'skipped'])->exists()) {
-                    throw new RuntimeException('All production operations must be completed before quality inspection.');
+                if (!empty($data['manufacturing_operation_id'])) {
+                    $inspectionOperation = $order->operations()->findOrFail($data['manufacturing_operation_id']);
+                    if (!in_array($inspectionOperation->status, ['in_progress', 'completed'], true)) throw new RuntimeException('Quality inspection requires an active or completed operation.');
+                } elseif ($order->operations()->whereNotIn('status', ['completed', 'skipped'])->exists()) {
+                    throw new RuntimeException('Complete all operations or select the stage being inspected.');
                 }
 
                 QualityInspection::create([
@@ -834,8 +841,8 @@ class ManufacturingService
         float $quantity,
         string $key,
         float $unitCost,
-    ): void {
-        ManufacturingStockMovement::create([
+    ): ManufacturingStockMovement {
+        return ManufacturingStockMovement::create([
             'manufacturing_order_id' => $order->id,
             'product_id' => $productId,
             'warehouse_id' => $order->warehouse_id,
