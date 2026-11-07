@@ -2400,9 +2400,9 @@ Route::middleware(['auth:sanctum', 'resolve.tenant'])->prefix('manufacturing/v2'
     Route::get('products', [$c,'productIndex']); Route::post('products', [$c,'productStore']); Route::put('products/{product}', [$c,'productUpdate']);
     Route::get('equipment', [$c,'equipmentIndex']); Route::post('equipment', [$c,'equipmentStore']); Route::put('equipment/{equipment}', [$c,'equipmentUpdate']); Route::delete('equipment/{equipment}', [$c,'equipmentDestroy']);
     Route::get('orders', [$c,'orderIndex']); Route::post('orders', [$c,'orderStore']); Route::get('orders/{manufacturingOrder}', [$c,'orderShow']);
-    Route::post('orders/from-invoice/{invoice}', [$c,'orderFromInvoice']); Route::post('orders/{manufacturingOrder}/start', [$c,'start']); Route::post('orders/{manufacturingOrder}/pause', [$c,'pause']); Route::post('orders/{manufacturingOrder}/resume', [$c,'resume']);
-    Route::get('orders/{manufacturingOrder}/availability', [$c,'availability']); Route::post('orders/{manufacturingOrder}/reserve', [$c,'reserve']); Route::post('orders/{manufacturingOrder}/issue', [$c,'issue']); Route::post('orders/{manufacturingOrder}/return', [$c,'returnMaterial']); Route::post('orders/{manufacturingOrder}/scrap', [$c,'scrap']);
-    Route::post('orders/{manufacturingOrder}/operations/{operation}', [$c,'operation']); Route::post('orders/{manufacturingOrder}/quality', [$c,'quality']); Route::post('orders/{manufacturingOrder}/receive', [$c,'receive']); Route::post('orders/{manufacturingOrder}/cancel', [$c,'cancel']); Route::post('orders/{manufacturingOrder}/close', [$c,'close']);
+    Route::post('orders/from-invoice/{invoice}', [$c,'orderFromInvoice']); Route::post('orders/{o}/start', [$c,'start']); Route::post('orders/{o}/pause', [$c,'pause']); Route::post('orders/{o}/resume', [$c,'resume']);
+    Route::get('orders/{o}/availability', [$c,'availability']); Route::post('orders/{o}/reserve', [$c,'reserve']); Route::post('orders/{o}/issue', [$c,'issue']); Route::post('orders/{o}/return', [$c,'returnMaterial']); Route::post('orders/{o}/scrap', [$c,'scrap']);
+    Route::post('orders/{o}/operations/{operation}', [$c,'operation']); Route::post('orders/{o}/quality', [$c,'quality']); Route::post('orders/{o}/receive', [$c,'receive']); Route::post('orders/{o}/cancel', [$c,'cancel']); Route::post('orders/{o}/close', [$c,'close']);
 });
 
 // Independent Recipe & Production Management module. It does not reuse the legacy Manufacturing controllers.
