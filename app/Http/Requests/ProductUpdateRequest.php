@@ -15,7 +15,7 @@ class ProductUpdateRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         // فك أي JSON string
-        foreach (['warehouse_stocks', 'warehouse_ids', 'removed_warehouse_ids', 'branch_ids', 'branch_prices', 'units'] as $field) {
+        foreach (['warehouse_stocks', 'warehouse_ids', 'removed_warehouse_ids', 'branch_ids', 'branch_prices', 'units', 'prices'] as $field) {
             $value = $this->input($field);
             if (is_string($value)) {
                 $decoded = json_decode($value, true);
@@ -63,8 +63,11 @@ class ProductUpdateRequest extends FormRequest
             'price'             => 'nullable|numeric|min:0',
             'cost'              => 'nullable|numeric|min:0',
             'product_type'      => ['nullable', Rule::in(['good', 'service', 'material', 'semi_finished', 'finished'])],
+            'package_size'      => ['nullable', 'numeric', 'gt:0', 'required_if:product_type,material'],
+            'package_unit'      => ['nullable', 'string', 'max:32', 'required_if:product_type,material'],
+            'package_cost'      => ['nullable', 'numeric', 'min:0', 'required_if:product_type,material'],
             'stock_unit'        => 'nullable|string|max:32',
-            'base_unit'         => 'nullable|string|max:32',
+            'base_unit'         => ['nullable', 'string', 'max:32', 'required_if:product_type,material'],
             'conversion_factor' => 'nullable|numeric|gt:0',
             'tracking'          => ['nullable', Rule::in(['none', 'lot', 'serial'])],
             'dimensions'        => 'nullable|array',
@@ -72,6 +75,12 @@ class ProductUpdateRequest extends FormRequest
             'dimensions.height' => 'nullable|numeric|min:0',
             'dimensions.depth'  => 'nullable|numeric|min:0',
             'dimensions.unit'   => 'nullable|string|max:16',
+            'prices' => 'sometimes|array',
+            'prices.*.price_type' => ['required', Rule::in(['retail', 'wholesale', 'credit'])],
+            'prices.*.min_quantity' => 'required|numeric|gt:0',
+            'prices.*.price' => 'required|numeric|min:0',
+            'prices.*.unit_id' => 'nullable|exists:units,id',
+            'prices.*.color_id' => 'nullable|exists:colors,id',
             'active'            => 'nullable|boolean',
             'has_variants'      => 'nullable|boolean',
             'valuation_method'  => 'nullable|in:fifo,lifo,weighted_average',

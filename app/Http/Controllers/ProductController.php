@@ -132,7 +132,7 @@ public function index(Request $request)
         $filters = $request->input('filters', []);
 
         $query = Product::query()
-            ->with(['category', 'units.colors', 'warehouses', 'automotiveService', 'branchPrices']);
+            ->with(['category', 'units.colors', 'warehouses', 'automotiveService', 'branchPrices', 'prices']);
         if (\App\Models\BaseModel::userHasAllBranchAccess($request->user())) {
             $query->withoutGlobalScope('branch');
         }
@@ -308,7 +308,7 @@ public function show(Product $product): ?\Illuminate\Http\JsonResponse
             ->map(fn ($group) => (float) $group->sum('stock'))
             ->all();
 
-        $product->load(['units.colors', 'branchPrices', 'warehouses']);
+        $product->load(['units.colors', 'branchPrices', 'warehouses', 'prices']);
 
         $row = (new ProductResource($product))->resolve();
 
@@ -339,7 +339,7 @@ public function show(Product $product): ?\Illuminate\Http\JsonResponse
         $data = $request->validated();
 
         $product = $this->crudRepository->create(
-    collect($data)->except(['units', 'warehouse_ids', 'warehouse_stocks', 'branch_ids', 'branch_id', 'branch_prices'])->toArray()
+    collect($data)->except(['units', 'prices', 'warehouse_ids', 'warehouse_stocks', 'branch_ids', 'branch_id', 'branch_prices'])->toArray()
 );
         $branchId = $this->resolveProductBranchId($request, $data);
         $canManageAllBranches = \App\Models\BaseModel::userHasAllBranchAccess($request->user());
@@ -348,6 +348,9 @@ public function show(Product $product): ?\Illuminate\Http\JsonResponse
         }
         if (array_key_exists('branch_prices', $data)) {
             $this->syncBranchPrices($product, $request, $data['branch_prices'] ?? []);
+        }
+        if (array_key_exists('prices', $data)) {
+            $this->syncProductPrices($product, $data['prices'] ?? []);
         }
 
         if (!empty($data['units']) && is_array($data['units'])) {
@@ -406,7 +409,7 @@ $this->linkWarehouses($product, $warehouseIds, $data['warehouse_stocks'] ?? []);
 
         DB::commit();
 
-        return new ProductResource($product->load(['units.colors', 'branchPrices']));
+        return new ProductResource($product->load(['units.colors', 'branchPrices', 'prices']));
 
     } catch (\Illuminate\Validation\ValidationException $e) {
         DB::rollBack();
@@ -432,7 +435,7 @@ public function update(ProductUpdateRequest $request, Product $product)
 
 $updateData = collect($data)->except([
     'units', 'image', 'image_url', 'warehouse_ids', 'warehouse_stocks',
-    'removed_warehouse_ids', 'branch_ids', 'branch_id', 'branch_prices', 'price', 'stock',
+    'removed_warehouse_ids', 'branch_ids', 'branch_id', 'branch_prices', 'prices', 'price', 'stock',
 ])->filter(fn ($v, $k) => \Illuminate\Support\Facades\Schema::hasColumn('products', $k))
   ->toArray();
         // The all-branches admin price is the fallback for branches without an override.
@@ -449,6 +452,9 @@ $updateData = collect($data)->except([
         }
         if (array_key_exists('branch_prices', $data)) {
             $this->syncBranchPrices($product, $request, $data['branch_prices'] ?? []);
+        }
+        if (array_key_exists('prices', $data)) {
+            $this->syncProductPrices($product, $data['prices'] ?? []);
         }
         $removed = array_map('intval', $data['removed_warehouse_ids'] ?? []);
 if ($removed) {
@@ -553,7 +559,7 @@ $this->linkWarehouses($product, $warehouseIds, $data['warehouse_stocks'] ?? []);
 
         return JsonResponse::respondSuccess(
             trans(JsonResponse::MSG_UPDATED_SUCCESSFULLY),
-            new ProductResource($product->refresh()->load(['units.colors', 'branchPrices']))
+            new ProductResource($product->refresh()->load(['units.colors', 'branchPrices', 'prices']))
         );
 
     } catch (\Illuminate\Validation\ValidationException $e) {
@@ -678,6 +684,7 @@ $this->linkWarehouses($product, $warehouseIds, $data['warehouse_stocks'] ?? []);
                   $query->where('branch_id', $branchId);
               },
               'units.colors',
+              'prices',
               'warehouses' => function ($query) use ($branchId, $tenantId) {
                   $query->withoutGlobalScope('branch')
                       ->where('warehouses.tenant_id', $tenantId)
@@ -792,6 +799,21 @@ $this->linkWarehouses($product, $warehouseIds, $data['warehouse_stocks'] ?? []);
             } else {
                 $record->save();
             }
+        }
+    }
+
+    private function syncProductPrices(Product $product, array $prices): void
+    {
+        $product->prices()->delete();
+
+        foreach ($prices as $price) {
+            $product->prices()->create([
+                'price_type' => $price['price_type'],
+                'min_quantity' => $price['min_quantity'],
+                'price' => $price['price'],
+                'unit_id' => $price['unit_id'] ?? null,
+                'color_id' => $price['color_id'] ?? null,
+            ]);
         }
     }
 

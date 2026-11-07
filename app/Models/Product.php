@@ -75,6 +75,11 @@ class Product extends BaseModel
         return $this->hasMany(ProductBranchPrice::class);
     }
 
+    public function prices()
+    {
+        return $this->hasMany(ProductPrice::class)->with(['unit', 'color']);
+    }
+
     public function bomVersions() { return $this->hasMany(\App\Manufacturing\Models\BomVersion::class); }
     public function manufacturingOrders() { return $this->hasMany(\App\Manufacturing\Models\ManufacturingOrder::class); }
 

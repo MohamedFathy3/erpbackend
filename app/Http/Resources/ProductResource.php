@@ -51,11 +51,24 @@ class ProductResource extends JsonResource
             'cost'          => $this->cost,
             'active'        => $this->active,
             'product_type'  => $this->product_type ?? 'good',
+            'package_size'  => $this->package_size,
+            'package_unit'  => $this->package_unit,
+            'package_cost'  => $this->package_cost,
             'stock_unit'    => $this->stock_unit,
             'base_unit'     => $this->base_unit,
             'conversion_factor' => $this->conversion_factor,
             'tracking'      => $this->tracking ?? 'none',
             'dimensions'    => $this->dimensions,
+            'prices'        => $this->whenLoaded('prices', fn () => $this->prices->map(fn ($price) => [
+                'id' => $price->id,
+                'price_type' => $price->price_type,
+                'min_quantity' => (float) $price->min_quantity,
+                'price' => (float) $price->price,
+                'unit_id' => $price->unit_id,
+                'unit_name' => $price->unit?->name,
+                'color_id' => $price->color_id,
+                'color_name' => $price->color?->name,
+            ])->values()),
        // ✅ المخازن المرتبطة بالمنتج
             'warehouse_ids' => $this->whenLoaded('warehouses', fn () =>
                 $this->warehouses->pluck('id')->values()

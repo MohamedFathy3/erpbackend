@@ -234,7 +234,7 @@ class BiometricAttendanceController extends Controller
         $from = Carbon::parse($data['period_start']);
         $to = Carbon::parse($data['period_end']);
         $rule = AttendanceRule::where('is_active', true)->latest('id')->first();
-        $employeesQuery = Employee::query()->where('is_active', true);
+        $employeesQuery = Employee::query();
         $attendanceQuery = Attendance::with('employee')->whereBetween('date', [$from->toDateString(), $to->toDateString()]);
         if (!empty($data['employee_id'])) {
             $employeesQuery->whereKey($data['employee_id']);

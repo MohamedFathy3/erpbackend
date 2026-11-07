@@ -21,7 +21,7 @@ class BiometricAttendanceService
 
         try {
             $users = collect($zk->getUsers());
-            $employees = Employee::query()->where('is_active', true)->get()->keyBy(fn ($e) => (string) $e->biometric_user_id);
+            $employees = Employee::query()->get()->keyBy(fn ($e) => (string) $e->biometric_user_id);
             $logs = collect($zk->getAttendances())
                 ->filter(function (array $raw) use ($from, $to): bool {
                     if (!$from && !$to) return true;
