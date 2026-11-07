@@ -15,6 +15,7 @@ use App\Manufacturing\Models\QualityInspection;
 use App\Models\Account;
 use App\Models\InventoryMovement;
 use App\Models\Product;
+use App\Services\AccountLedgerService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -641,10 +642,10 @@ class ManufacturingService
         });
     }
 
-    public function receive(ManufacturingOrder $order, float $quantity, string $key, array $accounts): ManufacturingOrder
+    public function receive(ManufacturingOrder $order, float $quantity, string $key): ManufacturingOrder
     {
-        return $this->idempotent($key, 'receive', function () use ($order, $quantity, $key, $accounts): ManufacturingOrder {
-            return DB::transaction(function () use ($order, $quantity, $key, $accounts): ManufacturingOrder {
+        return $this->idempotent($key, 'receive', function () use ($order, $quantity, $key): ManufacturingOrder {
+            return DB::transaction(function () use ($order, $quantity, $key): ManufacturingOrder {
                 $order = ManufacturingOrder::lockForUpdate()->findOrFail($order->id);
                 if ($order->status !== 'in_progress') {
                     throw new RuntimeException('Finished goods can only be received from an active order.');
@@ -672,7 +673,7 @@ class ManufacturingService
 
                 $order = $order->fresh();
                 if ((float) $order->produced_quantity >= (float) $order->planned_quantity) {
-                    $journalId = $this->postCompletionJournal($order, $accounts);
+                    $journalId = $this->postCompletionJournal($order);
                     $order->update(['actual_cost' => $this->totalOrderCost($order), 'completion_journal_entry_id' => $journalId]);
                     $this->transition($order->fresh(), 'completed', 'Finished goods received');
                 }
@@ -871,20 +872,17 @@ class ManufacturingService
         return (float) ManufacturingCostEntry::where('manufacturing_order_id', $order->id)->sum('amount');
     }
 
-    private function postCompletionJournal(ManufacturingOrder $order, array $accounts): ?int
+    private function postCompletionJournal(ManufacturingOrder $order): ?int
     {
         $totalCost = $this->totalOrderCost($order);
         if ($totalCost <= 0) {
             return null;
         }
 
-        $inventoryAccountId = (int) ($accounts['inventory_account_id'] ?? 0);
-        $workInProgressAccountId = (int) ($accounts['work_in_progress_account_id'] ?? 0);
-        $inventoryAccount = Account::lockForUpdate()->find($inventoryAccountId);
-        $workInProgressAccount = Account::lockForUpdate()->find($workInProgressAccountId);
-        if (!$inventoryAccount || !$workInProgressAccount || $inventoryAccount->id === $workInProgressAccount->id) {
-            throw new RuntimeException('Valid, distinct finished-goods and work-in-progress accounts are required.');
-        }
+        $ledger = app(AccountLedgerService::class);
+        $accounts = $ledger->manufacturingAccounts();
+        $inventoryAccount = Account::query()->lockForUpdate()->findOrFail($accounts['inventory']->id);
+        $workInProgressAccount = Account::query()->lockForUpdate()->findOrFail($accounts['work_in_progress']->id);
 
         $journal = \App\Models\JournalEntry::create([
             'entry_date' => now()->toDateString(),
@@ -896,8 +894,8 @@ class ManufacturingService
             ['account_id' => $inventoryAccount->id, 'debit' => $totalCost, 'credit' => 0, 'description' => 'Finished goods received from manufacturing'],
             ['account_id' => $workInProgressAccount->id, 'debit' => 0, 'credit' => $totalCost, 'description' => 'Close manufacturing work in progress'],
         ]);
-        $inventoryAccount->increment('debit', $totalCost);
-        $workInProgressAccount->increment('credit', $totalCost);
+        $ledger->updateTotals($inventoryAccount, $totalCost, 0);
+        $ledger->updateTotals($workInProgressAccount, 0, $totalCost);
         ManufacturingCostEntry::where('manufacturing_order_id', $order->id)
             ->whereNull('journal_entry_id')
             ->update(['journal_entry_id' => $journal->id]);

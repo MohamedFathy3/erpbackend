@@ -43,6 +43,15 @@ class AccountLedgerService
         return null;
     }
 
+    /** Dedicated control accounts used by manufacturing completion postings. */
+    public function manufacturingAccounts(): array
+    {
+        return [
+            'inventory' => $this->defaultAccount('asset', 'MANUFACTURING-FINISHED-GOODS', 'مخزون الإنتاج التام', 'Finished goods inventory'),
+            'work_in_progress' => $this->defaultAccount('asset', 'MANUFACTURING-WIP', 'إنتاج تحت التشغيل', 'Manufacturing work in progress'),
+        ];
+    }
+
     public function updateTotals(Account $account, float $debit, float $credit): void
     {
         // Ledger accounts are tenant-wide and may be legacy rows without the
