@@ -67,6 +67,9 @@ class ManufacturingService
             if ($bom && $bom->status !== 'active') {
                 throw new RuntimeException('New production orders require an active BOM revision.');
             }
+            if (!$bom || !$bom->items()->exists()) {
+                throw new RuntimeException('A production order requires an active BOM with material components.');
+            }
             $today = now()->toDateString();
             if ($bom && (($bom->effective_from && $bom->effective_from > $today)
                 || ($bom->effective_to && $bom->effective_to < $today))) {
@@ -340,6 +343,10 @@ class ManufacturingService
                     throw new RuntimeException('Materials can only be reserved for a draft, planned, or active order.');
                 }
 
+                $order->loadMissing('materials.product');
+                if ($order->materials->filter(fn ($material) => $material->product && $material->product->product_type !== 'service')->isEmpty()) {
+                    throw new RuntimeException('This order has no BOM material components to reserve. Create a new order from an active BOM.');
+                }
                 if ($order->status === 'draft') {
                     $order = $this->transition($order, 'planned', 'Order planned');
                 }
@@ -610,6 +617,11 @@ class ManufacturingService
                 if (!in_array($order->status, ['in_progress', 'quality_hold'], true)) {
                     throw new RuntimeException('Quality inspections require an active production order.');
                 }
+                $remainingQuantity = max(0, (float) $order->planned_quantity - (float) $order->produced_quantity);
+                $inspectionQuantity = (float) ($data['quantity'] ?? $remainingQuantity);
+                if ($inspectionQuantity <= 0 || $inspectionQuantity > $remainingQuantity) {
+                    throw new RuntimeException('Inspected quantity cannot exceed the remaining planned production quantity (' . $remainingQuantity . ').');
+                }
 
                 if (!empty($data['manufacturing_operation_id'])) {
                     $inspectionOperation = $order->operations()->findOrFail($data['manufacturing_operation_id']);
@@ -621,7 +633,7 @@ class ManufacturingService
                 QualityInspection::create([
                     'manufacturing_order_id' => $order->id,
                     'manufacturing_operation_id' => $data['manufacturing_operation_id'] ?? null,
-                    'quantity' => $data['quantity'] ?? $order->planned_quantity,
+                    'quantity' => $inspectionQuantity,
                     'result' => $data['result'],
                     'reason' => $data['reason'] ?? null,
                     'inspected_by' => $this->persistedUserId(),
@@ -662,8 +674,11 @@ class ManufacturingService
                 if (!$lastInspection || $lastInspection->result !== 'pass') {
                     throw new RuntimeException('A passing quality inspection is required before finished-goods receipt.');
                 }
-                if ((float) $order->produced_quantity + $quantity > (float) $lastInspection->quantity) {
-                    throw new RuntimeException('The receipt quantity exceeds the last accepted inspection quantity.');
+                if ((float) $lastInspection->quantity > (float) $order->planned_quantity) {
+                    throw new RuntimeException('The latest inspection exceeds the order plan. Record a new inspection for the remaining quantity before receipt.');
+                }
+                if ((float) $quantity > (float) $lastInspection->quantity) {
+                    throw new RuntimeException('Receipt quantity exceeds the last accepted inspection batch quantity.');
                 }
 
                 $unitCost = $this->totalOrderCost($order) / max((float) $order->planned_quantity, 0.000001);
