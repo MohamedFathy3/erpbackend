@@ -104,6 +104,7 @@ class ManufacturingService
                 'source_invoice_item_id' => $data['source_invoice_item_id'] ?? null,
                 'source_sales_order_id' => $data['source_sales_order_id'] ?? null,
                 'planned_quantity' => $data['planned_quantity'],
+                'dimensions' => $data['dimensions'] ?? $product->dimensions,
                 'planned_cost' => $data['planned_cost'] ?? 0,
                 'status' => 'draft',
                 'planned_at' => $data['planned_at'] ?? null,
@@ -227,8 +228,9 @@ class ManufacturingService
         $allowed = [
             'draft' => ['planned', 'cancelled'],
             'planned' => ['reserved', 'draft', 'cancelled'],
-            'reserved' => ['in_progress', 'cancelled'],
-            'in_progress' => ['quality_hold', 'completed', 'cancelled'],
+            'reserved' => ['in_progress', 'paused', 'cancelled'],
+            'in_progress' => ['quality_hold', 'paused', 'completed', 'cancelled'],
+            'paused' => ['reserved', 'in_progress', 'cancelled'],
             'quality_hold' => ['in_progress', 'cancelled'],
             'completed' => ['closed'],
             'cancelled' => [],
@@ -260,6 +262,34 @@ class ManufacturingService
         ]);
 
         return $order->fresh();
+    }
+
+    public function pause(ManufacturingOrder $order, string $reason, string $key): ManufacturingOrder
+    {
+        return $this->idempotent($key, 'pause', function () use ($order, $reason, $key): ManufacturingOrder {
+            return DB::transaction(function () use ($order, $reason, $key): ManufacturingOrder {
+                $order = ManufacturingOrder::lockForUpdate()->findOrFail($order->id);
+                if (!in_array($order->status, ['reserved', 'in_progress'], true)) {
+                    throw new RuntimeException('Only reserved or active orders can be stopped.');
+                }
+                return $this->transition($order, 'paused', $reason, $key);
+            });
+        });
+    }
+
+    public function resume(ManufacturingOrder $order, string $key): ManufacturingOrder
+    {
+        return $this->idempotent($key, 'resume', function () use ($order, $key): ManufacturingOrder {
+            return DB::transaction(function () use ($order, $key): ManufacturingOrder {
+                $order = ManufacturingOrder::lockForUpdate()->findOrFail($order->id);
+                if ($order->status !== 'paused') {
+                    throw new RuntimeException('Only a stopped order can be resumed.');
+                }
+                $previous = $order->statusHistory()->where('to_status', 'paused')->latest('id')->value('from_status');
+                $resumeStatus = in_array($previous, ['reserved', 'in_progress'], true) ? $previous : 'in_progress';
+                return $this->transition($order, $resumeStatus, 'Production resumed', $key);
+            });
+        });
     }
 
     public function availability(ManufacturingOrder $order): array
@@ -653,7 +683,7 @@ class ManufacturingService
                 if ((float) $order->produced_quantity > 0) {
                     throw new RuntimeException('An order with received finished goods must be reversed through a return document, not cancelled.');
                 }
-                if (!in_array($order->status, ['draft', 'planned', 'reserved', 'in_progress', 'quality_hold'], true)) {
+                if (!in_array($order->status, ['draft', 'planned', 'reserved', 'in_progress', 'quality_hold', 'paused'], true)) {
                     throw new RuntimeException('This order cannot be cancelled.');
                 }
 

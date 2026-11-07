@@ -17,6 +17,7 @@ class ManufacturingOrder extends BaseModel
         'completed_at' => 'datetime',
         'closed_at' => 'datetime',
         'actual_cost' => 'decimal:6',
+        'dimensions' => 'array',
     ];
 
     public function product() { return $this->belongsTo(Product::class); }
