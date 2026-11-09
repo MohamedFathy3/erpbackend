@@ -71,6 +71,7 @@ use App\Http\Controllers\AIChatController;
 use App\Http\Controllers\WhatsappAccountController;
 use App\Http\Controllers\WhatsappWebhookController;
 use App\Http\Controllers\TenantWhatsappController;
+use App\Http\Controllers\WhatsappAgentController;
 use App\RecipeProduction\Http\Controllers\RecipeProductionController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -151,6 +152,13 @@ Route::middleware([
     Route::get('/templates', [TenantWhatsappController::class, 'templates']);
     Route::get('/messages', [TenantWhatsappController::class, 'messages']);
     Route::post('/customers/{customer}/send', [TenantWhatsappController::class, 'sendToCustomer']);
+    Route::get('/agent/settings', [WhatsappAgentController::class, 'settings']);
+    Route::put('/agent/settings', [WhatsappAgentController::class, 'updateSettings']);
+    Route::get('/agent/conversations', [WhatsappAgentController::class, 'conversations']);
+    Route::patch('/agent/conversations/{conversation}', [WhatsappAgentController::class, 'updateConversation']);
+    Route::post('/agent/conversations/{conversation}/send', [WhatsappAgentController::class, 'sendReply']);
+    Route::get('/agent/appointment-requests', [WhatsappAgentController::class, 'appointmentRequests']);
+    Route::patch('/agent/appointment-requests/{appointmentRequest}', [WhatsappAgentController::class, 'updateAppointmentRequest']);
 });
 
 

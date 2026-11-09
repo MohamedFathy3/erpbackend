@@ -94,8 +94,8 @@ class GoogleCalendarService
             'summary' => $data['summary'],
             'description' => $data['description'] ?? null,
             'location' => $data['location'] ?? null,
-            'start' => ['dateTime' => Carbon::parse($data['starts_at'])->toRfc3339String(), 'timeZone' => config('app.timezone')],
-            'end' => ['dateTime' => Carbon::parse($data['ends_at'])->toRfc3339String(), 'timeZone' => config('app.timezone')],
+            'start' => ['dateTime' => Carbon::parse($data['starts_at'])->toRfc3339String(), 'timeZone' => $data['time_zone'] ?? config('app.timezone')],
+            'end' => ['dateTime' => Carbon::parse($data['ends_at'])->toRfc3339String(), 'timeZone' => $data['time_zone'] ?? config('app.timezone')],
         ]);
         $created = $calendar->events->insert($data['calendar_id'] ?? 'primary', $event);
 
@@ -104,5 +104,27 @@ class GoogleCalendarService
             'html_link' => $created->getHtmlLink(),
             'payload' => json_decode($created->toSimpleObject() ? json_encode($created->toSimpleObject()) : '{}', true),
         ];
+    }
+
+    public function hasConflict(GoogleConnection $connection, string $calendarId, string $startsAt, string $endsAt): bool
+    {
+        $client = $this->ensureValidToken($connection);
+        $calendar = new Calendar($client);
+        $events = $calendar->events->listEvents($calendarId, [
+            'timeMin' => Carbon::parse($startsAt)->toRfc3339String(),
+            'timeMax' => Carbon::parse($endsAt)->toRfc3339String(),
+            'singleEvents' => true,
+            'orderBy' => 'startTime',
+            'maxResults' => 250,
+        ]);
+        foreach ($events->getItems() as $event) {
+            if ($event->getStatus() === 'cancelled') continue;
+            $startRaw = $event->getStart()?->getDateTime() ?: $event->getStart()?->getDate();
+            $endRaw = $event->getEnd()?->getDateTime() ?: $event->getEnd()?->getDate();
+            if (!$startRaw || !$endRaw) continue;
+            if (Carbon::parse($startRaw)->lt(Carbon::parse($endsAt))
+                && Carbon::parse($endRaw)->gt(Carbon::parse($startsAt))) return true;
+        }
+        return false;
     }
 }

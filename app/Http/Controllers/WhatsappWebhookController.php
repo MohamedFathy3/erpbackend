@@ -8,6 +8,7 @@ use App\Models\WhatsappConversation;
 use App\Models\WhatsappConversationMessage;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappWebhookEvent;
+use App\Jobs\ProcessWhatsAppTenantAgent;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -109,7 +110,7 @@ class WhatsappWebhookController extends Controller
             return;
         }
 
-        DB::transaction(function () use ($account, $message, $value, $providerId, $phone, $event): void {
+        $savedMessage = DB::transaction(function () use ($account, $message, $value, $providerId, $phone, $event) {
             $profileName = collect(data_get($value, 'contacts', []))
                 ->first(fn ($contact) => ($contact['wa_id'] ?? null) === ($message['from'] ?? null))['profile']['name'] ?? null;
 
@@ -128,7 +129,7 @@ class WhatsappWebhookController extends Controller
                 ?? data_get($message, 'image.caption')
                 ?? data_get($message, 'video.caption');
 
-            WhatsappConversationMessage::withoutGlobalScopes()->firstOrCreate(
+            $savedMessage = WhatsappConversationMessage::withoutGlobalScopes()->firstOrCreate(
                 ['provider_message_id' => $providerId],
                 [
                     'tenant_id' => $account->tenant_id,
@@ -148,7 +149,12 @@ class WhatsappWebhookController extends Controller
                 ->where('phone', $phone)
                 ->update(['whatsapp_last_inbound_at' => $timestamp]);
             $event->forceFill(['status' => 'processed', 'processed_at' => now()])->save();
+            return $savedMessage;
         });
+
+        if ($savedMessage && $savedMessage->message_type === 'text' && $savedMessage->body) {
+            ProcessWhatsAppTenantAgent::dispatch((int) $savedMessage->id)->afterCommit();
+        }
     }
 
     private function storeStatus(WhatsappAccount $account, array $status): void
