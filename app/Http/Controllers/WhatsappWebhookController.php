@@ -16,6 +16,39 @@ use Illuminate\Support\Str;
 
 class WhatsappWebhookController extends Controller
 {
+    public function verifyGlobal(Request $request)
+    {
+        $verifyToken = (string) config('whatsapp.webhook_verify_token', '');
+        abort_unless($verifyToken !== '' && $request->query('hub.mode') === 'subscribe'
+            && hash_equals($verifyToken, (string) $request->query('hub.verify_token', '')), 403);
+        return response((string) $request->query('hub.challenge', ''), 200)->header('Content-Type', 'text/plain');
+    }
+
+    public function receiveGlobal(Request $request): JsonResponse
+    {
+        $secret = (string) config('whatsapp.meta_app_secret', '');
+        abort_if($secret === '', 503, 'Webhook signature validation is not configured.');
+        $sig = (string) $request->header('X-Hub-Signature-256', '');
+        abort_unless($sig !== '' && hash_equals('sha256=' . hash_hmac('sha256', $request->getContent(), $secret), $sig), 401);
+        foreach ($request->input('entry', []) as $entry) {
+            $waba = (string) ($entry['id'] ?? '');
+            foreach ($entry['changes'] ?? [] as $change) {
+                $phoneId = (string) data_get($change, 'value.metadata.phone_number_id', '');
+                $account = WhatsappAccount::withoutGlobalScopes()->whereNull('deleted_at')->where('is_active', true)
+                    ->when($phoneId !== '', fn ($q) => $q->where('phone_number_id', $phoneId), fn ($q) => $q->where('business_account_id', $waba))->first();
+                if (!$account) continue;
+                // Original raw body has already been authenticated; re-sign its isolated entry for legacy processor.
+                $payload = ['object' => $request->input('object'), 'entry' => [['id' => $waba, 'changes' => [$change]]]];
+                $raw = json_encode($payload);
+                $inner = Request::create('/api/integrations/whatsapp/webhook/' . $account->webhook_key, 'POST', [], [], [], [
+                    'CONTENT_TYPE' => 'application/json', 'HTTP_X_HUB_SIGNATURE_256' => 'sha256=' . hash_hmac('sha256', $raw, $secret),
+                ], $raw);
+                $this->receive($inner, $account->webhook_key);
+            }
+        }
+        return response()->json(['status' => 'ok']);
+    }
+
     public function verify(Request $request, string $webhookKey)
     {
         $account = $this->findAccount($webhookKey);
@@ -60,7 +93,7 @@ class WhatsappWebhookController extends Controller
     private function findAccount(string $webhookKey): WhatsappAccount
     {
         abort_unless(Str::isUuid($webhookKey), 404);
-        return WhatsappAccount::withoutGlobalScopes()->where('webhook_key', $webhookKey)->firstOrFail();
+        return WhatsappAccount::withoutGlobalScopes()->whereNull('deleted_at')->where('webhook_key', $webhookKey)->firstOrFail();
     }
 
     private function storeInbound(WhatsappAccount $account, array $message, array $value): void

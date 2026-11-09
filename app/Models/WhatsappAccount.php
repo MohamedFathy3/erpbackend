@@ -8,12 +8,14 @@ class WhatsappAccount extends BaseModel
 
     protected $guarded = ['id', 'tenant_id'];
 
-    protected $hidden = ['access_token', 'app_secret', 'webhook_verify_token'];
+    protected $hidden = ['access_token', 'app_secret', 'webhook_verify_token', 'register_pin'];
 
     protected $casts = [
         'access_token' => 'encrypted',
         'app_secret' => 'encrypted',
         'webhook_verify_token' => 'encrypted',
+        'register_pin' => 'encrypted',
+        'metadata' => 'array',
         'is_active' => 'boolean',
         'last_tested_at' => 'datetime',
     ];

@@ -132,6 +132,10 @@ Route::get('/integrations/whatsapp/webhook/{webhookKey}', [WhatsappWebhookContro
     ->middleware('throttle:120,1');
 Route::post('/integrations/whatsapp/webhook/{webhookKey}', [WhatsappWebhookController::class, 'receive'])
     ->middleware('throttle:600,1');
+Route::get('/integrations/whatsapp/webhook', [WhatsappWebhookController::class, 'verifyGlobal'])
+    ->middleware('throttle:120,1');
+Route::post('/integrations/whatsapp/webhook', [WhatsappWebhookController::class, 'receiveGlobal'])
+    ->middleware('throttle:600,1');
 
 Route::middleware([
     'auth:sanctum',
@@ -140,6 +144,8 @@ Route::middleware([
     'module.enabled:whatsapp',
 ])->prefix('whatsapp')->group(function (): void {
     Route::get('/account', [WhatsappAccountController::class, 'show']);
+    Route::get('/embedded-signup/config', [\App\Http\Controllers\WhatsappEmbeddedSignupController::class, 'config']);
+    Route::post('/embedded-signup/complete', [\App\Http\Controllers\WhatsappEmbeddedSignupController::class, 'complete'])->middleware('throttle:10,1');
     Route::put('/account', [WhatsappAccountController::class, 'update']);
     Route::post('/account/test', [WhatsappAccountController::class, 'test']);
     Route::get('/templates', [TenantWhatsappController::class, 'templates']);

@@ -22,7 +22,9 @@ class WhatsappAccountController extends Controller
             'phone_number_id' => $account?->phone_number_id,
             'waba_id' => $account?->business_account_id,
             'status' => $account?->connection_status,
-            'webhook_url' => $account ? url('/api/integrations/whatsapp/webhook/' . $account->webhook_key) : null,
+            'webhook_url' => $account ? url('/api/integrations/whatsapp/webhook') : null,
+            'setup_method' => $account?->setup_method,
+            'last_error' => $account?->connection_status === 'setup_failed' ? $account->last_error : null,
         ]]);
     }
 

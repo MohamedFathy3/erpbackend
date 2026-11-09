@@ -1,40 +1,47 @@
 # ربط WhatsApp Business Platform بالـ ERP
 
-## الوضع الحالي في الكود
+## طريقة الربط الجديدة
 
-يحتوي هذا التغيير على إعداد حساب WhatsApp لكل tenant، مع حفظ Access Token وApp Secret وWebhook Verify Token مشفرة في قاعدة البيانات، وعنوان Webhook منفصل لكل حساب. بعد تشغيل الترحيلات، يستطيع مسؤول الشركة حفظ بيانات الرقم واختبار اتصال Graph API من صفحة WhatsApp في ERP. يستقبل الـ Webhook رسائل `messages` وتحديثات الحالة، ويتحقق من توقيع Meta، ويسجل أحداثًا ورسائل واردة مع منع التكرار.
+يستخدم النظام **WhatsApp Embedded Signup v4**. مسؤول المنصة يجهّز تطبيق Meta مرة واحدة، ثم يضغط العميل «ربط واتساب من Meta» ويسجل الدخول ويختار نشاطه ورقمه. لا ينسخ العميل Access Token أو App Secret أو Phone Number ID يدويًا. يبدّل الـ Backend رمز التسجيل قصير الصلاحية مباشرة مع Meta، يتحقق من الرقم وWABA، يشترك في التطبيق ويكمل إعداد Cloud API. تحفظ بيانات الاعتماد ورمز التسجيل المشفرين داخل سجل الشركة، ولا يرجعان للواجهة.
 
-استقبال الرسائل وتخزينها لا يفعّل رد الذكاء الاصطناعي. يجب بناء Agent orchestration وأدوات ERP والصلاحيات وتحويل المحادثة قبل فتح الرد الآلي.
+إعداد Meta خطوة بخطوة موجود في [`meta-embedded-signup-v4-checklist-ar.md`](meta-embedded-signup-v4-checklist-ar.md). التنفيذ التقني ومفاتيح الخادم موثقة في [`whatsapp-embedded-signup.md`](whatsapp-embedded-signup.md).
 
-## إعداد التطبيق على Meta
+## متطلبات Meta قبل تجربة العميل
 
-1. سجّل حسابك كمطوّر في [Meta for Developers](https://developers.facebook.com/async/registration/) ثم أنشئ تطبيقًا جديدًا باختيار حالة استخدام WhatsApp، واربطه بمحفظة Meta Business المناسبة. استخدم صفحة **WhatsApp > API Setup** لإضافة أو اختيار حساب مراسلة ورقم تجريبي أولًا.
-2. اختبر الإرسال إلى رقم مستلم مسموح به. خذ من API Setup قيمة **Phone Number ID** وقيمة **WhatsApp Business Account / Messaging Account ID**. أسماء الحسابات ومعرّفاتها تتطور لدى Meta، لذلك نعتمد على الـ ID الذي تعرضه لوحة التطبيق.
-3. لا تستخدم Access Token المؤقت للاختبار في الإنتاج. أنشئ System User من Business Settings، وأسند إليه التطبيق وحساب WhatsApp، ثم أنشئ رمزًا بصلاحيات `whatsapp_business_messaging` و`whatsapp_business_management`، وأضف `business_management` حيث تتطلبه طريقة إعداد Meta. خزّن الرمز في صفحة إعداد WhatsApp لهذا الـ tenant فقط.
-4. احفظ **App Secret** الخاص بتطبيق Meta في إعداد الشركة عند الحاجة إلى توقيع Webhook. إذا كان كل العملاء يستخدمون تطبيق Meta واحدًا، يمكن ضبط `WHATSAPP_APP_SECRET` على الخادم كقيمة افتراضية مشتركة؛ أما Access Token فيبقى خاصًا بكل شركة ولا يوضع في `.env` المشترك.
-5. أنشئ Verify Token قويًا عشوائيًا لكل شركة (16 حرفًا على الأقل)، وأدخله في صفحة إعداد WhatsApp. استخدم القيمة نفسها في لوحة Meta عند التحقق من Callback URL؛ لا يُعاد عرض هذا الرمز بعد حفظه.
+- تطبيق WhatsApp مربوط بـ Business Portfolio، وإعداد Facebook Login for Business Embedded Signup v4 مع App ID وConfiguration ID.
+- نطاق الواجهة والـ Backend منشوران عبر HTTPS؛ عنوان HTTP الحالي لا يكفي لتسجيل Meta.
+- تكوين Webhook واحد عام للمنصة: `https://<backend-host>/api/integrations/whatsapp/webhook`، مع `WHATSAPP_WEBHOOK_VERIFY_TOKEN` الخادمي. اشترك على مستوى التطبيق في حقلي `messages` و`account_update`.
+- اعتماد Meta Business Verification وApp Review/Advanced Access قد يلزم لإتاحة الربط للعملاء خارج App Roles. تحقق من الأذونات المذكورة في قائمة Meta المرفقة.
+- المسار الحالي يدعم تدفق Cloud API القياسي `FINISH` فقط. لا يدعم بعد Coexistence الذي يُبقي الرقم يعمل داخل تطبيق WhatsApp Business على الجوال؛ قد يحتاج هذا النوع من الأرقام إعدادًا مختلفًا.
 
-للاستخدام التجاري متعدد العملاء على نطاق واسع، استخدم **Embedded Signup v4** بدل طلب نسخ Access Token يدويًا من كل عميل. يتطلب هذا تهيئة تطبيق Meta وحالة الاستخدام/الصلاحيات الملائمة، ثم خادمًا لإتمام تبادل رمز التسجيل، وربط الرقم، والاشتراك في Webhooks بعد نجاح تدفق العميل. هذه الطبقة غير منفذة في هذا التغيير.
+## إعدادات الخادم
 
-## إعداد الـ Webhook
+اضبط الأسرار التالية في مدير أسرار الاستضافة أو `.env` الخادمي فقط، وليس في كود الواجهة أو Git:
 
-1. انشر الـ Backend خلف HTTPS بشهادة TLS موثوقة، وشغّل migration.
-2. افتح ERP بحساب الشركة، ثم **WhatsApp > إعداد الربط**. أدخل Phone Number ID وWABA/Messaging Account ID ورقم العرض واسم النشاط والرمز الدائم وApp Secret وVerify Token، ثم احفظ.
-3. انسخ عنوان Callback الفريد الذي يعرضه ERP إلى لوحة Meta، في قسم **WhatsApp > Configuration** أو **Use cases > Customize > Configuration** بحسب واجهة التطبيق. ضع Verify Token المطابق، ثم نفّذ Verify/Save.
-4. اشترك في الحقل `messages` على WhatsApp Business Account حتى تصل الرسائل الواردة وتحديثات الرسائل الصادرة. تتضمن رسائل Meta رمز توقيع `X-Hub-Signature-256`؛ يرفض الـ Backend الطلب عند غياب السر أو عدم صحة التوقيع.
-5. اضغط **اختبار اتصال** من ERP. أرسل رسالة من هاتف خارجي إلى رقم النشاط، ثم تحقق من سجل الأحداث والمحادثة في قاعدة البيانات/السجلات التشغيلية. يجب إضافة واجهة صندوق المحادثات قبل أن تصبح المحادثات الواردة قابلة للمعالجة من لوحة ERP.
+```dotenv
+WHATSAPP_META_APP_ID=<APP_ID>
+WHATSAPP_META_APP_SECRET=<APP_SECRET>
+WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID=<CONFIGURATION_ID>
+WHATSAPP_GRAPH_VERSION=v27.0
+WHATSAPP_WEBHOOK_VERIFY_TOKEN=<LONG_RANDOM_TOKEN>
+APP_URL=https://<backend-host>
+```
 
-المسارات المسجلة:
+شغّل `php artisan config:cache` بعد تغيير البيئة. لا ترسل App Secret أو أي رمز Access Token في الدردشة أو إلى العملاء. يُنشئ النظام Verify Token داخليًا للحساب؛ Meta تستخدم Verify Token العام الواحد للمنصة.
 
-- `GET /api/integrations/whatsapp/webhook/{webhookKey}`: تحقق Meta من `hub.mode` و`hub.verify_token`، ثم يعيد `hub.challenge`.
-- `POST /api/integrations/whatsapp/webhook/{webhookKey}`: يتحقق من HMAC-SHA256، يطابق `phone_number_id` مع الحساب، يزيل التكرار، ويحفظ رسالة الوارد وحالة الرسائل.
-- `GET/PUT /api/whatsapp/account` و`POST /api/whatsapp/account/test`: إعداد الحساب واختبار الاتصال للمستخدم المصادق عليه داخل tenant الحالي.
-- `GET /api/whatsapp/templates` و`GET /api/whatsapp/messages` و`POST /api/whatsapp/customers/{customer}/send`: القوالب والرسائل والإرسال من بيانات الاتصال الخاصة بالشركة.
+## نشر التغييرات
 
-## تشغيل التغيير ونشره
+1. انشر تحديثي `erpbackend` و`erpzin` على بيئة الاختبار/الإنتاج المتوافقة.
+2. بعد أخذ نسخة احتياطية والتحقق من قاعدة البيانات، شغّل على Backend: `php artisan migrate --force`.
+3. اضبط متغيرات البيئة أعلاه ثم `php artisan config:cache`، وتأكد أن reverse proxy/TLS يوصل GET وPOST إلى Laravel دون CSRF أو صفحة تسجيل دخول.
+4. من حساب Meta مضاف إلى App Roles، افتح WhatsApp في ERP، أكمل نافذة Meta، ثم تحقق من ظهور الرقم كمتصل. اختبر رسالة واردة من هاتف خارجي وقالبًا معتمدًا.
+5. إذا ظهر `setup_failed`، ستعرض الواجهة سببًا مختصرًا؛ أعد تدفق الربط بعد تصحيح سبب Meta. لا ترفع سجلًا يحتوي رموزًا أو بيانات خاصة.
 
-- راجع `APP_KEY` قبل التشغيل؛ تستخدمه Laravel لتشفير أسرار كل اتصال. لا تغيّره بعد حفظ الرموز المشفرة إلا بخطة تدوير مفاتيح.
-- شغّل `php artisan migrate --force` بعد نسخة احتياطية وفحص بيئة الإنتاج.
-- أضف `WHATSAPP_APP_SECRET` إلى أسرار الخادم فقط إذا كنت تريد App Secret افتراضيًا مشتركًا، ثم أعد تحميل إعدادات Laravel (`php artisan config:cache`).
-- انشر الـ Backend والـ Frontend على النطاقات الفعلية، وتأكد أن Callback URL يشير إلى **Backend** وليس استضافة الواجهة، وأن GET وPOST يصلان إلى Laravel دون صفحة تسجيل دخول أو حماية CSRF.
-- لم يتم دفع أي تغيير إلى GitHub أو نشره على بيئة الإنتاج ضمن هذه المهمة.
+## المسارات
+
+- `GET /api/integrations/whatsapp/webhook` و`POST /api/integrations/whatsapp/webhook`: Callback التطبيق العام، يتحقق من Verify Token في GET ومن توقيع `X-Hub-Signature-256` في POST باستخدام App Secret الخادمي، ثم يوجه الأحداث بحسب phone number ID إلى حساب المستأجر.
+- `GET /api/whatsapp/embedded-signup/config` و`POST /api/whatsapp/embedded-signup/complete`: تهيئة الواجهة وتبادل رمز التسجيل، خلف Sanctum وtenant subscription/module middleware.
+- `GET /api/whatsapp/account`, `POST /api/whatsapp/account/test`, القوالب والرسائل والإرسال: endpoints المستأجر الحالية.
+- مسارات `/api/integrations/whatsapp/webhook/{webhookKey}` القديمة وواجهة التهيئة اليدوية في Backend باقية للتوافق مع الحسابات القائمة؛ لا تستخدم كمسار إعداد افتراضي للعملاء الجدد.
+
+استقبال الرسائل وتخزينها لا يفعّل الرد الآلي بالذكاء الاصطناعي. يبقى الرد الآلي غير مفعّل حتى يُحدد مسؤول النظام سياسة الردود ويُجهّز لها واجهة تحكم واختبارات؛ لا تتصل هذه المهمة بإرسال تلقائي إلى العملاء.
