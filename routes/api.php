@@ -68,6 +68,9 @@ use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\GoogleIntegrationController;
 use App\Http\Controllers\SuperAdminOverviewController;
 use App\Http\Controllers\AIChatController;
+use App\Http\Controllers\WhatsappAccountController;
+use App\Http\Controllers\WhatsappWebhookController;
+use App\Http\Controllers\TenantWhatsappController;
 use App\RecipeProduction\Http\Controllers\RecipeProductionController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -124,6 +127,25 @@ Route::get('/auth/google/callback', [GoogleAuthController::class, 'callback'])
 
 Route::get('/integrations/google/callback', [GoogleIntegrationController::class, 'callback'])
     ->middleware('throttle:signup');
+
+Route::get('/integrations/whatsapp/webhook/{webhookKey}', [WhatsappWebhookController::class, 'verify'])
+    ->middleware('throttle:120,1');
+Route::post('/integrations/whatsapp/webhook/{webhookKey}', [WhatsappWebhookController::class, 'receive'])
+    ->middleware('throttle:600,1');
+
+Route::middleware([
+    'auth:sanctum',
+    'resolve.tenant',
+    'subscription',
+    'module.enabled:whatsapp',
+])->prefix('whatsapp')->group(function (): void {
+    Route::get('/account', [WhatsappAccountController::class, 'show']);
+    Route::put('/account', [WhatsappAccountController::class, 'update']);
+    Route::post('/account/test', [WhatsappAccountController::class, 'test']);
+    Route::get('/templates', [TenantWhatsappController::class, 'templates']);
+    Route::get('/messages', [TenantWhatsappController::class, 'messages']);
+    Route::post('/customers/{customer}/send', [TenantWhatsappController::class, 'sendToCustomer']);
+});
 
 
 /*
