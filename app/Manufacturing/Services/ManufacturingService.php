@@ -11,6 +11,7 @@ use App\Manufacturing\Models\ManufacturingOrder;
 use App\Manufacturing\Models\ManufacturingOrderMaterial;
 use App\Manufacturing\Models\ManufacturingOrderStatusHistory;
 use App\Manufacturing\Models\ManufacturingStockMovement;
+use App\Manufacturing\Services\ManufacturingUnitConverter;
 use App\Manufacturing\Models\QualityInspection;
 use App\Models\Account;
 use App\Models\InventoryMovement;
@@ -19,6 +20,7 @@ use App\Services\AccountLedgerService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
 class ManufacturingService
@@ -37,6 +39,7 @@ class ManufacturingService
             if ($product->product_type === 'service') {
                 throw new RuntimeException('A service cannot be produced as a stocked finished good.');
             }
+            $this->validateOutputVariant($product, $data['product_unit_id'] ?? null, $data['color_id'] ?? null);
 
             $warehouse = DB::table('warehouses')->where('id', $data['warehouse_id'])->first();
             if (!$warehouse) {
@@ -108,6 +111,8 @@ class ManufacturingService
                 'source_invoice_item_id' => $data['source_invoice_item_id'] ?? null,
                 'source_sales_order_id' => $data['source_sales_order_id'] ?? null,
                 'planned_quantity' => $data['planned_quantity'],
+                'product_unit_id' => $data['product_unit_id'] ?? null,
+                'color_id' => $data['color_id'] ?? null,
                 'dimensions' => $data['dimensions'] ?? $product->dimensions,
                 'planned_cost' => $data['planned_cost'] ?? 0,
                 'status' => 'draft',
@@ -117,11 +122,17 @@ class ManufacturingService
             ]);
 
             if ($bom) {
-                $this->explodeBom(
-                    $order,
+                $requirements = $this->bomRequirements(
                     $bom,
                     (float) $data['planned_quantity'] / max((float) $bom->yield_quantity, 0.000001),
+                    ['product_unit_id' => $data['product_unit_id'] ?? null, 'color_id' => $data['color_id'] ?? null],
                 );
+                if (!$requirements) {
+                    throw new RuntimeException('The selected BOM has no components for this product variant.');
+                }
+                foreach ($requirements as $requirement) {
+                    $order->materials()->create($requirement);
+                }
             }
 
             foreach ($data['operations'] ?? [] as $index => $operation) {
@@ -142,11 +153,67 @@ class ManufacturingService
 
             $this->transition($order, 'planned', 'Production order created');
 
-            return $order->load(['materials.product', 'operations', 'bomVersion']);
+            return $order->load(['materials.product', 'operations', 'bomVersion', 'productUnit.unit', 'color']);
         });
     }
 
-    public function createOrderFromInvoice(int $invoiceId, int $invoiceItemId, int $warehouseId, array $operations = []): ManufacturingOrder
+    public function previewRequirements(
+        int $productId,
+        int $bomVersionId,
+        float $plannedQuantity,
+        ?int $productUnitId = null,
+        ?int $colorId = null,
+    ): array {
+        $product = Product::findOrFail($productId);
+        $this->validateOutputVariant($product, $productUnitId, $colorId);
+        $bom = BomVersion::with('items.component', 'items.childBom.items.component')->findOrFail($bomVersionId);
+        if ((int) $bom->product_id !== (int) $product->id || $bom->status !== 'active') {
+            throw new RuntimeException('Choose an active BOM belonging to the selected finished product.');
+        }
+
+        return $this->bomRequirements(
+            $bom,
+            $plannedQuantity / max((float) $bom->yield_quantity, 0.000001),
+            ['product_unit_id' => $productUnitId, 'color_id' => $colorId],
+        );
+    }
+
+    private function validateOutputVariant(Product $product, ?int $productUnitId, ?int $colorId): void
+    {
+        $hasUnits = $product->units()->exists();
+        if (!$hasUnits) {
+            if ($productUnitId || $colorId) {
+                throw ValidationException::withMessages(['product_unit_id' => 'The selected finished product has no configured variants.']);
+            }
+            return;
+        }
+        if (!$productUnitId || !DB::table('product_units')
+            ->where('id', $productUnitId)
+            ->where('product_id', $product->id)
+            ->exists()) {
+            throw ValidationException::withMessages(['product_unit_id' => 'Select a configured size or unit for the finished product.']);
+        }
+
+        $hasColors = DB::table('product_unit_colors')->where('product_unit_id', $productUnitId)->exists();
+        if ($hasColors && (!$colorId || !DB::table('product_unit_colors')
+            ->where('product_unit_id', $productUnitId)
+            ->where('color_id', $colorId)
+            ->exists())) {
+            throw ValidationException::withMessages(['color_id' => 'Select a color configured for the chosen product size.']);
+        }
+        if (!$hasColors && $colorId) {
+            throw ValidationException::withMessages(['color_id' => 'The selected product size has no configured colors.']);
+        }
+    }
+
+    public function createOrderFromInvoice(
+        int $invoiceId,
+        int $invoiceItemId,
+        int $warehouseId,
+        array $operations = [],
+        ?int $productUnitId = null,
+        ?int $colorId = null,
+    ): ManufacturingOrder
     {
         $itemQuery = DB::table('invoice_items')
             ->where('invoice_id', $invoiceId)
@@ -174,11 +241,18 @@ class ManufacturingService
             'source_invoice_id' => $invoiceId,
             'source_invoice_item_id' => $invoiceItemId,
             'planned_quantity' => $quantity,
+            'product_unit_id' => $productUnitId,
+            'color_id' => $colorId,
             'operations' => $operations,
         ]);
     }
 
-    private function explodeBom(ManufacturingOrder $order, BomVersion $bom, float $factor, array $visited = []): void
+    private function bomRequirements(
+        BomVersion $bom,
+        float $factor,
+        ?array $outputVariant = null,
+        array $visited = [],
+    ): array
     {
         if (in_array($bom->id, $visited, true)) {
             throw new RuntimeException('Circular BOM references are not allowed.');
@@ -186,8 +260,12 @@ class ManufacturingService
 
         $visited[] = $bom->id;
         $bom->loadMissing('items.component', 'items.childBom.items.component');
+        $requirements = [];
 
         foreach ($bom->items as $item) {
+            if (!$this->bomItemAppliesToVariant($item, $outputVariant)) {
+                continue;
+            }
             $quantity = $factor
                 * (float) $item->quantity
                 * (1 + ((float) $item->scrap_percent / 100));
@@ -198,10 +276,18 @@ class ManufacturingService
             }
 
             $itemUnit = $item->unit ?: $component->base_unit ?: $component->stock_unit;
-            if ($itemUnit && $component->base_unit && $itemUnit === $component->base_unit) {
-                $quantity *= (float) ($component->conversion_factor ?: 1);
-            } elseif ($itemUnit && $component->stock_unit && $itemUnit !== $component->stock_unit) {
-                throw new RuntimeException("BOM unit {$itemUnit} does not match the stock unit for {$component->name}.");
+            $stockUnit = $component->stock_unit ?: $component->base_unit;
+            try {
+                $quantity = ManufacturingUnitConverter::convert(
+                    $quantity,
+                    $itemUnit,
+                    $stockUnit,
+                    $component->base_unit,
+                    $component->stock_unit,
+                    $component->conversion_factor !== null ? (float) $component->conversion_factor : null,
+                );
+            } catch (RuntimeException $exception) {
+                throw ValidationException::withMessages(['unit' => $exception->getMessage()]);
             }
 
             if ($item->child_bom_version_id) {
@@ -209,22 +295,39 @@ class ManufacturingService
                 if (!$childBom || (int) $childBom->product_id !== (int) $component->id) {
                     throw new RuntimeException('A nested BOM must belong to its component product.');
                 }
-                $this->explodeBom(
-                    $order,
+                $requirements = array_merge($requirements, $this->bomRequirements(
                     $childBom,
                     $quantity / max((float) $childBom->yield_quantity, 0.000001),
+                    null,
                     $visited,
-                );
+                ));
                 continue;
             }
 
-            $order->materials()->create([
+            $requirements[] = [
                 'bom_item_id' => $item->id,
                 'product_id' => $component->id,
                 'required_quantity' => $quantity,
                 'unit_cost' => (float) ($component->cost ?? 0),
-            ]);
+            ];
         }
+
+        return $requirements;
+    }
+
+    private function bomItemAppliesToVariant(object $item, ?array $variant): bool
+    {
+        if (!$item->output_product_unit_id) {
+            return !$item->output_color_id;
+        }
+        if ($variant === null) {
+            return false;
+        }
+        if ((int) $item->output_product_unit_id !== (int) ($variant['product_unit_id'] ?? 0)) {
+            return false;
+        }
+        return !$item->output_color_id
+            || (int) $item->output_color_id === (int) ($variant['color_id'] ?? 0);
     }
 
     public function transition(ManufacturingOrder $order, string $status, ?string $reason = null, ?string $key = null): ManufacturingOrder
@@ -319,6 +422,7 @@ class ManufacturingService
             $rows[] = [
                 'product_id' => (int) $productId,
                 'product_name' => $product?->name,
+                'unit' => $product?->stock_unit,
                 'required' => $required,
                 'on_hand' => $stock,
                 'reserved_by_other_orders' => $otherReservations,
@@ -682,7 +786,16 @@ class ManufacturingService
                 }
 
                 $unitCost = $this->totalOrderCost($order) / max((float) $order->planned_quantity, 0.000001);
-                $this->adjustStock($order, $order->product_id, $quantity, $unitCost, 'receipt', 'Finished goods received from production');
+                $this->adjustStock(
+                    $order,
+                    $order->product_id,
+                    $quantity,
+                    $unitCost,
+                    'receipt',
+                    'Finished goods received from production',
+                    $order->product_unit_id ? (int) $order->product_unit_id : null,
+                    $order->color_id ? (int) $order->color_id : null,
+                );
                 $this->recordManufacturingMovement($order, $order->product_id, 'receive', $quantity, $key, $unitCost);
                 $order->increment('produced_quantity', $quantity);
 
@@ -789,6 +902,8 @@ class ManufacturingService
         float $unitCost,
         string $movementType,
         string $notes,
+        ?int $productUnitId = null,
+        ?int $colorId = null,
     ): void {
         $product = Product::lockForUpdate()->findOrFail($productId);
         $warehouseRow = DB::table('product_warehouse')
@@ -834,19 +949,32 @@ class ManufacturingService
             }
         }
 
+        $variantStock = $productUnitId || $colorId
+            ? app(\App\Services\InventoryMovementService::class)->applyManufacturingVariantDelta([
+                'product_id' => $productId,
+                'product_unit_id' => $productUnitId,
+                'color_id' => $colorId,
+                'branch_id' => $order->branch_id,
+                'warehouse_id' => $order->warehouse_id,
+            ], $delta)
+            : null;
+
         InventoryMovement::create([
             'product_id' => $productId,
+            'product_unit_id' => $productUnitId,
+            'color_id' => $colorId,
             'branch_id' => $order->branch_id,
             'warehouse_id' => $order->warehouse_id,
             'movement_type' => 'manufacturing_' . $movementType,
             'quantity_delta' => $delta,
-            'balance_after' => max(0, $after),
+            'balance_after' => $variantStock?->stock ?? max(0, $after),
             'reference_type' => ManufacturingOrder::class,
             'reference_id' => $order->id,
             'created_by' => $this->persistedUserId(),
             'notes' => $notes,
             'unit_cost' => $unitCost,
             'total_cost' => abs($delta) * $unitCost,
+            'inventory_variant_stock_id' => $variantStock?->id,
         ]);
     }
 

@@ -21,10 +21,12 @@ class ManufacturingOrder extends BaseModel
     ];
 
     public function product() { return $this->belongsTo(Product::class); }
+    public function productUnit() { return $this->belongsTo(\App\Models\ProductUnit::class); }
+    public function color() { return $this->belongsTo(\App\Models\Color::class); }
     public function bomVersion() { return $this->belongsTo(BomVersion::class); }
     public function materials() { return $this->hasMany(ManufacturingOrderMaterial::class); }
     public function operations() { return $this->hasMany(ManufacturingOperation::class)->orderBy('sequence'); }
-    public function statusHistory() { return $this->hasMany(ManufacturingOrderStatusHistory::class); }
+    public function statusHistory() { return $this->hasMany(ManufacturingOrderStatusHistory::class)->orderBy('id'); }
     public function movements() { return $this->hasMany(ManufacturingStockMovement::class); }
     public function costs() { return $this->hasMany(ManufacturingCostEntry::class); }
     public function qualityInspections() { return $this->hasMany(QualityInspection::class); }

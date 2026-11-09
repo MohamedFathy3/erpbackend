@@ -27,6 +27,7 @@ class InventoryMovementService
             if ($crossBranchTenantId !== null) {
                 $productQuery->withoutGlobalScope('branch')->where('tenant_id', $crossBranchTenantId);
             }
+
             $product = $productQuery->lockForUpdate()->findOrFail($data['product_id']);
             $previousProductStock = (float) $product->stock;
             $delta = (float) $data['quantity_delta'];
@@ -91,6 +92,31 @@ class InventoryMovementService
             }
             return $movement;
         });
+    }
+
+    public function applyManufacturingVariantDelta(array $identity, float $delta): ?InventoryVariantStock
+    {
+        if (empty($identity['product_unit_id']) && empty($identity['color_id'])) {
+            return null;
+        }
+
+        $colorBaseline = !empty($identity['product_unit_id']) && !empty($identity['color_id'])
+            ? (float) DB::table('product_unit_colors')
+                ->where('product_unit_id', $identity['product_unit_id'])
+                ->where('color_id', $identity['color_id'])
+                ->value('stock')
+            : 0;
+        $this->updateLegacyColorStock($identity['product_unit_id'] ?? null, $identity['color_id'] ?? null, $delta);
+        $identity = [
+            'product_id' => (int) $identity['product_id'],
+            'product_unit_id' => $identity['product_unit_id'] ?? null,
+            'size_id' => null,
+            'color_id' => $identity['color_id'] ?? null,
+            'branch_id' => $identity['branch_id'] ?? null,
+            'warehouse_id' => $identity['warehouse_id'] ?? null,
+        ];
+
+        return $this->updateVariantStock($identity, $delta, false, $colorBaseline);
     }
 
     private function updateAggregateProduct(Product $product, float $delta): void
@@ -167,7 +193,12 @@ class InventoryMovementService
         }
     }
 
-    private function updateVariantStock(array $identity, float $delta): InventoryVariantStock
+    private function updateVariantStock(
+        array $identity,
+        float $delta,
+        bool $useLegacyBaseline = true,
+        ?float $initialBaseline = null,
+    ): InventoryVariantStock
     {
         $identityKey = $this->identityKey($identity);
         $tenantId = auth()->user()?->tenant_id
@@ -190,7 +221,7 @@ class InventoryMovementService
         if (!$row) {
             // Existing stock is not assigned to a size retrospectively. Use the
             // old aggregate only as a compatibility baseline on first touch.
-            $baseline = $this->legacyBaseline($identity);
+            $baseline = $initialBaseline ?? ($useLegacyBaseline ? $this->legacyBaseline($identity) : 0);
             $newStock = $baseline + $delta;
             if ($newStock < 0) {
                 throw new RuntimeException('Insufficient stock for selected product variant');

@@ -5,6 +5,7 @@ use App\Manufacturing\Models\BomVersion;
 use App\Manufacturing\Models\ManufacturingEquipment;
 use App\Manufacturing\Models\ManufacturingOrder;
 use App\Manufacturing\Services\ManufacturingService;
+use App\Manufacturing\Services\ManufacturingUnitConverter;
 use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -112,6 +113,8 @@ class ManufacturingV2Controller extends Controller
             'items.*.quantity'=>'required|numeric|gt:0',
             'items.*.scrap_percent'=>'nullable|numeric|min:0|max:100',
             'items.*.unit'=>'nullable|string|max:32',
+            'items.*.output_product_unit_id'=>'nullable|integer',
+            'items.*.output_color_id'=>'nullable|integer',
             'items.*.is_optional'=>'nullable|boolean','items.*.specifications'=>'nullable|array','items.*.specifications.width'=>'nullable|numeric|gt:0','items.*.specifications.length'=>'nullable|numeric|gt:0','items.*.specifications.thickness'=>'nullable|numeric|gt:0','items.*.specifications.unit'=>'nullable|string|max:16','items.*.specifications.material_grade'=>'nullable|string|max:100','items.*.specifications.finish'=>'nullable|string|max:100',
             'items.*.parent_item_id'=>'nullable|exists:bom_items,id',
             'items.*.child_bom_version_id'=>'nullable|exists:bom_versions,id',
@@ -131,7 +134,7 @@ class ManufacturingV2Controller extends Controller
                     ->where('status', 'active')
                     ->update(['status' => 'obsolete']);
             }
-            $items=$this->normalizeBomItems($d['items']); unset($d['items']);
+            $items=$this->normalizeBomItems($d['items'], (int) $product->id); unset($d['items']);
             $actorId = auth()->id();
             $creatorId = $actorId && \DB::table('users')->where('id', $actorId)->exists() ? $actorId : null;
             $bom=BomVersion::create($d+['created_by'=>$creatorId]);
@@ -155,11 +158,13 @@ class ManufacturingV2Controller extends Controller
             'items.*.quantity' => 'required|numeric|gt:0',
             'items.*.scrap_percent' => 'nullable|numeric|min:0|max:100',
             'items.*.unit' => 'nullable|string|max:32',
+            'items.*.output_product_unit_id' => 'nullable|integer',
+            'items.*.output_color_id' => 'nullable|integer',
             'items.*.is_optional' => 'nullable|boolean',
             'items.*.child_bom_version_id' => 'nullable|exists:bom_versions,id',
         ]);
         return \DB::transaction(function () use ($d, $bomVersion) {
-            $items = isset($d['items']) ? $this->normalizeBomItems($d['items']) : null;
+            $items = isset($d['items']) ? $this->normalizeBomItems($d['items'], (int) $bomVersion->product_id) : null;
             unset($d['items']);
             if (($d['status'] ?? null) === 'active') {
                 BomVersion::where('product_id', $bomVersion->product_id)->where('branch_id', $bomVersion->branch_id)
@@ -174,7 +179,7 @@ class ManufacturingV2Controller extends Controller
         });
     }
 
-    private function normalizeBomItems(array $items): array
+    private function normalizeBomItems(array $items, int $outputProductId): array
     {
         foreach ($items as &$item) {
             $component = Product::findOrFail($item['component_product_id']);
@@ -182,13 +187,39 @@ class ManufacturingV2Controller extends Controller
                 'BOM components must be an inventory material or a semi-finished product.');
             $baseUnit = $component->base_unit;
             $stockUnit = $component->stock_unit;
-            $sourceUnit = $baseUnit ?: $stockUnit;
+            $sourceUnit = !empty($item['unit']) ? $item['unit'] : ($baseUnit ?: $stockUnit);
             abort_unless($sourceUnit, 422, "Set a base or stock unit on product {$component->name} before adding it to a BOM.");
-            if (!empty($item['unit']) && !in_array($item['unit'], array_filter([$baseUnit, $stockUnit]), true)) {
-                abort(422, "BOM unit must match the selected product's base or stock unit ({$sourceUnit}).");
+            try {
+                ManufacturingUnitConverter::convert(
+                    1,
+                    $sourceUnit,
+                    $stockUnit ?: $baseUnit,
+                    $baseUnit,
+                    $stockUnit,
+                    $component->conversion_factor !== null ? (float) $component->conversion_factor : null,
+                );
+            } catch (\RuntimeException $exception) {
+                abort(422, $exception->getMessage());
             }
             $item['unit'] = $sourceUnit;
-            unset($item['specifications']); // dimensions, colors, and material attributes live on the product record.
+            if (!empty($item['output_color_id']) && empty($item['output_product_unit_id'])) {
+                abort(422, 'A BOM color rule must also select a product size or unit.');
+            }
+            if (!empty($item['output_product_unit_id'])) {
+                $unitExists = \DB::table('product_units')
+                    ->where('id', $item['output_product_unit_id'])
+                    ->where('product_id', $outputProductId)
+                    ->exists();
+                abort_unless($unitExists, 422, 'BOM variant rules must use a size or unit configured on the finished product.');
+            }
+            if (!empty($item['output_color_id'])) {
+                $colorExists = \DB::table('product_unit_colors')
+                    ->where('product_unit_id', $item['output_product_unit_id'])
+                    ->where('color_id', $item['output_color_id'])
+                    ->exists();
+                abort_unless($colorExists, 422, 'BOM variant rules must use a color configured for the selected product size.');
+            }
+            unset($item['specifications']);
         }
         unset($item);
         return $items;
@@ -205,10 +236,55 @@ class ManufacturingV2Controller extends Controller
     public function equipmentUpdate(Request $r,ManufacturingEquipment $equipment) { $d=$r->validate(['name'=>'sometimes|string','status'=>'sometimes|string','branch_id'=>'nullable|exists:branches,id','hourly_rate'=>'nullable|numeric|min:0','notes'=>'nullable|string']);$equipment->update($d);return $equipment->fresh(); }
     public function equipmentDestroy(ManufacturingEquipment $equipment) { $equipment->delete();return response()->noContent(); }
 
-    public function orderIndex(Request $r) { return ManufacturingOrder::with(['product','materials','operations'])->when($r->branch_id,fn($q)=>$q->where('branch_id',$r->branch_id))->latest()->limit(100)->get(); }
-    public function orderStore(Request $r) { $payload=$r->all(); if(isset($payload['quantity']) && !isset($payload['planned_quantity'])) $payload['planned_quantity']=$payload['quantity']; $d=validator($payload,['product_id'=>'required|exists:products,id','bom_version_id'=>'nullable|exists:bom_versions,id','branch_id'=>'nullable|exists:branches,id','warehouse_id'=>'required|exists:warehouses,id','source_invoice_id'=>'nullable|exists:invoices,id','source_invoice_item_id'=>'nullable|exists:invoice_items,id','source_sales_order_id'=>'nullable|integer','planned_quantity'=>'required|numeric|gt:0','dimensions'=>'nullable|array','dimensions.width'=>'nullable|numeric|gt:0','dimensions.height'=>'nullable|numeric|gt:0','dimensions.depth'=>'nullable|numeric|gt:0','dimensions.unit'=>'nullable|string|max:16','planned_at'=>'nullable|date','operations'=>'nullable|array','operations.*.name'=>'required|string','operations.*.sequence'=>'nullable|integer|min:1','operations.*.equipment_id'=>'nullable|exists:manufacturing_equipment,id','operations.*.planned_minutes'=>'nullable|numeric|min:0','notes'=>'nullable|string'])->validate(); $this->branchWarehouse($r); return response()->json($this->service()->createOrder($d),201); }
-    public function orderFromInvoice(Request $r, int $invoice) { $d=$r->validate(['invoice_item_id'=>'required|integer','warehouse_id'=>'required|exists:warehouses,id','operations'=>'nullable|array','operations.*.name'=>'required|string','operations.*.sequence'=>'nullable|integer|min:1','operations.*.equipment_id'=>'nullable|exists:manufacturing_equipment,id','operations.*.planned_minutes'=>'nullable|numeric|min:0']); $r->merge(['warehouse_id'=>$d['warehouse_id']]); $this->branchWarehouse($r); return response()->json($this->service()->createOrderFromInvoice($invoice,$d['invoice_item_id'],$d['warehouse_id'],$d['operations']??[]),201); }
-    public function orderShow(ManufacturingOrder $manufacturingOrder) { return $manufacturingOrder->load(['product','bomVersion','materials.product','operations','statusHistory','movements','costs','qualityInspections']); }
+    public function orderIndex(Request $r) { return ManufacturingOrder::with(['product','productUnit.unit','color','materials','operations'])->when($r->branch_id,fn($q)=>$q->where('branch_id',$r->branch_id))->latest()->limit(100)->get(); }
+    public function orderStore(Request $r) {
+        $payload=$r->all();
+        if(isset($payload['quantity']) && !isset($payload['planned_quantity'])) $payload['planned_quantity']=$payload['quantity'];
+        $d=validator($payload,[
+            'product_id'=>'required|exists:products,id',
+            'bom_version_id'=>'nullable|exists:bom_versions,id',
+            'branch_id'=>'nullable|exists:branches,id',
+            'warehouse_id'=>'required|exists:warehouses,id',
+            'source_invoice_id'=>'nullable|exists:invoices,id',
+            'source_invoice_item_id'=>'nullable|exists:invoice_items,id',
+            'source_sales_order_id'=>'nullable|integer',
+            'planned_quantity'=>'required|numeric|gt:0',
+            'product_unit_id'=>'nullable|integer',
+            'color_id'=>'nullable|integer',
+            'dimensions'=>'nullable|array',
+            'dimensions.width'=>'nullable|numeric|gt:0',
+            'dimensions.height'=>'nullable|numeric|gt:0',
+            'dimensions.depth'=>'nullable|numeric|gt:0',
+            'dimensions.unit'=>'nullable|string|max:16',
+            'planned_at'=>'nullable|date',
+            'operations'=>'nullable|array',
+            'operations.*.name'=>'required|string',
+            'operations.*.sequence'=>'nullable|integer|min:1',
+            'operations.*.equipment_id'=>'nullable|exists:manufacturing_equipment,id',
+            'operations.*.planned_minutes'=>'nullable|numeric|min:0',
+            'notes'=>'nullable|string',
+        ])->validate();
+        $this->branchWarehouse($r);
+        return response()->json($this->service()->createOrder($d),201);
+    }
+    public function orderPreview(Request $r) {
+        $d = $r->validate([
+            'product_id' => 'required|integer|exists:products,id',
+            'bom_version_id' => 'required|integer|exists:bom_versions,id',
+            'planned_quantity' => 'required|numeric|gt:0',
+            'product_unit_id' => 'nullable|integer',
+            'color_id' => 'nullable|integer',
+        ]);
+        return response()->json(['data' => $this->service()->previewRequirements(
+            (int) $d['product_id'],
+            (int) $d['bom_version_id'],
+            (float) $d['planned_quantity'],
+            isset($d['product_unit_id']) ? (int) $d['product_unit_id'] : null,
+            isset($d['color_id']) ? (int) $d['color_id'] : null,
+        )]);
+    }
+    public function orderFromInvoice(Request $r, int $invoice) { $d=$r->validate(['invoice_item_id'=>'required|integer','warehouse_id'=>'required|exists:warehouses,id','product_unit_id'=>'nullable|integer','color_id'=>'nullable|integer','operations'=>'nullable|array','operations.*.name'=>'required|string','operations.*.sequence'=>'nullable|integer|min:1','operations.*.equipment_id'=>'nullable|exists:manufacturing_equipment,id','operations.*.planned_minutes'=>'nullable|numeric|min:0']); $r->merge(['warehouse_id'=>$d['warehouse_id']]); $this->branchWarehouse($r); return response()->json($this->service()->createOrderFromInvoice($invoice,$d['invoice_item_id'],$d['warehouse_id'],$d['operations']??[],isset($d['product_unit_id'])?(int)$d['product_unit_id']:null,isset($d['color_id'])?(int)$d['color_id']:null),201); }
+    public function orderShow(ManufacturingOrder $manufacturingOrder) { return $manufacturingOrder->load(['product','productUnit.unit','color','bomVersion','materials.product','operations','statusHistory','movements','costs','qualityInspections']); }
     public function availability(ManufacturingOrder $o) { return $this->service()->availability($o); }
     public function start(Request $r,ManufacturingOrder $o) { $key=$r->validate(['idempotency_key'=>'required|string|max:255'])['idempotency_key']; return $this->service()->start($o,$key); }
     public function pause(Request $r,ManufacturingOrder $o) { $d=$r->validate(['idempotency_key'=>'required|string|max:255','reason'=>'required|string|min:3|max:2000']); return $this->service()->pause($o,$d['reason'],$d['idempotency_key']); }
