@@ -81,7 +81,10 @@ class TenantWhatsappController extends Controller
     {
         $tenantId = (int) ($request->user()?->tenant_id ?: (app()->bound('currentTenantId') ? app('currentTenantId') : 0));
         abort_if($tenantId < 1, 403, 'لم يتم تحديد شركة نشطة لهذا المستخدم.');
-        return WhatsappAccount::query()->where('tenant_id', $tenantId)->where('is_active', true)->firstOrFail();
+        $account = WhatsappAccount::query()->where('tenant_id', $tenantId)->first();
+        abort_if(!$account, 409, 'لم يتم إعداد WhatsApp لهذه الشركة. افتح وحدة WhatsApp ثم إعداد الربط، واحفظ بيانات الحساب أولاً.');
+        abort_if(!$account->is_active, 409, 'اتصال WhatsApp لهذه الشركة غير مفعّل. فعّله من إعدادات WhatsApp.');
+        return $account;
     }
 
     private function normalizePhone(?string $phone): ?string
