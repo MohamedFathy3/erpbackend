@@ -73,6 +73,10 @@ return new class extends Migration
                 ->get();
 
             foreach ($returnItems->groupBy('product_id') as $productId => $items) {
+                if (!DB::table('products')->where('id', $productId)->exists()) {
+                    continue;
+                }
+
                 $hasReturnMovement = DB::table('inventory_movements')
                     ->where('reference_type', $returnModel)
                     ->where('reference_id', $return->id)

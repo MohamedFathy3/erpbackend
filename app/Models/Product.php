@@ -26,7 +26,7 @@ class Product extends BaseModel
 
     protected $casts = [
         'active' => 'boolean',
-        'stock' => 'decimal:6',
+        'stock' => 'integer',
         'conversion_factor' => 'decimal:6',
         'dimensions' => 'array',
     ];
