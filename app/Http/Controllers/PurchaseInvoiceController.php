@@ -14,9 +14,11 @@ use App\Models\TreasuryTransaction;
 use App\Models\User;
 use App\Services\WorkflowPostingService;
 use App\Services\InventoryMovementService;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class PurchaseInvoiceController extends Controller
 {
@@ -156,13 +158,14 @@ class PurchaseInvoiceController extends Controller
                     ->find($item['product_id']);
                 if ($product) {
                     $oldStock     = max(0, (float) $product->stock - (float) $item['quantity']);
-                    $oldCost      = (float) ($product->cost ?? 0);
-                    $purchaseCost = (float) $item['price'];
-                    $newCost      = $oldStock > 0
-                        ? (($oldStock * $oldCost) + ((float) $item['quantity'] * $purchaseCost)) / ($oldStock + (float) $item['quantity'])
-                        : $purchaseCost;
-
-                    $product->update(['cost' => round($newCost, 4)]);
+                    $this->updateProductCostFromPurchase(
+                        $product,
+                        $oldStock,
+                        (float) $item['quantity'],
+                        (float) $item['price'],
+                        $invoice,
+                        auth()->user(),
+                    );
                 }
             }
 
@@ -559,7 +562,10 @@ class PurchaseInvoiceController extends Controller
 
             // 1️⃣ **عكس حركات المخزون القديمة**
             foreach ($invoice->items as $oldItem) {
-                $product = Product::find($oldItem->product_id);
+                $product = Product::query()
+                    ->withoutGlobalScope('branch')
+                    ->lockForUpdate()
+                    ->find($oldItem->product_id);
                 if ($product) {
                     $product->decrement('stock', $oldItem->quantity);
                 }
@@ -614,8 +620,20 @@ class PurchaseInvoiceController extends Controller
                     'total' => $lineTotal,
                 ]);
 
-                $product = Product::find($item['product_id']);
+                $product = Product::query()
+                    ->withoutGlobalScope('branch')
+                    ->lockForUpdate()
+                    ->find($item['product_id']);
                 if ($product) {
+                    $stockBeforePurchase = max(0, (float) $product->stock);
+                    $this->updateProductCostFromPurchase(
+                        $product,
+                        $stockBeforePurchase,
+                        (float) $item['quantity'],
+                        (float) $item['price'],
+                        $invoice,
+                        $actor,
+                    );
                     $product->increment('stock', $item['quantity']);
                 }
 
@@ -749,6 +767,57 @@ class PurchaseInvoiceController extends Controller
                 'error' => $e->getMessage() ?: 'فشل تحديث فاتورة المشتريات'
             ], 500);
         }
+    }
+
+    private function updateProductCostFromPurchase(
+        Product $product,
+        float $stockBeforePurchase,
+        float $quantity,
+        float $purchaseCost,
+        PurchaseInvoice $invoice,
+        ?Model $actor,
+    ): void {
+        if ($quantity <= 0) {
+            return;
+        }
+
+        $oldCost = (float) ($product->cost ?? 0);
+        $newCost = $stockBeforePurchase > 0
+            ? (($stockBeforePurchase * $oldCost) + ($quantity * $purchaseCost)) / ($stockBeforePurchase + $quantity)
+            : $purchaseCost;
+        $newCost = round($newCost, 2);
+
+        if (round($oldCost, 2) === $newCost) {
+            return;
+        }
+
+        $product->update(['cost' => $newCost]);
+
+        $activityLogger = activity()
+            ->performedOn($product)
+            ->withProperties([
+                'old' => ['cost' => $oldCost],
+                'attributes' => ['cost' => $newCost],
+                'purchase_invoice' => [
+                    'id' => $invoice->id,
+                    'invoice_number' => $invoice->invoice_number,
+                ],
+            ]);
+
+        if ($actor) {
+            $activityLogger->causedBy($actor);
+        }
+
+        $activity = $activityLogger->log('تغيير تكلفة المنتج من فاتورة مشتريات');
+
+        app(\App\Services\SystemNotificationService::class)->productCostChanged(
+            $product,
+            $invoice,
+            $oldCost,
+            $newCost,
+            $actor,
+            (string) ($activity?->id ?? Str::uuid()),
+        );
     }
 
 }

@@ -21,16 +21,68 @@ class CashierShiftController extends Controller
      * ✅ حساب المبلغ المتوقع الموحّد
      *    النقدي المتوقع = رصيد البداية + مبيعات النقدي - مرتجعات النقدي - مصروفات الوردية
      */
-    private function calculateExpectedAmount(CashierShift $shift): float
+    private function calculateExpectedAmount(CashierShift $shift, ?float $cashSales = null): float
     {
         return round(
             (float) $shift->opening_balance
-            + (float) $shift->cash_sales
+            + ($cashSales ?? (float) $shift->cash_sales)
 
             - (float) $shift->returns_amount
             - (float) Finance::query()->withoutGlobalScope('branch')->where('cashier_shift_id', $shift->id)->where('is_tracking_only', false)->sum('amount'),
             2
         );
+    }
+
+    /** Live payment totals are needed because the shift's saved totals are not updated on invoice creation. */
+    private function calculateShiftCollections(CashierShift $shift): array
+    {
+        $collections = ['cash' => 0.0, 'card' => 0.0, 'wallet' => 0.0];
+        $startAt = $shift->opened_at ? \Carbon\Carbon::parse($shift->opened_at) : now();
+        $endAt = $shift->closed_at ? \Carbon\Carbon::parse($shift->closed_at) : now();
+        $excludedStatuses = ['cancelled', 'canceled', 'void', 'voided', 'draft', 'ملغي', 'ملغاة', 'ملغية'];
+        $invoiceTable = (new Invoice())->getTable();
+        $hasCashierShiftId = Schema::hasColumn($invoiceTable, 'cashier_shift_id');
+        $hasShiftId = Schema::hasColumn($invoiceTable, 'shift_id');
+        $invoiceQuery = Invoice::query()->with('payments');
+
+        if ($hasCashierShiftId || $hasShiftId) {
+            $shiftColumn = $hasCashierShiftId ? 'cashier_shift_id' : 'shift_id';
+            $invoiceQuery->where(function ($query) use ($shift, $shiftColumn, $startAt, $endAt) {
+                $query->where($shiftColumn, $shift->id)
+                    ->orWhere(function ($fallback) use ($startAt, $endAt, $shiftColumn) {
+                        $fallback->whereNull($shiftColumn)
+                            ->whereBetween('created_at', [$startAt, $endAt]);
+                    });
+            });
+        } else {
+            $invoiceQuery->whereBetween('created_at', [$startAt, $endAt]);
+        }
+
+        $invoiceQuery
+            ->where(function ($query) use ($excludedStatuses) {
+                $query->whereNull('status')->orWhereNotIn('status', $excludedStatuses);
+            });
+        if (Schema::hasColumn($invoiceTable, 'is_complimentary')) {
+            $invoiceQuery->where(function ($query) {
+                $query->whereNull('is_complimentary')->orWhere('is_complimentary', false);
+            });
+        }
+        $invoices = $invoiceQuery->get();
+
+        foreach ($invoices as $invoice) {
+            foreach ($invoice->payments as $payment) {
+                $method = mb_strtolower(trim((string) $payment->method));
+                if (in_array($method, ['cash', 'نقدي', 'نقدا', 'نقداً', 'كاش'], true)) {
+                    $collections['cash'] += (float) $payment->amount;
+                } elseif (in_array($method, ['card', 'visa', 'بطاقة', 'بطاقه', 'فيزا'], true)) {
+                    $collections['card'] += (float) $payment->amount;
+                } elseif (in_array($method, ['wallet', 'محفظة', 'محفظه', 'محفظة إلكترونية', 'رصيد'], true)) {
+                    $collections['wallet'] += (float) $payment->amount;
+                }
+            }
+        }
+
+        return array_map(fn ($amount) => round($amount, 2), $collections);
     }
 
     /** Gross sold-item totals by type; returns are reported separately. */
@@ -207,7 +259,14 @@ class CashierShiftController extends Controller
                 ], 404);
             }
 
-            $expected = $this->calculateExpectedAmount($shift);
+            $reportResponse = $this->report(new Request(), $shift->id);
+            $reportData = $reportResponse->getData(true);
+            $expectedAmount = $reportData['data']['reconciliation']['expected_amount'] ?? null;
+            if ($reportResponse->getStatusCode() !== 200 || !is_numeric($expectedAmount)) {
+                throw new \RuntimeException('تعذر حساب تفاصيل الوردية قبل الإغلاق.');
+            }
+
+            $expected = round((float) $expectedAmount, 2);
             $actual   = (float) $request->actual_amount;
 
             $shift->update([
@@ -271,8 +330,8 @@ class CashierShiftController extends Controller
             ], 404);
         }
 
-        // ✅ المتوقع يُحسب live من القيم الحالية
-        $expected = $this->calculateExpectedAmount($shift);
+        $collections = $this->calculateShiftCollections($shift);
+        $expected = $this->calculateExpectedAmount($shift, $collections['cash']);
         $itemSales = $this->calculateShiftItemSalesByType($shift);
 
         return response()->json([
@@ -281,6 +340,10 @@ class CashierShiftController extends Controller
             'data'    => array_merge($shift->toArray(), [
                 'accessories_sales' => $itemSales['accessories_sales'],
                 'services_sales' => $itemSales['services_sales'],
+                'cash_sales' => $collections['cash'],
+                'card_sales' => $collections['card'],
+                'wallet_sales' => $collections['wallet'],
+                'collections_total' => round(array_sum($collections), 2),
                 'expected_amount' => $expected,
                 'expenses_amount' => (float) Finance::query()->withoutGlobalScope('branch')->where('cashier_shift_id', $shift->id)->where('is_tracking_only', false)->sum('amount'),
             ]),
@@ -1089,7 +1152,9 @@ class CashierShiftController extends Controller
             $expectedCash   = $money($openingBalance + $cashSales - $cashReturns - $shiftExpensesTotal);
 
             $savedExpected = $shift->expected_amount !== null ? $money($shift->expected_amount) : null;
-            $finalExpected = $savedExpected ?? $expectedCash;
+            $finalExpected = $shift->status === 'closed' && $savedExpected !== null
+                ? $savedExpected
+                : $expectedCash;
 
             $actualAmount = $shift->actual_amount !== null ? $money($shift->actual_amount) : null;
             $difference   = $actualAmount !== null

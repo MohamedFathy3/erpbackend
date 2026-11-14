@@ -58,6 +58,39 @@ class SystemNotificationService
         );
     }
 
+    public function productCostChanged(
+        Product $product,
+        \App\Models\PurchaseInvoice $invoice,
+        float $oldCost,
+        float $newCost,
+        ?Model $actor,
+        string $activityId,
+    ): void {
+        $productName = $product->name_ar ?: $product->name ?: ('#' . $product->id);
+        $invoiceNumber = $invoice->invoice_number ?: $invoice->id;
+        $actorName = $actor?->getAttribute('name') ?: 'مستخدم';
+
+        $this->notifyTenantAdmins(
+            (int) ($product->tenant_id ?? $invoice->tenant_id ?? 0),
+            'purchase-product-cost-changed:' . $activityId,
+            'warning',
+            'تغيير تكلفة منتج من فاتورة مشتريات',
+            "قام {$actorName} بتغيير تكلفة المنتج {$productName} من "
+                . number_format($oldCost, 2) . ' إلى ' . number_format($newCost, 2)
+                . " من فاتورة المشتريات رقم {$invoiceNumber}.",
+            '/purchasing',
+            [
+                'product_id' => $product->id,
+                'product_name' => $productName,
+                'purchase_invoice_id' => $invoice->id,
+                'invoice_number' => (string) $invoiceNumber,
+                'old_cost' => $oldCost,
+                'new_cost' => $newCost,
+                'activity_id' => $activityId,
+            ],
+        );
+    }
+
     public function journalPosted(JournalEntry $entry): void
     {
         if ($entry->status !== 'posted') return;

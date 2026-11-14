@@ -367,6 +367,12 @@ class SalesInvoiceController extends Controller
                 $query->where('customer_id', $filters['customer_id']);
             }
 
+            if (!empty($filters['product_id'])) {
+                $query->whereHas('items', function ($itemQuery) use ($filters) {
+                    $itemQuery->where('product_id', $filters['product_id']);
+                });
+            }
+
             if (!empty($filters['sales_representative_id'])) {
                 $query->where('sales_representative_id', $filters['sales_representative_id']);
             }

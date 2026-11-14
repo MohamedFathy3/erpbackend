@@ -70,6 +70,7 @@ class InvoiceController extends Controller
                 'cashier',
                 'treasury',
                 'salesRepresentative',
+                'items',
                 'shift',
                 'returns'
             ]);
@@ -84,6 +85,20 @@ class InvoiceController extends Controller
 
             if (!empty($filters['customer_id'])) {
                 $query->where('customer_id', $filters['customer_id']);
+            }
+
+            if (!empty($filters['branch_id'])) {
+                $query->where('branch_id', $filters['branch_id']);
+            }
+
+            if (!empty($filters['sales_representative_id'])) {
+                $query->where('sales_representative_id', $filters['sales_representative_id']);
+            }
+
+            if (!empty($filters['product_id'])) {
+                $query->whereHas('items', function ($itemsQuery) use ($filters) {
+                    $itemsQuery->where('product_id', $filters['product_id']);
+                });
             }
 
             if (!empty($filters['status'])) {

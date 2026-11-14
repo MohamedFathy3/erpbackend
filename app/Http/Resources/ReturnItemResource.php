@@ -12,10 +12,16 @@ class ReturnItemResource extends JsonResource
         return [
             'id' => $this->id,
 
-            'product' => [
+            'product' => $this->product_id ? [
                 'id'   => $this->product_id,
                 'name' => $this->product_name,
-            ],
+            ] : null,
+            'invoice_item_id' => $this->invoice_item_id,
+            'automotive_service_id' => $this->automotive_service_id,
+            'automotive_service' => $this->automotive_service_id ? [
+                'id' => $this->automotive_service_id,
+                'name' => $this->product_name,
+            ] : null,
 
             'color' => $this->color,
             'size'  => $this->size,

@@ -159,7 +159,7 @@ class PosAccountingPostingService
     public function postReturn(ReturnInvoice $return): ?JournalEntry
     {
         return DB::transaction(function () use ($return) {
-            $return = ReturnInvoice::query()->with(['invoice.customer', 'items.product'])->lockForUpdate()->findOrFail($return->id);
+            $return = ReturnInvoice::query()->with(['invoice.customer', 'invoice.items.product', 'items.product'])->lockForUpdate()->findOrFail($return->id);
             $invoice = $return->invoice;
             if (!$invoice) return null;
 
@@ -360,7 +360,17 @@ class PosAccountingPostingService
         $existing = WorkflowTransaction::query()->where('event_key', $eventKey)->whereNotNull('journal_entry_id')->first();
         if ($existing) return $existing->journalEntry;
 
-        $amount = round((float) $return->items->sum(fn ($item) => (float) ($item->product?->cost ?? 0) * (float) $item->quantity), 2);
+        $invoiceItems = $return->invoice?->items->keyBy('id') ?? collect();
+        $amount = round((float) $return->items->sum(function ($item) use ($invoiceItems) {
+            $invoiceItem = $invoiceItems->get($item->invoice_item_id);
+            if (($invoiceItem?->item_type ?? 'product') === 'service') {
+                return 0;
+            }
+
+            return (float) ($invoiceItem?->product?->cost ?? $item->product?->cost ?? 0)
+                * (float) $item->quantity
+                * (float) ($invoiceItem?->meter_quantity ?: 1);
+        }), 2);
         if ($amount <= 0) return null;
 
         $inventory = app(SubledgerPostingService::class)->detailAccount('asset', '1200-INVENTORY', 'مخزون البضائع', 'Merchandise inventory', '1200', 'المخزون', 'Inventory');

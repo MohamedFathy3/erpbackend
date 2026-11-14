@@ -11,6 +11,7 @@ use App\Models\Invoice;
 use App\Models\Admin;
 use App\Models\AutomotiveWarranty;
 use App\Models\AutomotiveStockMovement;
+use App\Models\ReturnInvoice;
 use App\Services\AutomotiveStockService;
 use App\Models\Employee;
 use Illuminate\Http\Request;
@@ -685,6 +686,8 @@ class AutomotiveController extends BaseController
         // ===== فواتير POS (خدمات / منتجات السيارات) =====
         $posInvoices = Invoice::with(['items.product', 'items.automotiveService', 'customer'])
             ->whereBetween('created_at', [$from, $to])
+            ->where(fn ($query) => $query->whereNull('status')
+                ->orWhereNotIn('status', ['cancelled', 'void']))
             ->whereHas('items', fn ($query) => $query->where('item_type', 'service'))
             ->get();
 
@@ -697,8 +700,50 @@ class AutomotiveController extends BaseController
         };
 
         $posServiceItems = $posInvoices->flatMap->items->filter(fn ($item) => $item->item_type === 'service');
+        $posReturnItems = collect();
+        $posReturns = ReturnInvoice::with(['invoice.items.product', 'invoice.items.automotiveService', 'invoice.customer', 'items'])
+            ->whereBetween('created_at', [$from, $to])
+            ->where(fn ($query) => $query->whereNull('workflow_status')
+                ->orWhere('workflow_status', '!=', 'cancelled'))
+            ->get();
 
-        $posServiceRows = $posServiceItems
+        foreach ($posReturns as $return) {
+            $invoice = $return->invoice;
+            if (!$invoice) {
+                continue;
+            }
+
+            foreach ($return->items as $returnItem) {
+                $sourceItem = $invoice->items->first(function ($item) use ($returnItem) {
+                    if ($item->item_type !== 'service') {
+                        return false;
+                    }
+
+                    if ($returnItem->invoice_item_id) {
+                        return (int) $item->id === (int) $returnItem->invoice_item_id;
+                    }
+
+                    return (int) $item->product_id === (int) $returnItem->product_id
+                        && ($item->color ?? null) === ($returnItem->color ?? null)
+                        && ($item->size ?? null) === ($returnItem->size ?? null);
+                });
+                if (!$sourceItem) {
+                    continue;
+                }
+
+                $returnedItem = clone $sourceItem;
+                $returnedItem->quantity = -1 * (float) $returnItem->quantity;
+                $returnedItem->total = -1 * (float) ($returnItem->total ?? ((float) $returnItem->price * (float) $returnItem->quantity));
+                $returnedItem->invoice = $invoice;
+                $returnedItem->return_created_at = $return->created_at;
+                $returnedItem->is_return = true;
+                $posReturnItems->push($returnedItem);
+            }
+        }
+
+        $posReportItems = $posServiceItems->concat($posReturnItems);
+
+        $posServiceRows = $posReportItems
             ->groupBy(fn ($item) => $item->automotive_service_id ?? "product-{$item->product_id}")
             ->map(function ($items, $key) use ($posItemCost) {
                 $first = $items->first();
@@ -708,7 +753,7 @@ class AutomotiveController extends BaseController
                 $metersSold = $items->sum(fn ($item) => (float) $item->quantity * (float) ($item->meter_quantity ?? 1));
 
                 $bySize = $items->groupBy('vehicle_size')->map(fn ($group) => [
-                    'count' => $group->count(),
+                    'count' => $group->sum('quantity'),
                     'meters' => round($group->sum(fn ($i) => (float) $i->quantity * (float) ($i->meter_quantity ?? 1)), 3),
                     'revenue' => round($group->sum('total'), 2),
                 ]);
@@ -729,7 +774,7 @@ class AutomotiveController extends BaseController
 
         $serviceRows = $serviceRows->concat($posServiceRows)->values();
 
-        $posDetails = $posServiceItems->map(function ($item) use ($posItemCost) {
+        $posDetails = $posReportItems->map(function ($item) use ($posItemCost) {
             $invoice = $item->invoice;
             $quantity = (float) $item->quantity;
             $cost = $posItemCost($item);
@@ -742,11 +787,12 @@ class AutomotiveController extends BaseController
                 'quantity' => $quantity,
                 'meter_quantity' => (float) ($item->meter_quantity ?? 0),
                 'unit_price' => (float) $item->price,
-                'unit_cost' => $quantity > 0 ? round($cost / $quantity, 2) : 0,
+                'unit_cost' => abs($quantity) > 0 ? round($cost / $quantity, 2) : 0,
                 'revenue' => (float) $item->total,
                 'profit' => round((float) $item->total - $cost, 2),
                 'stock_remaining' => (float) ($item->automotiveService?->stock_quantity ?? $item->product?->stock ?? 0),
-                'created_at' => $invoice?->created_at?->toDateString(),
+                'created_at' => ($item->return_created_at ?? $invoice?->created_at)?->toDateString(),
+                'is_return' => (bool) ($item->is_return ?? false),
             ];
         })->values();
         $details = $details->concat($posDetails)->values();
