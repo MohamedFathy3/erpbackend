@@ -98,7 +98,7 @@ class PurchaseInvoiceController extends Controller
             ]);
 
             // ============================================================
-            // البنود + حركة المخزون + تحديث متوسط التكلفة
+            // البنود + حركة المخزون + تثبيت تكلفة المنتج على سعر الشراء
             // ============================================================
             foreach ($request->items as $item) {
                 $lineSubtotal = $item['quantity'] * $item['price'];
@@ -157,16 +157,22 @@ class PurchaseInvoiceController extends Controller
                     ->lockForUpdate()
                     ->find($item['product_id']);
                 if ($product) {
-                    $oldStock     = max(0, (float) $product->stock - (float) $item['quantity']);
                     $this->updateProductCostFromPurchase(
                         $product,
-                        $oldStock,
                         (float) $item['quantity'],
                         (float) $item['price'],
                         $invoice,
                         auth()->user(),
                     );
                 }
+
+                DB::table('product_warehouse')
+                    ->where('product_id', $item['product_id'])
+                    ->where('warehouse_id', $request->warehouse_id)
+                    ->update([
+                        'cost' => round((float) $item['price'], 2),
+                        'updated_at' => now(),
+                    ]);
             }
 
             // ============================================================
@@ -625,10 +631,8 @@ class PurchaseInvoiceController extends Controller
                     ->lockForUpdate()
                     ->find($item['product_id']);
                 if ($product) {
-                    $stockBeforePurchase = max(0, (float) $product->stock);
                     $this->updateProductCostFromPurchase(
                         $product,
-                        $stockBeforePurchase,
                         (float) $item['quantity'],
                         (float) $item['price'],
                         $invoice,
@@ -646,12 +650,19 @@ class PurchaseInvoiceController extends Controller
                     DB::table('product_warehouse')
                         ->where('product_id', $item['product_id'])
                         ->where('warehouse_id', $request->warehouse_id)
-                        ->increment('stock', $item['quantity']);
+                        ->update([
+                            'stock' => DB::raw('stock + ' . (float) $item['quantity']),
+                            'cost' => round((float) $item['price'], 2),
+                            'updated_at' => now(),
+                        ]);
                 } else {
                     DB::table('product_warehouse')->insert([
                         'product_id' => $item['product_id'],
                         'warehouse_id' => $request->warehouse_id,
                         'stock' => $item['quantity'],
+                        'cost' => round((float) $item['price'], 2),
+                        'created_at' => now(),
+                        'updated_at' => now(),
                     ]);
                 }
             }
@@ -771,7 +782,6 @@ class PurchaseInvoiceController extends Controller
 
     private function updateProductCostFromPurchase(
         Product $product,
-        float $stockBeforePurchase,
         float $quantity,
         float $purchaseCost,
         PurchaseInvoice $invoice,
@@ -782,10 +792,9 @@ class PurchaseInvoiceController extends Controller
         }
 
         $oldCost = (float) ($product->cost ?? 0);
-        $newCost = $stockBeforePurchase > 0
-            ? (($stockBeforePurchase * $oldCost) + ($quantity * $purchaseCost)) / ($stockBeforePurchase + $quantity)
-            : $purchaseCost;
-        $newCost = round($newCost, 2);
+        // The purchase invoice price is the source of truth. Do not calculate
+        // a weighted average: changing 5 to 4 must make the product cost 4.
+        $newCost = round($purchaseCost, 2);
 
         if (round($oldCost, 2) === $newCost) {
             return;
