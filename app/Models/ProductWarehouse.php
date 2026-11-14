@@ -17,6 +17,10 @@ class ProductWarehouse extends Model
         'cost',
     ];
 
+    protected $casts = [
+        'stock' => 'integer',
+    ];
+
     // المنتج
     public function product()
     {
