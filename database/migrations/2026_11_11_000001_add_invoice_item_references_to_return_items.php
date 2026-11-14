@@ -10,9 +10,19 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('return_items', function (Blueprint $table): void {
-            $table->unsignedBigInteger('product_id')->nullable()->change();
-            $table->foreignId('invoice_item_id')->nullable()->after('return_invoice_id')->constrained('invoice_items')->nullOnDelete();
-            $table->foreignId('automotive_service_id')->nullable()->after('product_id')->constrained('automotive_services')->nullOnDelete();
+            if (!Schema::hasColumn('return_items', 'product_id')) {
+                $table->unsignedBigInteger('product_id')->nullable();
+            } else {
+                $table->unsignedBigInteger('product_id')->nullable()->change();
+            }
+
+            if (!Schema::hasColumn('return_items', 'invoice_item_id')) {
+                $table->foreignId('invoice_item_id')->nullable()->after('return_invoice_id')->constrained('invoice_items')->nullOnDelete();
+            }
+
+            if (!Schema::hasColumn('return_items', 'automotive_service_id')) {
+                $table->foreignId('automotive_service_id')->nullable()->after('product_id')->constrained('automotive_services')->nullOnDelete();
+            }
         });
 
         DB::transaction(fn () => $this->restoreLegacyWarehouseStock());
@@ -25,9 +35,15 @@ return new class extends Migration
         }
 
         Schema::table('return_items', function (Blueprint $table): void {
-            $table->dropConstrainedForeignId('invoice_item_id');
-            $table->dropConstrainedForeignId('automotive_service_id');
-            $table->unsignedBigInteger('product_id')->nullable(false)->change();
+            if (Schema::hasColumn('return_items', 'invoice_item_id')) {
+                $table->dropConstrainedForeignId('invoice_item_id');
+            }
+            if (Schema::hasColumn('return_items', 'automotive_service_id')) {
+                $table->dropConstrainedForeignId('automotive_service_id');
+            }
+            if (Schema::hasColumn('return_items', 'product_id')) {
+                $table->unsignedBigInteger('product_id')->nullable(false)->change();
+            }
         });
     }
 
