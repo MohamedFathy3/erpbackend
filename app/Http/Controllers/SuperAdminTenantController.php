@@ -6,6 +6,17 @@ use App\Models\Admin;
 use App\Models\Employee;
 use App\Models\Tenant;
 use App\Models\TenantModule;
+use App\Models\Branch;
+use App\Models\Warehouse;
+use App\Models\Treasury;
+use App\Models\Currency;
+use App\Models\Tax;
+use App\Models\Category;
+use App\Models\Color;
+use App\Models\Size;
+use App\Models\Unit;
+use App\Models\Product;
+use App\Models\ProductUnit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -74,6 +85,7 @@ class SuperAdminTenantController extends Controller
             }
 
           $roles = $this->createDefaultRolesForTenant($tenant);
+          $this->createDefaultTenantData($tenant);
 
 $admin = null;
 
@@ -217,4 +229,150 @@ private function createDefaultRolesForTenant(Tenant $tenant): array
 
     return $roles;
 }
+
+    private function createDefaultTenantData(Tenant $tenant): void
+    {
+        $branch = Branch::withoutGlobalScopes()->firstOrCreate(
+            ['tenant_id' => $tenant->id, 'code' => 'MAIN'],
+            [
+                'name' => 'الفرع الرئيسي',
+                'phone' => null,
+                'address' => null,
+                'manager' => null,
+                'active' => true,
+                'main_branch' => true,
+            ],
+        );
+
+        $warehouse = Warehouse::withoutGlobalScopes()->firstOrCreate(
+            ['tenant_id' => $tenant->id, 'code' => 'MAIN'],
+            [
+                'branch_id' => $branch->id,
+                'name' => 'المخزن الرئيسي',
+                'phone' => null,
+                'address' => null,
+                'manager' => null,
+                'note' => null,
+                'active' => true,
+                'main_branch' => true,
+            ],
+        );
+
+        $currency = Currency::withoutGlobalScopes()->firstOrCreate(
+            ['tenant_id' => $tenant->id, 'code' => 'EGP'],
+            [
+                'name' => 'جنيه مصري',
+                'symbol' => 'ج.م',
+                'exchange_rate' => '1',
+                'active' => true,
+                'default' => true,
+            ],
+        );
+
+        Treasury::withoutGlobalScopes()->firstOrCreate(
+            ['tenant_id' => $tenant->id, 'code' => 'MAIN-TREASURY'],
+            [
+                'branch_id' => $branch->id,
+                'name' => 'الخزينة الرئيسية',
+                'balance' => 0,
+                'currency' => 'EGP',
+                'is_main' => true,
+                'currencies' => [
+                    [
+                        'currency_id' => $currency->id,
+                        'balance' => 0,
+                        'is_main' => true,
+                    ],
+                ],
+                'notes' => 'تم إنشاء الخزينة الرئيسية تلقائيا عند إنشاء نسخة الشركة.',
+            ],
+        );
+
+        Tax::withoutGlobalScopes()->firstOrCreate(
+            ['tenant_id' => $tenant->id, 'name' => 'ضريبة صفرية'],
+            [
+                'rate' => '0',
+                'active' => true,
+                'default' => true,
+            ],
+        );
+
+        $category = Category::withoutGlobalScopes()->firstOrCreate(
+            ['tenant_id' => $tenant->id, 'name' => 'عام'],
+            ['parent_id' => null, 'icon' => null],
+        );
+
+        Color::withoutGlobalScopes()->firstOrCreate(
+            ['tenant_id' => $tenant->id, 'code' => 'DEFAULT'],
+            [
+                'name' => 'افتراضي',
+                'hex_code' => '#FFFFFF',
+            ],
+        );
+
+        Size::withoutGlobalScopes()->firstOrCreate(
+            ['tenant_id' => $tenant->id, 'code' => 'FREE'],
+            [
+                'name' => 'مقاس افتراضي',
+                'description' => 'مقاس افتراضي عام',
+                'sort_order' => 0,
+                'is_active' => true,
+            ],
+        );
+
+        $unit = Unit::withoutGlobalScopes()->firstOrCreate(
+            ['tenant_id' => $tenant->id, 'code' => 'PCS'],
+            [
+                'name' => 'قطعة',
+                'type_unit' => 'count',
+                'position' => 'single',
+            ],
+        );
+
+        $product = Product::withoutGlobalScopes()->firstOrCreate(
+            ['tenant_id' => $tenant->id, 'sku' => 'DEFAULT'],
+            [
+                'name' => 'المنتج الأساسي',
+                'description' => 'منتج افتراضي تم إنشاؤه تلقائيا عند إنشاء نسخة الشركة.',
+                'barcode' => null,
+                'price' => 0,
+                'cost' => 0,
+                'stock' => 0,
+                'reorder_level' => 0,
+                'category_id' => $category->id,
+                'beginning_balance' => false,
+                'active' => true,
+                'product_type' => 'good',
+                'stock_unit' => 'pcs',
+                'base_unit' => 'pcs',
+                'conversion_factor' => 1,
+                'tracking' => 'none',
+                'package_size' => 1,
+                'package_unit' => 'pcs',
+                'package_cost' => 0,
+            ],
+        );
+
+        ProductUnit::withoutGlobalScopes()->firstOrCreate(
+            ['tenant_id' => $tenant->id, 'product_id' => $product->id, 'unit_id' => $unit->id],
+            [
+                'cost_price' => 0,
+                'sell_price' => 0,
+            ],
+        );
+
+        DB::table('product_warehouse')->updateOrInsert(
+            [
+                'tenant_id' => $tenant->id,
+                'product_id' => $product->id,
+                'warehouse_id' => $warehouse->id,
+            ],
+            [
+                'stock' => 0,
+                'cost' => 0,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        );
+    }
 }

@@ -11,6 +11,7 @@ class Size extends Model
 {
     use BelongsToTenant;
     protected $fillable = [
+        'tenant_id',
         'name',
         'description',
         'code',

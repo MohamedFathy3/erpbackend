@@ -13,6 +13,7 @@ class Customer extends BaseModel
 
     protected $casts = [
         'active' => 'boolean',
+        'is_default' => 'boolean',
         'whatsapp_last_inbound_at' => 'datetime',
     ];
 

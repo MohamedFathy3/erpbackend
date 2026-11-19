@@ -293,6 +293,11 @@ Route::middleware([
                 'roles'
             ]);
 
+            Route::post('/roles', [
+                AdvancedAccessController::class,
+                'storeRole'
+            ]);
+
             Route::put('/roles/{role}', [
                 AdvancedAccessController::class,
                 'updateRole'

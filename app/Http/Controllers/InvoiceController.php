@@ -22,6 +22,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 
 class InvoiceController extends Controller
 {
@@ -238,20 +239,26 @@ public function store(Request $request)
         $defaultCustomer = Customer::query()
             ->where('tenant_id', $tenantId)
             ->where(function ($q) {
-                $q->where('is_default', true)
-                    ->orWhere('name', 'عميل نقدي')
-                    ->orWhere('name', 'Cash Customer');
+                if (Schema::hasColumn('customers', 'is_default')) {
+                    $q->where('is_default', true);
+                } else {
+                    $q->where('name', 'عميل نقدي')
+                        ->orWhere('name', 'Cash Customer');
+                }
             })
             ->first();
 
         if (!$defaultCustomer) {
-            $defaultCustomer = Customer::create([
+            $customerData = [
                 'tenant_id'  => $tenantId,
                 'name'       => 'عميل نقدي',
                 'phone'      => '0000000000',
-                'is_default' => true,
                 'active'     => true,
-            ]);
+            ];
+            if (Schema::hasColumn('customers', 'is_default')) {
+                $customerData['is_default'] = true;
+            }
+            $defaultCustomer = Customer::create($customerData);
         }
 
         $request->merge(['customer_id' => $defaultCustomer->id]);
