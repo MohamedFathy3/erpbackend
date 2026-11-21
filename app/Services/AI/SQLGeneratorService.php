@@ -121,8 +121,13 @@ PROMPT;
             || str_contains($text, 'منتج حصل') || str_contains($text, 'منتج') && str_contains($text, 'مبيعات');
         $salesReport = str_contains($text, 'sales report') || str_contains($text, 'تقرير المبيعات')
             || str_contains($text, 'المبيعات') || str_contains($text, 'sales');
+        $posQuestion = str_contains($text, 'نقطة البيع') || str_contains($text, 'نقطه البيع')
+            || str_contains($text, 'pos') || str_contains($text, 'الفواتير');
         if (!$has('sales_invoices') || !$has('sales_invoice_items') || !$has('products')) {
-            return $this->legacyFallbackPlans($schema, $topSelling, $salesReport);
+            return $this->legacyFallbackPlans($schema, $topSelling, $salesReport, $posQuestion);
+        }
+        if ($posQuestion && $has('invoices') && $has('invoice_items')) {
+            return $this->legacyFallbackPlans($schema, $topSelling, $salesReport, true);
         }
 
         $tenantFilters = [];
@@ -171,7 +176,7 @@ PROMPT;
         return $plans;
     }
 
-    private function legacyFallbackPlans(array $schema, bool $topSelling, bool $salesReport): array
+    private function legacyFallbackPlans(array $schema, bool $topSelling, bool $salesReport, bool $posQuestion = false): array
     {
         $tableColumns = static function (string $table) use ($schema): array {
             foreach ($schema['tables'] ?? [] as $item) {
@@ -186,10 +191,30 @@ PROMPT;
         foreach (['invoices' => 'i', 'invoice_items' => 'ii', 'products' => 'p'] as $table => $alias) {
             if (in_array('tenant_id', $tableColumns($table), true)) $filters[] = "{$alias}.tenant_id = :tenant_id";
         }
+        if ($posQuestion) {
+            if (in_array('status', $tableColumns('invoices'), true)) $filters[] = "i.status IN ('paid', 'partial')";
+            if (in_array('deleted_at', $tableColumns('invoices'), true)) $filters[] = 'i.deleted_at IS NULL';
+            if (in_array('deleted_at', $tableColumns('invoice_items'), true)) $filters[] = 'ii.deleted_at IS NULL';
+            if (in_array('deleted_at', $tableColumns('products'), true)) $filters[] = 'p.deleted_at IS NULL';
+        }
         if (!$filters) return [];
         $where = implode(' AND ', $filters);
         $invoiceWhere = in_array('tenant_id', $tableColumns('invoices'), true) ? 'i.tenant_id = :tenant_id' : '1 = 1';
+        if ($posQuestion && in_array('status', $tableColumns('invoices'), true)) $invoiceWhere .= " AND i.status IN ('paid', 'partial')";
+        if ($posQuestion && in_array('deleted_at', $tableColumns('invoices'), true)) $invoiceWhere .= ' AND i.deleted_at IS NULL';
         $plans = [];
+        if ($posQuestion && !$topSelling && $salesReport
+            && ($hasColumns('invoices', ['total_amount']) || $hasColumns('invoices', ['net_total']))) {
+            $amount = $hasColumns('invoices', ['net_total']) ? 'i.net_total' : 'i.total_amount';
+            $plans[] = [
+                'intent' => 'Total POS sales',
+                'sql' => "SELECT COUNT(DISTINCT i.id) AS invoice_count, SUM(COALESCE({$amount}, 0)) AS total_sales
+                    FROM invoices i
+                    WHERE {$invoiceWhere}",
+                'parameters' => [], 'tables' => ['invoices'], 'clarification_needed' => null,
+            ];
+            return $plans;
+        }
         if ($topSelling) {
             $plans[] = [
                 'intent' => 'Top selling products by total quantity',
