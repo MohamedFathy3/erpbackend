@@ -19,7 +19,7 @@ class BackupController extends Controller
     public function export(Request $request): StreamedResponse
     {
         $user = $request->user();
-        abort_unless($user && method_exists($user, 'hasPermission') && $user->hasPermission('backup.export'), 403, 'Backup export permission is required.');
+        abort_unless($user, 401, 'Authentication is required for backup export.');
 
         $tenantId = app()->bound('currentTenantId')
             ? (int) app('currentTenantId')
@@ -105,7 +105,7 @@ class BackupController extends Controller
     public function import(Request $request): \Illuminate\Http\JsonResponse
     {
         $user = $request->user();
-        abort_unless($user && method_exists($user, 'hasPermission') && $user->hasPermission('backup.import'), 403, 'Backup import permission is required.');
+        abort_unless($user, 401, 'Authentication is required for backup import.');
 
         $tenantId = app()->bound('currentTenantId')
             ? (int) app('currentTenantId')
