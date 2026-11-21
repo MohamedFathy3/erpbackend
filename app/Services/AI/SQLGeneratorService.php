@@ -114,9 +114,11 @@ PROMPT;
             : '1 = 1';
         $plans = [];
         $topSelling = str_contains($text, 'top selling') || str_contains($text, 'best selling')
-            || str_contains($text, 'الأكثر مبيع') || str_contains($text, 'اكثر مبيع');
+            || str_contains($text, 'الأكثر مبيع') || str_contains($text, 'اكثر مبيع')
+            || str_contains($text, 'أكثر منتج') || str_contains($text, 'افضل منتج')
+            || str_contains($text, 'أفضل منتج') || str_contains($text, 'المنتج الأكثر');
         $salesReport = str_contains($text, 'sales report') || str_contains($text, 'تقرير المبيعات')
-            || str_contains($text, 'المبيعات');
+            || str_contains($text, 'المبيعات') || str_contains($text, 'sales');
 
         if ($topSelling && $hasColumns('sales_invoice_items', ['sales_invoice_id', 'product_id', 'quantity'])
             && $hasColumns('sales_invoices', ['id']) && $hasColumns('products', ['id', 'name'])) {

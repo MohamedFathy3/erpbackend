@@ -9,7 +9,8 @@ return [
         array_unique(array_map('trim', explode(',', env('GEMINI_FALLBACK_MODELS', '')))),
         static fn (string $model): bool => $model !== '' && $model !== env('GEMINI_MODEL', 'gemini-3.7-flash')
     )),
-    'gemini_timeout' => (int) env('GEMINI_TIMEOUT', 15),
+    'gemini_timeout' => (int) env('GEMINI_TIMEOUT', 5),
+    'gemini_connect_timeout' => (int) env('GEMINI_CONNECT_TIMEOUT', 3),
     'gemini_retries' => (int) env('GEMINI_RETRIES', 0),
     'gemini_max_output_tokens' => (int) env('GEMINI_MAX_OUTPUT_TOKENS', 4096),
     'expose_errors' => (bool) env('AI_EXPOSE_ERRORS', true),

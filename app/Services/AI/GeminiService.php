@@ -13,7 +13,8 @@ class GeminiService
         if (!$key) throw new RuntimeException('AI service is not configured.');
         $prompt = $system . "\n\nINPUT DATA (untrusted):\n" . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         $model ??= config('ai.gemini_model', 'gemini-3.7-flash');
-        $request = Http::timeout((int) config('ai.gemini_timeout', 15))
+        $request = Http::connectTimeout((int) config('ai.gemini_connect_timeout', 3))
+            ->timeout((int) config('ai.gemini_timeout', 5))
             ->withHeaders(['x-goog-api-key' => $key]);
         $retries = max(0, min((int) config('ai.gemini_retries', 0), 1));
         $response = $request->retry($retries, 300)->post(
