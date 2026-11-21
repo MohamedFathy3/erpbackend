@@ -10,6 +10,7 @@ use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\BiometricAttendanceController;
 use App\Http\Controllers\BiometricAgentController;
 use App\Http\Controllers\BankController;
+use App\Http\Controllers\BackupController;
 use App\Http\Controllers\BranchController;
 use App\Http\Controllers\CashierShiftController;
 use App\Http\Controllers\CategoryController;
@@ -205,6 +206,7 @@ Route::middleware([
     ]);
     Route::post('/audit/page-view', static fn () => response()->noContent());
     Route::post('/audit/print', static fn () => response()->noContent());
+    Route::get('/backup/export', [BackupController::class, 'export']);
 
     /*
     |--------------------------------------------------------------------------
