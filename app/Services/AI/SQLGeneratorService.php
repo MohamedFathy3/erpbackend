@@ -18,6 +18,18 @@ PROMPT;
         // both faster and more deterministic; the validator still protects
         // every generated query before execution.
         if ($fallbacks) return ['plans' => $fallbacks];
+        // Never send a sales question to Gemini just because the deployed
+        // database uses a different legacy schema. Return a safe diagnostic
+        // section instead of a 422/503 provider error.
+        if ($this->isSalesQuestion($question)) {
+            return ['plans' => [[
+                'intent' => 'Sales report',
+                'sql' => null,
+                'parameters' => [],
+                'tables' => [],
+                'clarification_needed' => 'لم أجد جداول المبيعات المتوقعة في اتصال قاعدة بيانات AI. راجع AI_DB_DATABASE والجداول sales_invoices/invoices.',
+            ]];
+        }
 
         try {
             $generated = $this->gemini->json($system, [
@@ -210,5 +222,15 @@ PROMPT;
             ];
         }
         return $plans;
+    }
+
+    private function isSalesQuestion(string $question): bool
+    {
+        $text = mb_strtolower($question);
+        return str_contains($text, 'مبيعات')
+            || str_contains($text, 'بيع')
+            || str_contains($text, 'sales')
+            || str_contains($text, 'invoice')
+            || str_contains($text, 'فاتور');
     }
 }
