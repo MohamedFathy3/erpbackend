@@ -14,7 +14,7 @@ return [
     'gemini_retries' => (int) env('GEMINI_RETRIES', 0),
     'gemini_max_output_tokens' => (int) env('GEMINI_MAX_OUTPUT_TOKENS', 4096),
     'expose_errors' => (bool) env('AI_EXPOSE_ERRORS', true),
-    'database_connection' => env('AI_DB_CONNECTION', 'ai_readonly'),
+    'database_connection' => env('AI_DB_CONNECTION') ?: 'ai_readonly',
     'max_rows' => (int) env('MAX_AI_ROWS', 100),
     'max_repair_attempts' => (int) env('AI_MAX_REPAIR_ATTEMPTS', 1),
     'schema_cache_minutes' => (int) env('AI_SCHEMA_CACHE_MINUTES', 60),
