@@ -25,8 +25,10 @@ return Application::configure(basePath: dirname(__DIR__))
         __DIR__.'/../app/Console/Commands',
     ])
     ->withMiddleware(function (Middleware $middleware) {
+        // API authentication is performed with Sanctum personal access tokens.
+        // Keep browser-session / CSRF middleware on the web stack only; the SPA
+        // and API are hosted on different sites and do not share session cookies.
         $middleware->api(prepend: [
-            \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
             SnakeCaseMiddleware::class,
             ForceJsonResponse::class,
         ]);
