@@ -207,6 +207,7 @@ Route::middleware([
     Route::post('/audit/page-view', static fn () => response()->noContent());
     Route::post('/audit/print', static fn () => response()->noContent());
     Route::get('/backup/export', [BackupController::class, 'export']);
+    Route::post('/backup/import', [BackupController::class, 'import']);
 
     /*
     |--------------------------------------------------------------------------

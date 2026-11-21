@@ -101,4 +101,50 @@ class BackupController extends Controller
             'X-Backup-Tables' => (string) $tables->count(),
         ]);
     }
+
+    public function import(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user && method_exists($user, 'hasPermission') && $user->hasPermission('backup.import'), 403, 'Backup import permission is required.');
+
+        $tenantId = app()->bound('currentTenantId')
+            ? (int) app('currentTenantId')
+            : (int) ($user->tenant_id ?? 0);
+        abort_unless($tenantId > 0, 403, 'A tenant workspace is required for backup import.');
+
+        $request->validate(['backup' => ['required', 'file', 'mimes:json', 'max:512000']]);
+        $payload = json_decode($request->file('backup')->get(), true, 512, JSON_THROW_ON_ERROR);
+        abort_unless(is_array($payload) && ($payload['format'] ?? null) === 'erp-backup' && is_array($payload['tables'] ?? null), 422, 'Invalid ERP backup file.');
+        abort_unless((int) ($payload['tenant_id'] ?? $tenantId) === $tenantId, 422, 'This backup belongs to a different tenant.');
+
+        $allowedTables = collect(Schema::getTables())
+            ->map(fn (array $table): string => (string) ($table['name'] ?? ''))
+            ->filter(fn (string $table): bool => $table !== '' && Schema::hasColumn($table, 'tenant_id'))
+            ->flip();
+
+        $tables = collect($payload['tables']);
+        abort_unless($tables->keys()->every(fn ($table): bool => $allowedTables->has($table)), 422, 'The backup contains an unsupported table.');
+
+        DB::transaction(function () use ($tables, $tenantId): void {
+            DB::statement('SET FOREIGN_KEY_CHECKS=0');
+            try {
+                foreach ($tables as $table => $records) {
+                    abort_unless(is_array($records), 422, 'Invalid records for table ' . $table . '.');
+                    DB::table($table)->where('tenant_id', $tenantId)->delete();
+                    foreach (array_chunk($records, 500) as $batch) {
+                        $rows = array_map(function (array $row) use ($tenantId): array {
+                            unset($row['password'], $row['remember_token'], $row['api_token'], $row['access_token'], $row['refresh_token'], $row['client_secret']);
+                            $row['tenant_id'] = $tenantId;
+                            return $row;
+                        }, $batch);
+                        if ($rows !== []) DB::table($table)->insert($rows);
+                    }
+                }
+            } finally {
+                DB::statement('SET FOREIGN_KEY_CHECKS=1');
+            }
+        });
+
+        return response()->json(['message' => 'Backup imported successfully.', 'tables' => $tables->count()]);
+    }
 }
