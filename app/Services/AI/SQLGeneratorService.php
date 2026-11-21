@@ -101,7 +101,17 @@ PROMPT;
         };
         $has = static fn (string $table): bool => $tableColumns($table) !== [];
         $hasColumns = static fn (string $table, array $required): bool => !array_diff($required, $tableColumns($table));
-        if (!$has('sales_invoices') || !$has('sales_invoice_items') || !$has('products')) return [];
+        $topSelling = str_contains($text, 'top selling') || str_contains($text, 'best selling')
+            || str_contains($text, 'الأكثر مبيع') || str_contains($text, 'اكثر مبيع')
+            || str_contains($text, 'أكثر منتج') || str_contains($text, 'اكتر منتج')
+            || str_contains($text, 'افضل منتج') || str_contains($text, 'أفضل منتج')
+            || str_contains($text, 'المنتج الأكثر') || str_contains($text, 'مونتج')
+            || str_contains($text, 'منتج حصل') || str_contains($text, 'منتج') && str_contains($text, 'مبيعات');
+        $salesReport = str_contains($text, 'sales report') || str_contains($text, 'تقرير المبيعات')
+            || str_contains($text, 'المبيعات') || str_contains($text, 'sales');
+        if (!$has('sales_invoices') || !$has('sales_invoice_items') || !$has('products')) {
+            return $this->legacyFallbackPlans($schema, $topSelling, $salesReport);
+        }
 
         $tenantFilters = [];
         foreach (['sales_invoices' => 'si', 'sales_invoice_items' => 'sii', 'products' => 'p'] as $table => $alias) {
@@ -113,13 +123,6 @@ PROMPT;
             ? 'si.tenant_id = :tenant_id'
             : '1 = 1';
         $plans = [];
-        $topSelling = str_contains($text, 'top selling') || str_contains($text, 'best selling')
-            || str_contains($text, 'الأكثر مبيع') || str_contains($text, 'اكثر مبيع')
-            || str_contains($text, 'أكثر منتج') || str_contains($text, 'افضل منتج')
-            || str_contains($text, 'أفضل منتج') || str_contains($text, 'المنتج الأكثر');
-        $salesReport = str_contains($text, 'sales report') || str_contains($text, 'تقرير المبيعات')
-            || str_contains($text, 'المبيعات') || str_contains($text, 'sales');
-
         if ($topSelling && $hasColumns('sales_invoice_items', ['sales_invoice_id', 'product_id', 'quantity'])
             && $hasColumns('sales_invoices', ['id']) && $hasColumns('products', ['id', 'name'])) {
             $plans[] = [
@@ -151,6 +154,59 @@ PROMPT;
                     'start_date' => now()->subMonth()->startOfMonth()->toDateString(),
                     'end_date' => now()->startOfMonth()->toDateString(),
                 ], 'tables' => ['sales_invoices'], 'clarification_needed' => null,
+            ];
+        }
+        return $plans;
+    }
+
+    private function legacyFallbackPlans(array $schema, bool $topSelling, bool $salesReport): array
+    {
+        $tableColumns = static function (string $table) use ($schema): array {
+            foreach ($schema['tables'] ?? [] as $item) {
+                if (($item['table'] ?? '') === $table) return array_column($item['columns'] ?? [], 'name');
+            }
+            return [];
+        };
+        $hasColumns = static fn (string $table, array $required): bool => !array_diff($required, $tableColumns($table));
+        if (!$hasColumns('invoices', ['id', 'created_at']) || !$hasColumns('invoice_items', ['invoice_id', 'product_id', 'quantity'])
+            || !$hasColumns('products', ['id', 'name'])) return [];
+        $filters = [];
+        foreach (['invoices' => 'i', 'invoice_items' => 'ii', 'products' => 'p'] as $table => $alias) {
+            if (in_array('tenant_id', $tableColumns($table), true)) $filters[] = "{$alias}.tenant_id = :tenant_id";
+        }
+        if (!$filters) return [];
+        $where = implode(' AND ', $filters);
+        $invoiceWhere = in_array('tenant_id', $tableColumns('invoices'), true) ? 'i.tenant_id = :tenant_id' : '1 = 1';
+        $plans = [];
+        if ($topSelling) {
+            $plans[] = [
+                'intent' => 'Top selling products by total quantity',
+                'sql' => "SELECT p.id AS product_id, p.name AS product_name, SUM(COALESCE(ii.quantity, 0)) AS total_quantity
+                    FROM invoice_items ii
+                    INNER JOIN invoices i ON i.id = ii.invoice_id
+                    INNER JOIN products p ON p.id = ii.product_id
+                    WHERE {$where}
+                    GROUP BY p.id, p.name
+                    ORDER BY total_quantity DESC
+                    LIMIT 10",
+                'parameters' => [], 'tables' => ['invoice_items', 'invoices', 'products'], 'clarification_needed' => null,
+            ];
+        }
+        if ($salesReport && ($hasColumns('invoices', ['total_amount']) || $hasColumns('invoices', ['net_total']))) {
+            $amount = $hasColumns('invoices', ['net_total']) ? 'i.net_total' : 'i.total_amount';
+            $plans[] = [
+                'intent' => 'Sales report for last month',
+                'sql' => "SELECT DATE(i.created_at) AS sale_date, COUNT(DISTINCT i.id) AS invoice_count,
+                    SUM(COALESCE({$amount}, 0)) AS total_sales
+                    FROM invoices i
+                    WHERE {$invoiceWhere}
+                      AND i.created_at >= :start_date AND i.created_at < :end_date
+                    GROUP BY DATE(i.created_at)
+                    ORDER BY sale_date ASC",
+                'parameters' => [
+                    'start_date' => now()->subMonth()->startOfMonth()->toDateString(),
+                    'end_date' => now()->startOfMonth()->toDateString(),
+                ], 'tables' => ['invoices'], 'clarification_needed' => null,
             ];
         }
         return $plans;
