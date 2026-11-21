@@ -38,7 +38,8 @@ return Application::configure(basePath: dirname(__DIR__))
             EnforceRoutePermission::class,
             EnsureTenantSubscriptionActive::class,
         ]);
-        $middleware->validateCsrfTokens(except: ['iclock/*']);
+        // API routes authenticate with bearer tokens and must not require a browser CSRF cookie.
+        $middleware->validateCsrfTokens(except: ['api/*', 'iclock/*']);
 
         $middleware->alias([
             'verified' => \App\Http\Middleware\EnsureEmailIsVerified::class,
