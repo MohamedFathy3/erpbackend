@@ -28,7 +28,7 @@ PROMPT;
                 'parameters' => [],
                 'tables' => [],
                 'clarification_needed' => 'لم أجد جداول المبيعات المتوقعة في اتصال قاعدة بيانات AI. راجع AI_DB_DATABASE والجداول sales_invoices/invoices.',
-            ]];
+            ]]];
         }
 
         try {
