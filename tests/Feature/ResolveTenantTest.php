@@ -12,6 +12,29 @@ class ResolveTenantTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_primary_and_legacy_tenant_roots_both_resolve_workspace_slugs(): void
+    {
+        config([
+            'tenancy.root_domain' => 'fusionerp.systems',
+            'tenancy.root_domains' => ['fusionerp.systems', 'professionalacademyedu.com'],
+            'tenancy.central_domains' => 'fusionerp.systems,www.fusionerp.systems,professionalacademyedu.com,www.professionalacademyedu.com',
+        ]);
+        $tenant = Tenant::create(['name' => 'Fusion workspace', 'slug' => 'fusion-workspace']);
+
+        foreach ([
+            'https://fusion-workspace.fusionerp.systems/api/me/enabled-modules',
+            'https://fusion-workspace.professionalacademyedu.com/api/me/enabled-modules',
+        ] as $url) {
+            $request = Request::create($url, 'GET');
+            $response = app(ResolveTenant::class)->handle($request, fn () => response()->json([
+                'tenant_id' => app('currentTenantId'),
+            ]));
+
+            $this->assertSame(200, $response->getStatusCode());
+            $this->assertSame($tenant->id, $response->getData(true)['tenant_id']);
+        }
+    }
+
     public function test_explicit_tenant_header_takes_precedence_over_api_subdomain(): void
     {
         config(['tenancy.root_domain' => 'professionalacademyedu.com']);

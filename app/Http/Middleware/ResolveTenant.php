@@ -55,15 +55,25 @@ class ResolveTenant
     }
     private function slugFromHost(string $host, Request $request): ?string
     {
-        $central=collect(explode(',',(string)config('tenancy.central_domains','')))->map(fn($item)=>trim(strtolower($item)))->filter()->all();
+        $centralConfig = config('tenancy.central_domains', '');
+        $central = is_array($centralConfig)
+            ? $centralConfig
+            : explode(',', (string) $centralConfig);
+        $central = array_values(array_filter(array_map(fn ($item) => trim(strtolower((string) $item)), $central)));
         if (in_array($host,$central,true)) return null;
-        $root=strtolower((string)config('tenancy.root_domain','example.com'));
+        $rootConfig = config('tenancy.root_domains', [config('tenancy.root_domain', 'example.com')]);
+        $roots = is_array($rootConfig) ? $rootConfig : explode(',', (string) $rootConfig);
+        $roots = array_values(array_unique(array_filter(array_map(fn ($item) => trim(strtolower((string) $item)), $roots))));
+        usort($roots, fn ($left, $right) => strlen($right) <=> strlen($left));
         // Shared/central hosts do not imply a tenant. Authenticated users may
         // fall back to their assigned tenant_id in handle().
-        if ($host === $root || !str_ends_with($host,'.'.$root)) {
-            return null;
+        foreach ($roots as $root) {
+            if ($host === $root || !str_ends_with($host, '.' . $root)) {
+                continue;
+            }
+            $prefix = substr($host, 0, -(strlen($root) + 1));
+            return $prefix && !str_contains($prefix, '.') ? $prefix : null;
         }
-        $prefix=substr($host,0,-(strlen($root)+1));
-        return $prefix && !str_contains($prefix,'.') ? $prefix : null;
+        return null;
     }
 }

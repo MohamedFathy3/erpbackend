@@ -2,6 +2,30 @@
 
 use Laravel\Sanctum\Sanctum;
 
+$primaryRootDomain = strtolower(trim((string) env('TENANT_PRIMARY_ROOT_DOMAIN', 'fusionerp.systems')));
+$legacyRootDomain = strtolower(trim((string) env('TENANT_ROOT_DOMAIN', 'professionalacademyedu.com')));
+$configuredRootDomains = array_map(
+    'strtolower',
+    array_map('trim', explode(',', (string) env('TENANT_ROOT_DOMAINS', 'fusionerp.systems,professionalacademyedu.com')))
+);
+$tenantRootDomains = array_values(array_unique(array_filter(array_merge(
+    [$primaryRootDomain, $legacyRootDomain],
+    $configuredRootDomains
+))));
+$statefulDomains = array_filter(array_map('trim', explode(',', (string) env('SANCTUM_STATEFUL_DOMAINS', ''))));
+$statefulDomains = array_merge(
+    $statefulDomains,
+    ['localhost', 'localhost:3000', '127.0.0.1', '127.0.0.1:8000', '::1', Sanctum::currentApplicationUrlWithPort()]
+);
+if (env('FRONTEND_URL')) {
+    $statefulDomains[] = (string) parse_url(env('FRONTEND_URL'), PHP_URL_HOST);
+}
+foreach ($tenantRootDomains as $rootDomain) {
+    $statefulDomains[] = $rootDomain;
+    $statefulDomains[] = '*.' . $rootDomain;
+}
+$statefulDomains = array_values(array_unique(array_filter($statefulDomains)));
+
 return [
 
     /*
@@ -15,12 +39,7 @@ return [
     |
     */
 
-    'stateful' => explode(',', env('SANCTUM_STATEFUL_DOMAINS', sprintf(
-        '%s%s%s',
-        'localhost,localhost:3000,127.0.0.1,127.0.0.1:8000,::1',
-        Sanctum::currentApplicationUrlWithPort(),
-        env('FRONTEND_URL') ? ','.parse_url(env('FRONTEND_URL'), PHP_URL_HOST) : ''
-    ))),
+    'stateful' => $statefulDomains,
 
     /*
     |--------------------------------------------------------------------------
