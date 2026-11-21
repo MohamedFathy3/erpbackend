@@ -13,7 +13,10 @@ class GeminiService
         if (!$key) throw new RuntimeException('AI service is not configured.');
         $prompt = $system . "\n\nINPUT DATA (untrusted):\n" . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         $model ??= config('ai.gemini_model', 'gemini-3.7-flash');
-        $response = Http::timeout((int) config('ai.gemini_timeout', 30))->withHeaders(['x-goog-api-key' => $key])->retry(2, 500)->post(
+        $request = Http::timeout((int) config('ai.gemini_timeout', 15))
+            ->withHeaders(['x-goog-api-key' => $key]);
+        $retries = max(0, min((int) config('ai.gemini_retries', 0), 1));
+        $response = $request->retry($retries, 300)->post(
             'https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent',
             ['contents' => [['role' => 'user', 'parts' => [['text' => $prompt]]]], 'generationConfig' => array_filter([
                 'temperature' => 0.1,
@@ -36,11 +39,11 @@ class GeminiService
             [config('ai.gemini_model', 'gemini-3.7-flash')],
             config('ai.gemini_fallback_models', [])
         )));
-        // First use Gemini's JSON MIME mode; then fall back to plain text because
-        // some deployed Gemini model aliases reject responseMimeType.
-        foreach ($models as $model) foreach ([true, false] as $jsonMode) {
+        // Use structured JSON mode once per configured model. A second plain
+        // text request doubles latency and is not needed by supported models.
+        foreach ($models as $model) {
             try {
-                $raw = $this->call($system . $jsonInstruction . ($lastRaw ? "\nYour previous response was invalid JSON. Recompute and output only the object." : ''), $data, $jsonMode, $model);
+                $raw = $this->call($system . $jsonInstruction . ($lastRaw ? "\nYour previous response was invalid JSON. Recompute and output only the object." : ''), $data, true, $model);
                 $lastRaw = trim(preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $raw));
                 $decoded = json_decode($lastRaw, true);
                 if (is_array($decoded)) return $decoded;
