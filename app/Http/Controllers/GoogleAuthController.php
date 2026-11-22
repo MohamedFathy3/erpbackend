@@ -34,7 +34,7 @@ class GoogleAuthController extends Controller
             'issued_at' => now()->timestamp,
         ], JSON_THROW_ON_ERROR));
 
-        return response()->json(['data' => ['url' => $this->google->authorizationUrl($state, config('google.auth_redirect_uri'))]]);
+        return response()->json(['data' => ['url' => $this->google->authorizationUrl($state, config('google.auth_redirect_uri'), ['openid', 'email', 'profile'])]]);
     }
 
     public function callback(Request $request): RedirectResponse

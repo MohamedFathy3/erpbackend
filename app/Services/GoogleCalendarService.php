@@ -34,11 +34,14 @@ class GoogleCalendarService
         return $client;
     }
 
-    public function authorizationUrl(string $state, ?string $redirectUri = null): string
+    public function authorizationUrl(string $state, ?string $redirectUri = null, ?array $scopes = null): string
     {
         $client = $this->client();
         if ($redirectUri) {
             $client->setRedirectUri($redirectUri);
+        }
+        if ($scopes !== null) {
+            $client->setScopes($scopes);
         }
         $client->setState($state);
         return $client->createAuthUrl();
