@@ -233,6 +233,10 @@ Route::middleware([
             SuperAdminTenantController::class,
             'store'
         ]);
+        Route::delete('/tenants/{tenant}', [
+            SuperAdminTenantController::class,
+            'destroy'
+        ]);
 
         Route::patch('/tenants/{tenant}/status', [
             SuperAdminTenantController::class,

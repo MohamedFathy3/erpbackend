@@ -17,9 +17,12 @@ use App\Models\Size;
 use App\Models\Unit;
 use App\Models\Product;
 use App\Models\ProductUnit;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class SuperAdminTenantController extends Controller
@@ -147,6 +150,105 @@ if (!empty($data['admin_email'])) {
 
         activity()->causedBy(auth()->user())->performedOn($tenant)->withProperties($data)->log('tenant status updated');
         return response()->json(['data' => $tenant->fresh()]);
+    }
+
+    public function destroy(Request $request, Tenant $tenant)
+    {
+        abort_unless((bool) auth()->user()?->super_admin, 403);
+        $data = $request->validate([
+            'confirmation' => ['required', 'string', 'max:100'],
+        ]);
+        abort_unless(hash_equals((string) $tenant->slug, $data['confirmation']), 422, 'The confirmation value does not match this tenant slug.');
+
+        $mediaPaths = DB::transaction(function () use ($tenant): array {
+            $tenantId = $tenant->id;
+            $adminIds = Admin::withoutGlobalScopes()->where('tenant_id', $tenantId)->pluck('id');
+            $employeeIds = Employee::withoutGlobalScopes()->where('tenant_id', $tenantId)->pluck('id');
+
+            // Revoke tenant users' API tokens before removing the user records.
+            if (Schema::hasTable('personal_access_tokens')) {
+                foreach ([Admin::class => $adminIds, Employee::class => $employeeIds] as $modelType => $ids) {
+                    if ($ids->isNotEmpty()) {
+                        DB::table('personal_access_tokens')
+                            ->where('tokenable_type', $modelType)
+                            ->whereIn('tokenable_id', $ids)
+                            ->delete();
+                    }
+                }
+            }
+
+            // Delete every row carrying this tenant ID, child tables before their parents.
+            $tenantTables = collect(Schema::getTables())
+                ->map(fn (array $table): string => (string) ($table['name'] ?? ''))
+                ->filter(fn (string $table): bool => $table !== '' && $table !== 'tenants' && Schema::hasColumn($table, 'tenant_id'))
+                ->values()
+                ->all();
+            $tenantTableSet = array_fill_keys($tenantTables, true);
+            $childrenByParent = [];
+            if ($tenantTables !== []) {
+                $foreignKeys = DB::select(
+                    'SELECT TABLE_NAME AS child_table, REFERENCED_TABLE_NAME AS parent_table FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = ? AND REFERENCED_TABLE_NAME IS NOT NULL',
+                    [DB::getDatabaseName()],
+                );
+                foreach ($foreignKeys as $foreignKey) {
+                    if (isset($tenantTableSet[$foreignKey->child_table], $tenantTableSet[$foreignKey->parent_table])) {
+                        $childrenByParent[$foreignKey->parent_table][] = $foreignKey->child_table;
+                    }
+                }
+            }
+
+            $mediaPaths = [];
+            if (Schema::hasTable('mediable') && Schema::hasTable('media')) {
+                $tenantMediaIds = collect();
+                $modelTypes = DB::table('mediable')->distinct()->pluck('model_type');
+                foreach ($modelTypes as $modelType) {
+                    if (!is_string($modelType) || !class_exists($modelType) || !is_subclass_of($modelType, Model::class)) continue;
+                    $model = new $modelType();
+                    $modelTable = $model->getTable();
+                    if (!isset($tenantTableSet[$modelTable]) || !Schema::hasColumn($modelTable, 'id')) continue;
+                    $tenantModelIds = DB::table($modelTable)->select('id')->where('tenant_id', $tenantId);
+                    $links = DB::table('mediable')->where('model_type', $modelType)->whereIn('model_id', $tenantModelIds);
+                    $tenantMediaIds = $tenantMediaIds->merge((clone $links)->whereNotNull('media_id')->pluck('media_id'));
+                    $links->delete();
+                }
+                $tenantMediaIds = $tenantMediaIds->unique()->values();
+                foreach ($tenantMediaIds->chunk(500) as $mediaIdBatch) {
+                    $orphanedMedia = DB::table('media')
+                        ->whereIn('id', $mediaIdBatch)
+                        ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('mediable')->whereColumn('mediable.media_id', 'media.id'))
+                        ->get(['id', 'file_path']);
+                    if ($orphanedMedia->isNotEmpty()) {
+                        $mediaPaths = array_merge($mediaPaths, $orphanedMedia->pluck('file_path')->filter()->all());
+                        DB::table('media')->whereIn('id', $orphanedMedia->pluck('id'))->delete();
+                    }
+                }
+            }
+
+            $orderedTables = [];
+            $visited = [];
+            $visiting = [];
+            $visit = function (string $table) use (&$visit, &$orderedTables, &$visited, &$visiting, $childrenByParent): void {
+                if (isset($visited[$table]) || isset($visiting[$table])) return;
+                $visiting[$table] = true;
+                foreach ($childrenByParent[$table] ?? [] as $childTable) $visit($childTable);
+                unset($visiting[$table]);
+                $visited[$table] = true;
+                $orderedTables[] = $table;
+            };
+            foreach ($tenantTables as $table) $visit($table);
+
+            foreach ($orderedTables as $table) {
+                DB::table($table)->where('tenant_id', $tenantId)->delete();
+            }
+            DB::table('tenants')->where('id', $tenantId)->delete();
+            return $mediaPaths;
+        });
+
+        foreach ($mediaPaths as $mediaPath) {
+            Storage::disk('public')->delete($mediaPath);
+        }
+
+        return response()->json(['message' => 'Tenant and all tenant-scoped data were permanently deleted.']);
     }
 
     public function modules(Tenant $tenant)

@@ -19,7 +19,7 @@ class TrialSignupController extends Controller
     {
         $data=$request->validate(['company_name'=>'required|string|max:255','full_name'=>'required|string|max:255','email'=>'required|email|max:255|unique:admins,email','phone'=>'nullable|string|max:50','password'=>'required|string|min:8|confirmed']);
         $tenant=DB::transaction(function () use ($data) {
-            $starts=now(); $ends=now()->addDays(15); $slug=$this->uniqueSlug($data['company_name']);
+            $starts=now(); $ends=now()->addDays(5); $slug=$this->uniqueSlug($data['company_name']);
             $tenant=Tenant::withoutGlobalScopes()->create(['name'=>$data['company_name'],'slug'=>$slug,'status'=>'trial','subscription_status'=>'trial','plan'=>'trial','trial_starts_at'=>$starts,'trial_ends_at'=>$ends]);
             foreach (TenantModule::available() as $key) TenantModule::withoutGlobalScopes()->create(['tenant_id'=>$tenant->id,'module_key'=>$key,'is_enabled'=>true]);
             $roles = $this->seedTenantRoles($tenant->id);
@@ -30,7 +30,7 @@ class TrialSignupController extends Controller
         [$tenant,$admin]=$tenant;
         $admin->sendEmailVerificationNotification();
         $loginUrl=$this->tenantUrl($tenant->slug);
-        SendTrialEmail::dispatch($admin->email, 'Welcome to your 15-day ERP trial', "<h2>Welcome {$admin->name}</h2><p>Your workspace <strong>{$tenant->name}</strong> is ready.</p><p>Your free trial ends on {$tenant->trial_ends_at->toDateString()}.</p><p><a href=\"{$loginUrl}\">Login to your workspace</a></p>");
+        SendTrialEmail::dispatch($admin->email, 'Welcome to your 5-day ERP trial', "<h2>Welcome {$admin->name}</h2><p>Your workspace <strong>{$tenant->name}</strong> is ready.</p><p>Your free trial ends on {$tenant->trial_ends_at->toDateString()}.</p><p><a href=\"{$loginUrl}\">Login to your workspace</a></p>");
         return response()->json(['message'=>'Trial workspace created successfully.','data'=>['tenant'=>$tenant->only(['id','name','slug','trial_starts_at','trial_ends_at','subscription_status']),'login_url'=>$loginUrl]],201);
     }
 

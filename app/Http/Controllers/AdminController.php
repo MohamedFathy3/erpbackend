@@ -104,7 +104,7 @@ public function store(AdminRequest $request)
                     'status' => 'trial',
                     'plan' => 'trial',
                     'trial_starts_at' => now(),
-                    'trial_ends_at' => now()->addDays(15),
+                    'trial_ends_at' => now()->addDays(5),
                     'subscription_status' => 'trial',
                 ]);
 
