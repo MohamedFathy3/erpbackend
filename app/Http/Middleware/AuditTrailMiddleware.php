@@ -19,7 +19,7 @@ use Throwable;
 
 class AuditTrailMiddleware
 {
-    private const SECRET_KEY = '/password|token|secret|authorization|cookie|credit.?card|card.?number|cvv|cvc|pin|api.?key|private.?key|refresh.?token/i';
+    private const SECRET_KEY = '/password|token|secret|authorization|cookie|credit.?card|card.?number|cvv|cvc|pin|api.?key|private.?key|refresh.?token|^(?:code|state)$/i';
 
     public function handle(Request $request, Closure $next): Response
     {
