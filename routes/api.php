@@ -1471,6 +1471,11 @@ Route::middleware([
         'searchByInvoiceNumber'
     ]);
 
+    Route::get('/invoices/{id}', [
+        InvoiceController::class,
+        'show'
+    ]);
+
     Route::post('/invoices/index', [
         InvoiceController::class,
         'invoiceIndex'

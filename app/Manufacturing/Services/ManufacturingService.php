@@ -15,6 +15,7 @@ use App\Manufacturing\Services\ManufacturingUnitConverter;
 use App\Manufacturing\Models\QualityInspection;
 use App\Models\Account;
 use App\Models\InventoryMovement;
+use App\Models\Invoice;
 use App\Models\Product;
 use App\Services\AccountLedgerService;
 use Illuminate\Database\Eloquent\Model;
@@ -215,24 +216,50 @@ class ManufacturingService
         ?int $colorId = null,
     ): ManufacturingOrder
     {
-        $itemQuery = DB::table('invoice_items')
-            ->where('invoice_id', $invoiceId)
-            ->where('id', $invoiceItemId);
-        if ($this->tenantId) {
-            $itemQuery->where('tenant_id', $this->tenantId);
+        $tenantId = $this->tenantId ?: (app()->bound('currentTenantId') ? (int) app('currentTenantId') : null);
+        if (!$tenantId) {
+            throw ValidationException::withMessages([
+                'invoice_id' => 'تعذر تحديد مساحة العمل للتحقق من الفاتورة.',
+            ]);
         }
+
+        $invoice = Invoice::query()
+            ->where('tenant_id', $tenantId)
+            ->find($invoiceId);
+        if (!$invoice) {
+            throw ValidationException::withMessages([
+                'invoice_id' => 'الفاتورة غير موجودة أو لا تملك صلاحية الوصول إليها.',
+            ]);
+        }
+
+        $itemQuery = DB::table('invoice_items')
+            ->where('invoice_id', $invoice->id)
+            ->where('tenant_id', $tenantId)
+            ->where('id', $invoiceItemId);
         $item = $itemQuery->first();
 
         if (!$item) {
-            throw new RuntimeException('Invoice item not found.');
+            throw ValidationException::withMessages([
+                'invoice_item_id' => 'البند المحدد غير موجود ضمن هذه الفاتورة؛ اختر بندًا من قائمة بنود الفاتورة.',
+            ]);
         }
         if (($item->item_type ?? 'product') !== 'product' || !$item->product_id) {
-            throw new RuntimeException('Only stocked product invoice items can be manufactured.');
+            throw ValidationException::withMessages([
+                'invoice_item_id' => 'لا يمكن إنشاء أمر تصنيع إلا لبند منتج مخزني من الفاتورة.',
+            ]);
+        }
+        $product = Product::query()->find($item->product_id);
+        if (!$product || $product->product_type === 'service') {
+            throw ValidationException::withMessages([
+                'invoice_item_id' => 'المنتج المرتبط ببند الفاتورة غير متاح للتصنيع في مساحة العمل الحالية.',
+            ]);
         }
 
         $quantity = (float) ($item->meter_quantity ?: $item->quantity);
         if ($quantity <= 0) {
-            throw new RuntimeException('The invoice item has no valid production quantity.');
+            throw ValidationException::withMessages([
+                'invoice_item_id' => 'كمية بند الفاتورة غير صالحة للتصنيع.',
+            ]);
         }
 
         return $this->createOrder([

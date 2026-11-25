@@ -788,31 +788,38 @@ public function store(Request $request)
         }
     }
 
-    public function show($id)
+    public function show(Request $request, $id)
     {
-        try {
-            $invoice = Invoice::with([
-                'items',
-                'payments',
-                'customer',
-                'branch',
-                'shift',
-                'salesRepresentative',
-                'cashier',
-                'treasury'
-            ])->findOrFail($id);
+        $tenantId = $request->user()?->tenant_id
+            ?: (app()->bound('currentTenantId') ? (int) app('currentTenantId') : null);
+        $invoiceQuery = Invoice::query()->with([
+            'items',
+            'payments',
+            'customer',
+            'branch',
+            'shift',
+            'salesRepresentative',
+            'cashier',
+            'treasury'
+        ]);
+        if ($tenantId) {
+            $invoiceQuery->where('tenant_id', $tenantId);
+        } else {
+            $invoiceQuery->whereRaw('1 = 0');
+        }
+        $invoice = $invoiceQuery->find($id);
 
-            return response()->json([
-                'status' => true,
-                'data' => new InvoiceResource($invoice)
-            ]);
-
-        } catch (\Exception $e) {
+        if (!$invoice) {
             return response()->json([
                 'status' => false,
-                'message' => $e->getMessage()
-            ], 500);
+                'message' => 'الفاتورة غير موجودة أو لا تملك صلاحية الوصول إليها.',
+            ], 404);
         }
+
+        return response()->json([
+            'status' => true,
+            'data' => new InvoiceResource($invoice)
+        ]);
     }
 
     public function makeComplimentary(Request $request, Invoice $invoice, PosAccountingPostingService $posting)
