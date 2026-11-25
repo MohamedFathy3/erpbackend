@@ -59,4 +59,13 @@ class EnforceRoutePermissionTest extends TestCase
         $this->assertSame('inventory.update', $this->permissionFor('PATCH', '/api/products/9'));
         $this->assertSame('inventory.delete', $this->permissionFor('DELETE', '/api/products/9'));
     }
+
+    public function test_media_routes_map_to_integration_permissions(): void
+    {
+        $this->assertSame('integrations.view', $this->permissionFor('GET', '/api/media'));
+        $this->assertSame('integrations.view', $this->permissionFor('POST', '/api/media-array'));
+        $this->assertSame('integrations.create', $this->permissionFor('POST', '/api/media-upload-many'));
+        $this->assertSame('integrations.view', $this->permissionFor('GET', '/api/get-unused-media'));
+        $this->assertSame('integrations.delete', $this->permissionFor('DELETE', '/api/delete-unused-media'));
+    }
 }

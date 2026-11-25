@@ -110,6 +110,7 @@ class EnforceRoutePermission
             'tasks' => 'tasks', 'events' => 'tasks', 'industries' => 'industries', 'product-ledger' => 'product_ledger',
             'integrations' => 'integrations', 'email' => 'integrations', 'disconnect' => 'integrations',
             'media' => 'integrations', 'media-array' => 'integrations', 'media-upload-many' => 'integrations',
+            'get-unused-media' => 'integrations', 'delete-unused-media' => 'integrations',
             'representative' => 'representative', 'dashboard' => 'dashboard', 'stats' => 'dashboard', 'overview' => 'dashboard', 'status' => 'dashboard',
             'activities' => 'reports', 'log' => 'reports', 'user-total-count-country' => 'reports', 'flat' => 'projects',
             'loyalty-points' => 'sales', 'admin-select' => 'users', 'tenants' => 'users',
@@ -117,6 +118,10 @@ class EnforceRoutePermission
 
         if (!$module || in_array($resource, ['login', 'auth', 'get-admin'], true)) {
             return null;
+        }
+
+        if ($resource === 'media-array' && strtoupper($request->method()) === 'POST') {
+            return 'integrations.view';
         }
 
         if (in_array($resource, ['purchases-invoices', 'purchase-invoices'], true)

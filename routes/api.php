@@ -206,8 +206,10 @@ Route::middleware([
     ]);
     Route::post('/audit/page-view', static fn () => response()->noContent());
     Route::post('/audit/print', static fn () => response()->noContent());
-    Route::get('/backup/export', [BackupController::class, 'export']);
-    Route::post('/backup/import', [BackupController::class, 'import']);
+    Route::get('/backup/export', [BackupController::class, 'export'])
+        ->middleware('manage.tenant.access');
+    Route::post('/backup/import', [BackupController::class, 'import'])
+        ->middleware('manage.tenant.access');
 
     /*
     |--------------------------------------------------------------------------
@@ -566,22 +568,22 @@ Route::group(['middleware' => ['api']], static function () {
     Route::post('/media', [
         MediaController::class,
         'store'
-    ]);
+    ])->middleware(['auth:sanctum', 'resolve.tenant']);
 
     Route::delete('/media/{media}', [
         MediaController::class,
         'destroy'
-    ]);
+    ])->middleware(['auth:sanctum', 'resolve.tenant']);
 
     Route::get('/get-unused-media', [
         MediaController::class,
         'getUnUsedImages'
-    ]);
+    ])->middleware(['auth:sanctum', 'resolve.tenant']);
 
     Route::delete('/delete-unused-media', [
         MediaController::class,
         'deleteUnUsedImages'
-    ]);
+    ])->middleware(['auth:sanctum', 'resolve.tenant']);
 });
 
 Route::get('/get-media/{media}', [
@@ -597,7 +599,7 @@ Route::post('/media-array', [
 Route::post('/media-upload-many', [
     MediaController::class,
     'storeMany'
-]);
+])->middleware(['auth:sanctum', 'resolve.tenant']);
 
 
 /*
